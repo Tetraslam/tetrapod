@@ -35,4 +35,6 @@ restic forget --prune --keep-daily 7 --keep-weekly 4 --keep-monthly 12 --quiet
 # dead-man ping to the kuma push monitor on lighthouse (optional field; skip
 # silently if unset so backups never fail over monitoring)
 KUMA_PUSH_URL="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/kuma push url' 2>/dev/null || true)"
-[ -n "$KUMA_PUSH_URL" ] && curl -fsS -m 10 "$KUMA_PUSH_URL" >/dev/null || true
+case "$KUMA_PUSH_URL" in
+  http*) curl -fsS -m 10 "$KUMA_PUSH_URL" >/dev/null || true ;;
+esac
