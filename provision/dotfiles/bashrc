@@ -24,8 +24,9 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PNPM_HOME/bin:$PATH" ;;
 esac
 
-# pulumi (installer's bashrc append gets overwritten by this file, so pin it here)
-export PATH="$PATH:$HOME/.pulumi/bin"
+# pulumi + opencode (their installers append to bashrc, but this file
+# overwrites bashrc, so pin them here)
+export PATH="$PATH:$HOME/.pulumi/bin:$HOME/.opencode/bin"
 
 # tooling hooks
 command -v mise >/dev/null && eval "$(mise activate bash)"

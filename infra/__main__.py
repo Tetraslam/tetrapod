@@ -107,7 +107,10 @@ usermod -aG docker tetraslam
 LIGHTHOUSE_EXTRA = """
 # uptime-kuma, fully set up by cloud-init: watches tetrapod from outside.
 mkdir -p /opt/kuma
+# --dns: containers don't inherit magicdns, so hand kuma the tailscale
+# resolver directly or tailnet hostnames won't resolve in monitors
 docker run -d --name uptime-kuma --restart unless-stopped \\
+  --dns 100.100.100.100 --dns-search tailc27667.ts.net \\
   --log-opt max-size=20m --log-opt max-file=3 \\
   -p 127.0.0.1:3001:3001 -v /opt/kuma:/app/data louislam/uptime-kuma:2
 # https://lighthouse.<tailnet>.ts.net

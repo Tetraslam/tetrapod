@@ -198,7 +198,7 @@ sudo tailscale serve --bg 8443 || true
 # -------------------------------------------------------------------- summary
 
 log "install summary"
-export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bin:$HOME/.local/share/mise/shims:$HOME/.cargo/bin:$HOME/.pulumi/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bin:$HOME/.local/share/mise/shims:$HOME/.cargo/bin:$HOME/.pulumi/bin:$HOME/.opencode/bin:$PATH"
 
 EXPECTED=(
   # apt
