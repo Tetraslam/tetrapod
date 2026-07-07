@@ -58,7 +58,7 @@ install_gh_bin() {
   local repo="$1" regex="$2" bin="$3" url tmp
   if command -v "$bin" >/dev/null; then log "$bin already installed"; return 0; fi
   url="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
-    jq -r --arg re "$regex" '[.assets[].browser_download_url | select(test($re))][0] // empty')"
+    jq -r --arg re "$regex" '[.assets[].browser_download_url | select(test($re; "i"))][0] // empty')"
   if [ -z "$url" ]; then
     echo "WARN: no asset matching /$regex/ in $repo — skipping $bin" >&2
     return 0
@@ -108,7 +108,10 @@ fi
 # --------------------------------------------------------- installer scripts
 
 log "installer-script tools"
-command -v starship >/dev/null || curl -sS https://starship.rs/install.sh | sh -s -- -y
+mkdir -p "$HOME/.local/bin"
+# starship goes to ~/.local/bin: its installer's `sudo -v` probe trips on the
+# %sudo-group password rule even though plain sudo is NOPASSWD here
+command -v starship >/dev/null || curl -sS https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 command -v mise >/dev/null || curl -fsSL https://mise.run | sh
 command -v rustup >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
