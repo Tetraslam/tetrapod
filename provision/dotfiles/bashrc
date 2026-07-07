@@ -17,12 +17,15 @@ shopt -s histappend
 export PATH="$HOME/.local/bin:$PATH"
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-# pnpm
+# pnpm (v11 puts the binary in $PNPM_HOME/bin; globals land in $PNPM_HOME)
 export PNPM_HOME="$HOME/.local/share/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
+  *) export PATH="$PNPM_HOME:$PNPM_HOME/bin:$PATH" ;;
 esac
+
+# pulumi (installer's bashrc append gets overwritten by this file, so pin it here)
+export PATH="$PATH:$HOME/.pulumi/bin"
 
 # tooling hooks
 command -v mise >/dev/null && eval "$(mise activate bash)"

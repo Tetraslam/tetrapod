@@ -130,7 +130,7 @@ if ! command -v aws >/dev/null; then
   rm -rf "$tmp"
 fi
 
-export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bin:$HOME/.pulumi/bin:$PATH"
 
 # ------------------------------------------------------------------ dotfiles
 
@@ -198,7 +198,7 @@ sudo tailscale serve --bg 8443 || true
 # -------------------------------------------------------------------- summary
 
 log "install summary"
-export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/mise/shims:$HOME/.cargo/bin:$HOME/.pulumi/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bin:$HOME/.local/share/mise/shims:$HOME/.cargo/bin:$HOME/.pulumi/bin:$PATH"
 
 EXPECTED=(
   # apt
