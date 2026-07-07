@@ -55,7 +55,7 @@ done at that point (kuma at `https://lighthouse.<tailnet>.ts.net`). tetrapod
 needs one more step:
 
 ```bash
-ssh ubuntu@tetrapod   # tailscale-ssh
+ssh tetraslam@tetrapod   # tailscale-ssh
 git clone https://github.com/tetraslam/tetrapod && cd tetrapod
 ./provision/bootstrap.sh   # prints the manual-steps checklist at the end
 ```

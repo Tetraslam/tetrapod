@@ -23,7 +23,7 @@ restic backup \
   --exclude '**/target/debug' \
   --exclude '**/target/release' \
   --exclude '**/.cache' \
-  /home/ubuntu \
+  /home/tetraslam \
   /opt/tetrapod
 
 # keep history bounded: 7 daily, 4 weekly, 12 monthly

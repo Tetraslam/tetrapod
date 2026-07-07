@@ -23,6 +23,6 @@ services:
     ports:
       - "127.0.0.1:8443:8080"
     volumes:
-      - /home/ubuntu:/home/coder/tetrapod # browse the real home dir
+      - /home/tetraslam:/home/coder/tetrapod # browse the real home dir
     user: "1000:1000"
     mem_limit: 2g

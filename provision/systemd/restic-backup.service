@@ -5,7 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-Environment=OP_AGENTS_TOKEN_FILE=/home/ubuntu/.config/op/agents-token
+Environment=OP_AGENTS_TOKEN_FILE=/home/tetraslam/.config/op/agents-token
 ExecStart=/usr/local/bin/restic-backup
 Nice=10
 IOSchedulingClass=idle

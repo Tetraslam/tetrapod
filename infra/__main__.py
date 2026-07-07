@@ -95,7 +95,11 @@ apt-get install -y curl git
 curl -fsSL https://tailscale.com/install.sh | sh
 tailscale up --authkey '{key}' --ssh --hostname {hostname}
 curl -fsSL https://get.docker.com | sh
-usermod -aG docker ubuntu
+# the login user is tetraslam, not ubuntu (rename keeps uid 1000, one home)
+usermod -l tetraslam -d /home/tetraslam -m ubuntu
+groupmod -n tetraslam ubuntu
+sed -i 's/\\bubuntu\\b/tetraslam/g' /etc/sudoers.d/90-cloud-init-users
+usermod -aG docker tetraslam
 {extra}
 """)
 
