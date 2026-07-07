@@ -38,7 +38,7 @@ log "apt packages"
 sudo apt-get update
 sudo apt-get install -y \
   bash-completion unzip less man-db whois xmlstarlet plocate \
-  fd-find ripgrep bat fzf zoxide btop jq tldr chafa fastfetch \
+  fd-find ripgrep bat fzf zoxide btop jq tldr chafa \
   git git-lfs just build-essential clang llvm \
   mosh socat netcat-openbsd nmap tcpdump \
   imagemagick ffmpeg \
@@ -90,6 +90,7 @@ install_gh_bin Wilfred/difftastic 'aarch64-unknown-linux-gnu\.tar\.gz$' difft
 install_gh_bin typst/typst 'aarch64-unknown-linux-musl\.tar\.xz$' typst
 install_gh_bin zellij-org/zellij 'aarch64-unknown-linux-musl\.tar\.gz$' zellij
 install_gh_bin openclaw/gogcli 'linux_arm64\.tar\.gz$' gog
+install_gh_bin fastfetch-cli/fastfetch 'linux-aarch64\.tar\.gz$' fastfetch # not in noble apt
 
 # helix: tarball ships hx + runtime; keep them together in /opt
 if ! command -v hx >/dev/null; then
