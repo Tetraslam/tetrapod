@@ -6,7 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "34197:34197/udp" # tailnet-reachable at tetrapod:34197
-      - "127.0.0.1:27015:27015" # rcon, localhost only
+      # rcon: tailnet-reachable (SG blocks internet) — kuma tcp-checks this,
+      # since unlisted factorio servers can't answer gamedig queries
+      - "27015:27015"
     volumes:
       - /opt/tetrapod/factorio:/factorio
     environment:

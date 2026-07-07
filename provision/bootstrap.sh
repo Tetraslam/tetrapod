@@ -264,7 +264,7 @@ cat <<'EOF'
   4. gog auth:       source ~/.bashrc && gog-env
                      gog auth credentials && gog auth add <email> --services gmail,calendar,drive
   5. kuma:           https://lighthouse.<tailnet>.ts.net — add tetrapod ping +
-                     factorio udp + code-server http monitors, discord webhook,
+                     factorio rcon-tcp (27015) + code-server http monitors, discord webhook,
                      and a push monitor for restic (url into the op item above)
   6. re-login (or `newgrp docker`) for the docker group to apply
 EOF
