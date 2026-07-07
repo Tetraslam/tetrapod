@@ -7,6 +7,9 @@
 #   No args = backup. Anything else passes straight to restic with env set.
 set -euo pipefail
 
+# runs as root (sudo / systemd) but the opa token lives in tetraslam's home
+export OP_AGENTS_TOKEN_FILE="${OP_AGENTS_TOKEN_FILE:-/home/tetraslam/.config/op/agents-token}"
+
 export AWS_ACCESS_KEY_ID="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/access key id')"
 export AWS_SECRET_ACCESS_KEY="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/secret access key')"
 export RESTIC_REPOSITORY="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/repository')"
