@@ -195,6 +195,62 @@ sudo tailscale serve --bg 8443 || true
 # TODO: hermes-agent (github.com/nousresearch/hermes-agent) — install details
 # live in "still to decide" in the README. clone + uv sync when settled.
 
+# -------------------------------------------------------------------- summary
+
+log "install summary"
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/mise/shims:$HOME/.cargo/bin:$HOME/.pulumi/bin:$PATH"
+
+EXPECTED=(
+  # apt
+  unzip less man whois xmlstarlet locate fd rg bat fzf zoxide btop jq tldr chafa
+  git git-lfs just gcc clang mosh socat nc nmap tcpdump convert ffmpeg
+  smartctl nvme restic rsync sqlite3 dig tree gh gum glow op
+  # github releases
+  eza dust croc bore bandwhich yazi jj lazygit lazydocker difft typst zellij gog fastfetch hx
+  # installer scripts
+  starship uv mise cargo pnpm opencode claude lain pulumi aws
+  # mise runtimes
+  node bun go zig zls
+  # pnpm globals + uv tools
+  tree-sitter vercel modal
+)
+
+MISSING=()
+OK=0
+for c in "${EXPECTED[@]}"; do
+  if command -v "$c" >/dev/null 2>&1; then
+    printf '  \033[32mok\033[0m      %s\n' "$c"
+    OK=$((OK + 1))
+  else
+    printf '  \033[1;31mMISSING\033[0m %s\n' "$c"
+    MISSING+=("$c")
+  fi
+done
+
+echo
+# service-level checks
+check() { # <label> <command...>
+  local label="$1"; shift
+  if "$@" >/dev/null 2>&1; then printf '  \033[32mok\033[0m      %s\n' "$label"
+  else printf '  \033[1;31mFAIL\033[0m    %s\n' "$label"; MISSING+=("$label"); fi
+}
+check "docker: factorio running" sh -c 'sudo docker ps --filter name=factorio --filter status=running -q | grep -q .'
+check "docker: code-server running" sh -c 'sudo docker ps --filter name=code-server --filter status=running -q | grep -q .'
+check "systemd: restic-backup.timer enabled" systemctl is-enabled restic-backup.timer
+check "tailscale: serve active" sh -c 'sudo tailscale serve status | grep -q .'
+check "zram active" sh -c 'swapon --show | grep -q zram'
+check "dotfiles: starship.toml" test -f "$HOME/.config/starship.toml"
+check "dotfiles: helix" test -f "$HOME/.config/helix/config.toml"
+check "dotfiles: zellij" test -f "$HOME/.config/zellij/config.kdl"
+
+echo
+if [ "${#MISSING[@]}" -eq 0 ]; then
+  printf '\033[1;32mall %s tools + services present :D\033[0m\n' "$OK"
+else
+  printf '\033[1;31m%s ok, %s missing:\033[0m %s\n' "$OK" "${#MISSING[@]}" "${MISSING[*]}"
+  echo "re-run ./provision/bootstrap.sh after fixing (idempotent), or install by hand"
+fi
+
 # ---------------------------------------------------------------------- done
 
 log "bootstrap done. manual steps remaining:"
