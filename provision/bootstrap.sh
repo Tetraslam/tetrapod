@@ -261,7 +261,8 @@ cat <<'EOF'
                      secret access key / repository / repo password / kuma push url)
                      then: sudo restic-backup init && sudo restic-backup
   3. gh auth:        gh auth login
-  4. gog auth:       gog-env && gog auth credentials + gog auth add
+  4. gog auth:       source ~/.bashrc && gog-env
+                     gog auth credentials && gog auth add <email> --services gmail,calendar,drive
   5. kuma:           https://lighthouse.<tailnet>.ts.net — add tetrapod ping +
                      factorio udp + code-server http monitors, discord webhook,
                      and a push monitor for restic (url into the op item above)
