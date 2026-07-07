@@ -1,0 +1,50 @@
+# tetrapod ~/.bashrc — ported from rice, minus everything laptop
+[[ $- != *i* ]] && return
+
+# aliases
+alias ls='eza -a --group-directories-first --icons'
+alias clod='claude --dangerously-skip-permissions'
+alias clodr='claude --dangerously-skip-permissions --resume'
+
+# history: dedupe, ignore noise, big scrollback for ctrl-r
+HISTSIZE=100000
+HISTFILESIZE=200000
+HISTCONTROL=ignoreboth:erasedups
+HISTIGNORE='ls:ls -a:cd:clear:exit:pwd:c'
+shopt -s histappend
+
+# path
+export PATH="$HOME/.local/bin:$PATH"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# pnpm
+export PNPM_HOME="$HOME/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+
+# tooling hooks
+command -v mise >/dev/null && eval "$(mise activate bash)"
+command -v zoxide >/dev/null && eval "$(zoxide init bash)"
+command -v starship >/dev/null && eval "$(starship init bash)"
+
+# fzf keybindings + completion (ubuntu package paths)
+[ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && . /usr/share/doc/fzf/examples/key-bindings.bash
+[ -f /usr/share/bash-completion/completions/fzf ] && . /usr/share/bash-completion/completions/fzf
+
+# morph (opencode-morph-plugin): compaction only
+if command -v opa >/dev/null; then
+  export MORPH_API_KEY="$(opa read op://Agents/MORPHLLM_API_KEY/credential 2>/dev/null)"
+fi
+export MORPH_EDIT="false"
+export MORPH_WARPGREP="false"
+export MORPH_WARPGREP_GITHUB="false"
+export MORPH_COMPACT_TOKEN_LIMIT="700000"
+
+# gog headless keyring (password read lazily so shells stay fast; run
+# `gog-env` before using gog)
+gog-env() {
+  export GOG_KEYRING_BACKEND=file
+  export GOG_KEYRING_PASSWORD="$(opa read 'op://Agents/GOG_KEYRING/password')"
+}

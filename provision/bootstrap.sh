@@ -1,0 +1,209 @@
+#!/bin/bash
+# tetrapod bootstrap — run once as ubuntu on a fresh instance (cloud-init has
+# already done tailscale + docker). idempotent-ish: safe to re-run.
+#   git clone https://github.com/tetraslam/tetrapod && cd tetrapod
+#   ./provision/bootstrap.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export DEBIAN_FRONTEND=noninteractive
+
+log() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
+
+# ---------------------------------------------------------------- apt: repos
+
+log "apt repos (gh, charm, 1password)"
+sudo install -dm755 /etc/apt/keyrings
+
+# github cli
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg |
+  sudo tee /etc/apt/keyrings/githubcli.gpg >/dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" |
+  sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+
+# charm (gum, glow)
+curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/charm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" |
+  sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
+
+# 1password cli
+curl -fsSL https://downloads.1password.com/linux/keys/1password.asc |
+  sudo gpg --dearmor --yes -o /etc/apt/keyrings/1password-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" |
+  sudo tee /etc/apt/sources.list.d/1password.list >/dev/null
+
+# ------------------------------------------------------------- apt: packages
+
+log "apt packages"
+sudo apt-get update
+sudo apt-get install -y \
+  bash-completion unzip less man-db whois xmlstarlet plocate \
+  fd-find ripgrep bat fzf zoxide btop jq tldr chafa fastfetch \
+  git git-lfs just build-essential clang llvm \
+  mosh socat netcat-openbsd nmap tcpdump \
+  imagemagick ffmpeg \
+  smartmontools nvme-cli unattended-upgrades zram-tools \
+  restic rsync sqlite3 dnsutils tree \
+  gh gum glow 1password-cli \
+  python3-venv xz-utils
+
+# ubuntu's debianisms
+sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
+
+# ----------------------------------------------------- github release binaries
+
+# install_gh_bin <repo> <asset-regex> <binary-name>
+install_gh_bin() {
+  local repo="$1" regex="$2" bin="$3" url tmp
+  if command -v "$bin" >/dev/null; then log "$bin already installed"; return 0; fi
+  url="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
+    jq -r --arg re "$regex" '[.assets[].browser_download_url | select(test($re))][0] // empty')"
+  if [ -z "$url" ]; then
+    echo "WARN: no asset matching /$regex/ in $repo — skipping $bin" >&2
+    return 0
+  fi
+  log "$bin  <-  $url"
+  tmp="$(mktemp -d)"
+  case "$url" in
+    *.tar.gz | *.tgz) curl -fsSL "$url" | tar -xz -C "$tmp" ;;
+    *.tar.xz) curl -fsSL "$url" | tar -xJ -C "$tmp" ;;
+    *.zip) curl -fsSL -o "$tmp/a.zip" "$url" && unzip -q "$tmp/a.zip" -d "$tmp" ;;
+    *) curl -fsSL -o "$tmp/$bin" "$url" ;;
+  esac
+  find "$tmp" -type f -name "$bin" -exec sudo install -m755 {} /usr/local/bin/"$bin" \; -quit
+  rm -rf "$tmp"
+  command -v "$bin" >/dev/null || echo "WARN: $bin did not land on PATH" >&2
+}
+
+log "github release binaries (aarch64)"
+install_gh_bin eza-community/eza 'eza_aarch64-unknown-linux-gnu\.tar\.gz$' eza
+install_gh_bin bootandy/dust 'aarch64-unknown-linux-gnu\.tar\.gz$' dust
+install_gh_bin schollz/croc 'Linux-ARM64\.tar\.gz$' croc
+install_gh_bin ekzhang/bore 'aarch64-unknown-linux-musl\.tar\.gz$' bore
+install_gh_bin imsnif/bandwhich 'aarch64-unknown-linux-musl\.tar\.gz$' bandwhich
+install_gh_bin sxyazi/yazi 'aarch64-unknown-linux-musl\.zip$' yazi
+install_gh_bin jj-vcs/jj 'aarch64-unknown-linux-musl\.tar\.gz$' jj
+install_gh_bin jesseduffield/lazygit 'Linux_arm64\.tar\.gz$' lazygit
+install_gh_bin jesseduffield/lazydocker 'Linux_arm64\.tar\.gz$' lazydocker
+install_gh_bin Wilfred/difftastic 'aarch64-unknown-linux-gnu\.tar\.gz$' difft
+install_gh_bin typst/typst 'aarch64-unknown-linux-musl\.tar\.xz$' typst
+install_gh_bin zellij-org/zellij 'aarch64-unknown-linux-musl\.tar\.gz$' zellij
+install_gh_bin openclaw/gogcli 'linux_arm64\.tar\.gz$' gog
+
+# helix: tarball ships hx + runtime; keep them together in /opt
+if ! command -v hx >/dev/null; then
+  log "helix"
+  HX_URL="$(curl -fsSL https://api.github.com/repos/helix-editor/helix/releases/latest |
+    jq -r '[.assets[].browser_download_url | select(test("aarch64-linux\\.tar\\.xz$"))][0]')"
+  tmp="$(mktemp -d)"
+  curl -fsSL "$HX_URL" | tar -xJ -C "$tmp"
+  sudo rm -rf /opt/helix
+  sudo mv "$tmp"/helix-* /opt/helix
+  sudo ln -sf /opt/helix/hx /usr/local/bin/hx
+  rm -rf "$tmp"
+fi
+
+# --------------------------------------------------------- installer scripts
+
+log "installer-script tools"
+command -v starship >/dev/null || curl -sS https://starship.rs/install.sh | sh -s -- -y
+command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+command -v mise >/dev/null || curl -fsSL https://mise.run | sh
+command -v rustup >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+command -v pnpm >/dev/null || curl -fsSL https://get.pnpm.io/install.sh | env SHELL=bash sh -
+command -v opencode >/dev/null || curl -fsSL https://opencode.ai/install | bash
+command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash
+command -v lain >/dev/null || curl -fsSL https://tetraslam.github.io/lain/install | bash
+command -v pulumi >/dev/null || curl -fsSL https://get.pulumi.com | sh
+
+if ! command -v aws >/dev/null; then
+  log "aws cli v2"
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "$tmp/awscliv2.zip"
+  unzip -q "$tmp/awscliv2.zip" -d "$tmp"
+  sudo "$tmp/aws/install" --update
+  rm -rf "$tmp"
+fi
+
+export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$PATH"
+
+# ------------------------------------------------------------------ dotfiles
+
+log "dotfiles"
+mkdir -p ~/.config/helix ~/.config/zellij ~/.config/git ~/.config/mise ~/.local/bin
+cp "$HERE/dotfiles/bashrc" ~/.bashrc
+cp "$HERE/dotfiles/starship.toml" ~/.config/starship.toml
+cp "$HERE/dotfiles/helix/config.toml" ~/.config/helix/config.toml
+cp "$HERE/dotfiles/zellij/config.kdl" ~/.config/zellij/config.kdl
+cp "$HERE/dotfiles/gitconfig" ~/.config/git/config
+cp "$HERE/dotfiles/mise/config.toml" ~/.config/mise/config.toml
+sudo install -m755 "$HERE/bin/opa" /usr/local/bin/opa
+sudo install -m755 "$HERE/bin/restic-backup" /usr/local/bin/restic-backup
+
+# ------------------------------------------------------------------ runtimes
+
+log "runtimes via mise (node, bun, zig, zls, go)"
+~/.local/bin/mise install --yes || mise install --yes
+eval "$(~/.local/bin/mise activate bash --shims)"
+
+log "npm globals + uv tools"
+pnpm add -g tree-sitter-cli vercel
+uv tool install modal || true
+
+# --------------------------------------------------------------- system tuning
+
+log "zram (8G), journald cap, docker log rotation, unattended-upgrades"
+sudo sed -i 's/^#\?ALGO=.*/ALGO=zstd/; s/^#\?SIZE=.*/SIZE=8192/' /etc/default/zramswap
+grep -q '^SIZE=8192' /etc/default/zramswap || echo 'SIZE=8192' | sudo tee -a /etc/default/zramswap >/dev/null
+sudo systemctl restart zramswap || true
+
+sudo install -dm755 /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=1G\n' | sudo tee /etc/systemd/journald.conf.d/00-tetrapod.conf >/dev/null
+sudo systemctl restart systemd-journald
+
+printf '{\n  "log-driver": "json-file",\n  "log-opts": { "max-size": "50m", "max-file": "3" }\n}\n' |
+  sudo tee /etc/docker/daemon.json >/dev/null
+sudo systemctl restart docker
+
+printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' |
+  sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
+
+# ------------------------------------------------------------------- backups
+
+log "restic timer"
+sudo cp "$HERE/systemd/restic-backup.service" "$HERE/systemd/restic-backup.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now restic-backup.timer
+
+# ------------------------------------------------------------------ services
+
+log "docker compose services"
+sudo mkdir -p /opt/tetrapod/factorio
+sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
+sudo docker compose -f "$HERE/docker-compose.yml" up -d
+
+# code-server at https://tetrapod.<tailnet>.ts.net
+sudo tailscale serve --bg 8443 || true
+
+# --------------------------------------------------------------------- hermes
+
+# TODO: hermes-agent (github.com/nousresearch/hermes-agent) — install details
+# live in "still to decide" in the README. clone + uv sync when settled.
+
+# ---------------------------------------------------------------------- done
+
+log "bootstrap done. manual steps remaining:"
+cat <<'EOF'
+  1. opa token:      (laptop) croc send ~/.config/op/agents-token
+                     (here)   mkdir -p ~/.config/op && croc --yes  # then mv into place, chmod 600
+  2. restic repo:    create op://Agents/RESTIC_BACKUP_TETRAPOD (access key id /
+                     secret access key / repository / repo password / kuma push url)
+                     then: sudo restic-backup init && sudo restic-backup
+  3. gh auth:        gh auth login
+  4. gog auth:       gog-env && gog auth credentials + gog auth add
+  5. kuma:           https://lighthouse.<tailnet>.ts.net — add tetrapod ping +
+                     factorio udp + code-server http monitors, discord webhook,
+                     and a push monitor for restic (url into the op item above)
+  6. re-login (or `newgrp docker`) for the docker group to apply
+EOF

@@ -1,0 +1,35 @@
+#!/bin/bash
+# restic-backup (tetrapod) — encrypted offsite backup to Tigris.
+# Creds: op://Agents/RESTIC_BACKUP_TETRAPOD (read promptless via opa).
+# Runs nightly via the restic-backup system timer (as root, token file from
+# ubuntu's home via OP_AGENTS_TOKEN_FILE).
+# Usage: restic-backup [backup|snapshots|check|restore <snap> <target>|...]
+#   No args = backup. Anything else passes straight to restic with env set.
+set -euo pipefail
+
+export AWS_ACCESS_KEY_ID="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/access key id')"
+export AWS_SECRET_ACCESS_KEY="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/secret access key')"
+export RESTIC_REPOSITORY="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/repository')"
+export RESTIC_PASSWORD="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/repo password')"
+
+if [ "${1:-backup}" != "backup" ]; then
+  exec restic "$@"
+fi
+
+restic backup \
+  --exclude '**/node_modules' \
+  --exclude '**/.venv' \
+  --exclude '**/__pycache__' \
+  --exclude '**/target/debug' \
+  --exclude '**/target/release' \
+  --exclude '**/.cache' \
+  /home/ubuntu \
+  /opt/tetrapod
+
+# keep history bounded: 7 daily, 4 weekly, 12 monthly
+restic forget --prune --keep-daily 7 --keep-weekly 4 --keep-monthly 12 --quiet
+
+# dead-man ping to the kuma push monitor on lighthouse (optional field; skip
+# silently if unset so backups never fail over monitoring)
+KUMA_PUSH_URL="$(opa read 'op://Agents/RESTIC_BACKUP_TETRAPOD/kuma push url' 2>/dev/null || true)"
+[ -n "$KUMA_PUSH_URL" ] && curl -fsS -m 10 "$KUMA_PUSH_URL" >/dev/null || true

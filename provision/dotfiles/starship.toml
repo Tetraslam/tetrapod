@@ -1,0 +1,75 @@
+add_newline = true
+command_timeout = 500
+format = "$username$hostname$directory$git_branch$git_status$package$nodejs$python$rust$golang$docker_context$jobs$cmd_duration\n$character"
+
+[character]
+error_symbol = "[✗](bold cyan)"
+success_symbol = "[❯](bold cyan)"
+
+[directory]
+truncation_length = 2
+truncation_symbol = "…/"
+repo_root_style = "bold cyan"
+repo_root_format = "[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
+
+[git_branch]
+format = "[$branch]($style) "
+style = "italic cyan"
+
+[git_status]
+format     = '[$all_status]($style)'
+style      = "cyan"
+ahead      = "⇡${count} "
+diverged   = "⇕⇡${ahead_count}⇣${behind_count} "
+behind     = "⇣${count} "
+conflicted = " "
+up_to_date = " "
+untracked  = "? "
+modified   = " "
+stashed    = "$ "
+staged     = "+ "
+renamed    = "» "
+deleted    = "✘ "
+
+[cmd_duration]
+min_time = 2000
+format = "[took $duration]($style) "
+style = "yellow"
+
+[package]
+format = "[$version]($style) "
+style = "208"
+
+[nodejs]
+format = "[$version]($style) "
+style = "green"
+
+[python]
+format = "[$version]($style) "
+style = "yellow"
+
+[rust]
+format = "[$version]($style) "
+style = "red"
+
+[golang]
+format = "[$version]($style) "
+style = "cyan"
+
+[docker_context]
+format = "[$context]($style) "
+style = "blue"
+
+[jobs]
+format = "[$number]($style) "
+style = "bold blue"
+
+[username]
+show_always = false
+format = "[$user]($style)"
+style_user = "bold cyan"
+
+[hostname]
+ssh_only = true
+format = "@[$hostname]($style) "
+style = "bold cyan"

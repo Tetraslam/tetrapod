@@ -1,0 +1,41 @@
+# tetrapod ~/.config/git/config — ported from rice.
+# commit signing is off here: the 1password ssh agent lives on the laptop.
+
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+[init]
+	defaultBranch = master
+[pull]
+	rebase = true
+[push]
+	autoSetupRemote = true
+[diff]
+	algorithm = histogram
+	colorMoved = plain
+	mnemonicPrefix = true
+	external = difft
+[commit]
+	verbose = true
+	gpgsign = false
+[column]
+	ui = auto
+[branch]
+	sort = -committerdate
+[tag]
+	sort = -version:refname
+	gpgsign = false
+[rerere]
+	enabled = true
+	autoupdate = true
+[user]
+	name = Shresht Bhowmick
+	email = bhowmickshresht@gmail.com
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential

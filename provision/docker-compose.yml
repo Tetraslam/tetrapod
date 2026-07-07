@@ -1,0 +1,28 @@
+# tetrapod services. tags are pinned on purpose (no watchtower; update deliberately).
+# public internet can't reach any of this: the SG only admits tailscale.
+services:
+  factorio:
+    image: factoriotools/factorio:2.0.76 # arm64 via box64; megabase => resize to amd64
+    restart: unless-stopped
+    ports:
+      - "34197:34197/udp" # tailnet-reachable at tetrapod:34197
+      - "127.0.0.1:27015:27015" # rcon, localhost only
+    volumes:
+      - /opt/tetrapod/factorio:/factorio
+    environment:
+      LOAD_LATEST_SAVE: "true"
+      GENERATE_NEW_SAVE: "true"
+      SAVE_NAME: tetrapod
+    mem_limit: 4g
+
+  code-server:
+    image: codercom/code-server:latest # TODO: pin to the digest of the first pull
+    restart: unless-stopped
+    # tailnet-gated via `tailscale serve --bg 8443`, so no password layer
+    command: ["--auth", "none", "--bind-addr", "0.0.0.0:8080"]
+    ports:
+      - "127.0.0.1:8443:8080"
+    volumes:
+      - /home/ubuntu:/home/coder/tetrapod # browse the real home dir
+    user: "1000:1000"
+    mem_limit: 2g

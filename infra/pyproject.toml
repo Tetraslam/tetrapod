@@ -1,0 +1,9 @@
+[project]
+name = "tetrapod-infra"
+version = "0.1.0"
+description = "pulumi program for tetrapod + lighthouse"
+requires-python = ">=3.12"
+dependencies = [
+    "pulumi>=3.150,<4",
+    "pulumi-aws>=6.60,<8",
+]

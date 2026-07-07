@@ -1,0 +1,12 @@
+name: tetrapod
+description: tetraslam's persistent aws playground (never touches bedrock or bedrock IAM)
+runtime:
+  name: python
+  options:
+    toolchain: uv
+# state lives on tigris, not pulumi cloud — pinned here so this project can
+# never accidentally talk to the work pulumi org. the `tigris` aws profile
+# (in ~/.aws/credentials, keys from op://Agents/TETRAPOD_TIGRIS) is used for
+# state only; the aws provider itself uses your default aws creds.
+backend:
+  url: s3://tetrapod-pulumi-state?endpoint=https://t3.storage.dev&region=auto&awssdk=v2&profile=tigris

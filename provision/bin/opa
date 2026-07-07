@@ -1,0 +1,9 @@
+#!/bin/bash
+# opa — promptless op scoped to the Agents vault via service account.
+# Usage: opa read "op://Agents/<item>/<field>"   (any op subcommand works)
+# Token: ~/.config/op/agents-token (600), created from the 1P item
+# "Service Account Auth Token: agents" in the Personal vault.
+set -euo pipefail
+TOKEN_FILE="${OP_AGENTS_TOKEN_FILE:-$HOME/.config/op/agents-token}"
+[ -r "$TOKEN_FILE" ] || { echo "opa: token file missing: $TOKEN_FILE" >&2; exit 1; }
+OP_SERVICE_ACCOUNT_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")" exec op "$@"
