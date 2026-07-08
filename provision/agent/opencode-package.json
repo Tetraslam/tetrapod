@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.81",
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "@morphllm/opencode-morph-plugin": "^2.0.13",
+    "@opencode-ai/plugin": "1.17.7",
+    "opencode-goal-plugin": "^0.1.11"
+  }
+}

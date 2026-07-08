@@ -192,6 +192,12 @@ sudo docker compose -f "$HERE/docker-compose.yml" up -d
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true
 
+# -------------------------------------------------------------------- agents
+
+# opencode/claude user context (needs gh auth + opa token; fine to fail here,
+# the checklist covers running it later)
+"$HERE/setup-agents.sh" || echo "setup-agents skipped — run provision/setup-agents.sh after gh auth + opa token"
+
 # --------------------------------------------------------------------- hermes
 
 # TODO: hermes-agent (github.com/nousresearch/hermes-agent) — install details
@@ -269,4 +275,7 @@ cat <<'EOF'
                      factorio rcon-tcp (27015) + code-server http monitors, discord webhook,
                      and a push monitor for restic (url into the op item above)
   6. re-login (or `newgrp docker`) for the docker group to apply
+  7. agents:         provision/setup-agents.sh (if it was skipped above), then
+                     copy opencode auth: (laptop) croc send ~/.local/share/opencode/auth.json
+                     and run `claude` once to log in
 EOF

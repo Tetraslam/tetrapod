@@ -1,0 +1,63 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "permission": "allow",
+  "plugin": [
+    [
+      "opencode-goal-plugin",
+      {
+        "maxTurns": 1000,
+        "maxDurationMs": 172800000,
+        "maxTokens": 10000000000,
+        "maxRecentMessages": 500,
+        "noProgressTurnsBeforePause": 5,
+        "minDelayMs": 1500,
+        "noProgressTokenThreshold": 50,
+        "budgetWrapupRatio": 0.8,
+        "maxPromptFailures": 3,
+        "persistState": true
+      }
+    ],
+    "@morphllm/opencode-morph-plugin"
+  ],
+  "instructions": [
+    "node_modules/@morphllm/opencode-morph-plugin/instructions/morph-tools.md"
+  ],
+  "provider": {
+    "anthropic": {
+      "options": {
+        "chunkTimeout": 30000,
+        "headerTimeout": 30000
+      }
+    }
+  },
+  "command": {
+    "goal": {
+      "description": "Set a session-scoped goal and auto-continue until complete.",
+      "template": "$ARGUMENTS",
+      "agent": "build"
+    }
+  },
+  "mcp": {
+    "firecrawl": {
+      "type": "remote",
+      "url": "https://mcp.firecrawl.dev/__FIRECRAWL_API_KEY__/v2/mcp",
+      "enabled": true
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp@latest"],
+      "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp", "--browser", "chromium", "--headless"],
+      "enabled": false
+    },
+    "linear": {
+      "type": "remote",
+      "url": "https://mcp.linear.app/mcp",
+      "enabled": true
+    }
+  }
+}
