@@ -26,7 +26,9 @@ IAM, since claude models run from there.
 
 ```
 infra/       pulumi program (its own uv project)
-provision/   bootstrap.sh, docker-compose.yml, dotfiles, systemd units
+provision/   bootstrap.sh, docker-compose.yml, dotfiles, systemd units, agent context
+wiki/        home dashboard — https://tetrapod.<tailnet>.ts.net/wiki
+             (vite + shadcn, live kuma status; knobs in src/config.ts)
 ```
 
 ## bringing it up
