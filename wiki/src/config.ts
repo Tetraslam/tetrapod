@@ -29,8 +29,10 @@ export const URLS = {
 } as const;
 
 // uptime-kuma status page (create in kuma: Status Pages -> New -> slug below,
-// add all monitors to it). The dashboard reads its public API.
+// add all monitors to it). The dashboard reads its public API through the
+// same-origin nginx proxy at /kuma-api (kuma sends no CORS headers).
 export const KUMA_STATUS_SLUG = "tetrapod";
+export const KUMA_API_BASE = "/kuma-api";
 export const KUMA_REFRESH_MS = 60_000;
 
 export const FACTORIO = {

@@ -192,6 +192,9 @@ sudo docker compose -f "$HERE/docker-compose.yml" up -d
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true
 
+# kuma status api, same-origin for the wiki dashboard (kuma has no CORS)
+sudo tailscale serve --bg --set-path /kuma-api http://127.0.0.1:3002 || true
+
 # wiki / home dashboard at https://tetrapod.<tailnet>.ts.net/wiki
 REPO="$(cd "$HERE/.." && pwd)"
 if [ -d "$REPO/wiki" ]; then

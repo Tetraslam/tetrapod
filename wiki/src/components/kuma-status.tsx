@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { KUMA_REFRESH_MS, KUMA_STATUS_SLUG, URLS } from "@/config";
+import { KUMA_API_BASE, KUMA_REFRESH_MS, KUMA_STATUS_SLUG, URLS } from "@/config";
 
 type Beat = { status: number; time: string; ping: number | null };
 
@@ -23,7 +23,7 @@ const STATUS_LABEL: Record<number, Monitor["status"]> = {
 };
 
 async function fetchStatus(): Promise<Monitor[]> {
-  const base = URLS.kuma;
+  const base = KUMA_API_BASE;
   const [pageRes, beatRes] = await Promise.all([
     fetch(`${base}/api/status-page/${KUMA_STATUS_SLUG}`),
     fetch(`${base}/api/status-page/heartbeat/${KUMA_STATUS_SLUG}`),
