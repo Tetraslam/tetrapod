@@ -1,3 +1,7 @@
+# ssh strips COLORTERM so helix can't auto-detect truecolor; ghostty has it
+[editor]
+true-color = true
+
 [editor.soft-wrap]
 enable = true
 max-wrap = 25
