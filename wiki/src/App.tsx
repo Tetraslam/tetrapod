@@ -25,6 +25,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FACTORIO, URLS } from "@/config";
 import { href, navigate, useRoute } from "@/lib/route";
 import { allPages, pages, rulesPage } from "@/pages";
@@ -52,137 +53,139 @@ export default function App() {
   }, []);
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <div className="flex items-center justify-between gap-2 pl-2 group-data-[collapsible=icon]:pl-0">
-            <a
-              href={href("home")}
-              className="flex items-center gap-2 group-data-[collapsible=icon]:hidden"
+    <TooltipProvider>
+      <SidebarProvider>
+        <Sidebar collapsible="icon">
+          <SidebarHeader>
+            <div className="flex items-center justify-between gap-2 pl-2 group-data-[collapsible=icon]:pl-0">
+              <a
+                href={href("home")}
+                className="flex items-center gap-2 group-data-[collapsible=icon]:hidden"
+              >
+                <span>🐾</span>
+                <span className="font-semibold tracking-tight">tetrapod</span>
+              </a>
+              <SidebarTrigger />
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {pages.map((p) => (
+                    <SidebarMenuItem key={p.slug}>
+                      <SidebarMenuButton asChild isActive={p.slug === slug} tooltip={p.title}>
+                        <a href={href(p.slug)}>
+                          <p.icon className="size-4" />
+                          <span>{p.title}</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={rulesPage.slug === slug}
+                  tooltip={rulesPage.title}
+                >
+                  <a href={href(rulesPage.slug)}>
+                    <rulesPage.icon className="size-4" />
+                    <span>{rulesPage.title}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </Sidebar>
+
+        <SidebarInset>
+          <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent/50"
             >
-              <span>🐾</span>
-              <span className="font-semibold tracking-tight">tetrapod</span>
-            </a>
-            <SidebarTrigger />
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {pages.map((p) => (
-                  <SidebarMenuItem key={p.slug}>
-                    <SidebarMenuButton asChild isActive={p.slug === slug} tooltip={p.title}>
-                      <a href={href(p.slug)}>
-                        <p.icon className="size-4" />
-                        <span>{p.title}</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+              <Search className="size-3.5" />
+              <span>search…</span>
+              <Kbd className="ml-4">⌘K</Kbd>
+            </button>
+          </header>
+
+          <main className="mx-auto w-full max-w-3xl px-6 py-10">
+            <page.component />
+            <footer className="mt-16 border-t pt-6 text-muted-foreground text-xs">
+              edit <code>wiki/src</code> in{" "}
+              <a className="underline" href={URLS.repo}>
+                the repo
+              </a>{" "}
+              (facts live in <code>src/config.ts</code>), <code>pnpm build</code> on the box.
+            </footer>
+          </main>
+        </SidebarInset>
+
+        <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
+          <Command>
+            <CommandInput placeholder="go to…" />
+            <CommandList>
+              <CommandEmpty>nothing found.</CommandEmpty>
+              <CommandGroup heading="pages">
+                {allPages.map((p) => (
+                  <CommandItem
+                    key={p.slug}
+                    onSelect={() => {
+                      setPaletteOpen(false);
+                      navigate(p.slug);
+                    }}
+                  >
+                    <p.icon className="size-4" />
+                    {p.title}
+                  </CommandItem>
                 ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={rulesPage.slug === slug}
-                tooltip={rulesPage.title}
-              >
-                <a href={href(rulesPage.slug)}>
-                  <rulesPage.icon className="size-4" />
-                  <span>{rulesPage.title}</span>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      </Sidebar>
-
-      <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent/50"
-          >
-            <Search className="size-3.5" />
-            <span>search…</span>
-            <Kbd className="ml-4">⌘K</Kbd>
-          </button>
-        </header>
-
-        <main className="mx-auto w-full max-w-3xl px-6 py-10">
-          <page.component />
-          <footer className="mt-16 border-t pt-6 text-muted-foreground text-xs">
-            edit <code>wiki/src</code> in{" "}
-            <a className="underline" href={URLS.repo}>
-              the repo
-            </a>{" "}
-            (facts live in <code>src/config.ts</code>), <code>pnpm build</code> on the box.
-          </footer>
-        </main>
-      </SidebarInset>
-
-      <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
-        <Command>
-          <CommandInput placeholder="go to…" />
-          <CommandList>
-            <CommandEmpty>nothing found.</CommandEmpty>
-            <CommandGroup heading="pages">
-              {allPages.map((p) => (
+              </CommandGroup>
+              <CommandSeparator />
+              <CommandGroup heading="open">
+                {externalLinks.map((l) => (
+                  <CommandItem
+                    key={l.title}
+                    onSelect={() => {
+                      setPaletteOpen(false);
+                      window.open(l.url, "_blank");
+                    }}
+                  >
+                    <ExternalLink className="size-4" />
+                    {l.title}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+              <CommandSeparator />
+              <CommandGroup heading="copy">
                 <CommandItem
-                  key={p.slug}
                   onSelect={() => {
+                    navigator.clipboard.writeText(FACTORIO.connectAddress);
                     setPaletteOpen(false);
-                    navigate(p.slug);
                   }}
                 >
-                  <p.icon className="size-4" />
-                  {p.title}
+                  factorio address ({FACTORIO.connectAddress})
                 </CommandItem>
-              ))}
-            </CommandGroup>
-            <CommandSeparator />
-            <CommandGroup heading="open">
-              {externalLinks.map((l) => (
                 <CommandItem
-                  key={l.title}
                   onSelect={() => {
+                    navigator.clipboard.writeText("ssh tetraslam@tetrapod");
                     setPaletteOpen(false);
-                    window.open(l.url, "_blank");
                   }}
                 >
-                  <ExternalLink className="size-4" />
-                  {l.title}
+                  ssh command
                 </CommandItem>
-              ))}
-            </CommandGroup>
-            <CommandSeparator />
-            <CommandGroup heading="copy">
-              <CommandItem
-                onSelect={() => {
-                  navigator.clipboard.writeText(FACTORIO.connectAddress);
-                  setPaletteOpen(false);
-                }}
-              >
-                factorio address ({FACTORIO.connectAddress})
-              </CommandItem>
-              <CommandItem
-                onSelect={() => {
-                  navigator.clipboard.writeText("ssh tetraslam@tetrapod");
-                  setPaletteOpen(false);
-                }}
-              >
-                ssh command
-              </CommandItem>
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </CommandDialog>
-    </SidebarProvider>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </CommandDialog>
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }
