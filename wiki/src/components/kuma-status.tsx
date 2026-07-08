@@ -1,6 +1,5 @@
-import { Activity, ExternalLink } from "lucide-react";
+import { Activity } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KUMA_API_BASE, KUMA_REFRESH_MS, KUMA_STATUS_SLUG, URLS } from "@/config";
@@ -20,6 +19,22 @@ const STATUS_LABEL: Record<number, Monitor["status"]> = {
   1: "up",
   2: "pending",
   3: "maintenance",
+};
+
+const STATUS_TEXT: Record<Monitor["status"], string> = {
+  up: "text-emerald-400",
+  down: "text-red-400",
+  pending: "text-amber-400",
+  maintenance: "text-sky-400",
+  unknown: "text-muted-foreground",
+};
+
+const STATUS_DOT: Record<Monitor["status"], string> = {
+  up: "bg-emerald-400",
+  down: "bg-red-400",
+  pending: "bg-amber-400",
+  maintenance: "bg-sky-400",
+  unknown: "bg-muted-foreground",
 };
 
 async function fetchStatus(): Promise<Monitor[]> {
@@ -51,22 +66,15 @@ async function fetchStatus(): Promise<Monitor[]> {
 }
 
 function StatusDot({ status }: { status: Monitor["status"] }) {
-  const color =
-    status === "up"
-      ? "bg-emerald-500"
-      : status === "down"
-        ? "bg-red-500"
-        : status === "pending"
-          ? "bg-amber-500"
-          : "bg-muted-foreground";
+  const color = STATUS_DOT[status];
   return (
-    <span className="relative flex size-2.5">
+    <span className="relative flex size-2">
       {status === "up" && (
         <span
           className={`absolute inline-flex size-full animate-ping rounded-full ${color} opacity-60`}
         />
       )}
-      <span className={`relative inline-flex size-2.5 rounded-full ${color}`} />
+      <span className={`relative inline-flex size-2 rounded-full ${color}`} />
     </span>
   );
 }
@@ -100,12 +108,12 @@ export function KumaStatus() {
         <CardContent className="flex items-center gap-3 text-muted-foreground text-sm">
           <Activity className="size-4" />
           <span>
-            can't reach kuma's status page — create one at{" "}
+            can't reach kuma's status page api — check the{" "}
             <a href={URLS.kuma} className="underline" target="_blank" rel="noreferrer">
-              {URLS.kuma}
+              kuma instance
             </a>{" "}
-            (Status Pages → New, slug <code className="font-mono">{KUMA_STATUS_SLUG}</code>, add all
-            monitors)
+            and the <code className="font-mono">/kuma-api</code> proxy (
+            <code className="font-mono">{KUMA_STATUS_SLUG}</code> status page must exist)
           </span>
         </CardContent>
       </Card>
@@ -114,35 +122,37 @@ export function KumaStatus() {
 
   if (!monitors) {
     return (
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-20 rounded-xl" />
+          <Skeleton key={i} className="h-[74px] rounded-xl" />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {monitors.map((m) => (
         <a
           key={m.id}
           href={URLS.kuma}
           target="_blank"
           rel="noreferrer"
-          className="group rounded-xl border bg-card p-4 transition-colors hover:bg-accent/50"
+          title="24h uptime · last ping"
+          className="rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-accent/50"
         >
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-sm">{m.name}</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-medium text-sm">{m.name}</span>
             <StatusDot status={m.status} />
           </div>
-          <div className="mt-2 flex items-baseline gap-2 text-muted-foreground text-xs">
-            <Badge variant={m.status === "up" ? "secondary" : "destructive"} className="px-1.5">
-              {m.status}
-            </Badge>
-            {m.uptime24h !== null && <span>{(m.uptime24h * 100).toFixed(1)}% 24h</span>}
-            {m.ping !== null && <span>{m.ping}ms</span>}
-            <ExternalLink className="ml-auto size-3 opacity-0 transition-opacity group-hover:opacity-100" />
+          <div className="mt-1.5 flex items-baseline gap-2 whitespace-nowrap font-mono text-xs">
+            <span className={STATUS_TEXT[m.status]}>{m.status}</span>
+            {m.uptime24h !== null && (
+              <span className="text-muted-foreground">{(m.uptime24h * 100).toFixed(1)}%</span>
+            )}
+            {m.ping !== null && (
+              <span className="text-muted-foreground">{Math.round(m.ping)}ms</span>
+            )}
           </div>
         </a>
       ))}

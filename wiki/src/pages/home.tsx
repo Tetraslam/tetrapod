@@ -8,15 +8,28 @@ const quick = [
   { title: "repo", desc: "IaC, provisioning, this wiki", url: URLS.repo },
 ];
 
+const specs = [
+  { k: "instance", v: HOSTS.tetrapod.instance },
+  { k: "cpu", v: HOSTS.tetrapod.cpu },
+  { k: "memory", v: HOSTS.tetrapod.ram },
+  { k: "disk", v: HOSTS.tetrapod.disk },
+  { k: "os", v: HOSTS.tetrapod.os },
+  { k: "region", v: HOSTS.tetrapod.region },
+  { k: "cost", v: HOSTS.tetrapod.cost },
+  {
+    k: "sibling",
+    v: `${HOSTS.lighthouse.name} (${HOSTS.lighthouse.instance}, ${HOSTS.lighthouse.cost})`,
+  },
+];
+
 export function HomePage() {
   return (
     <article className="space-y-8">
       <header className="space-y-2">
         <h1 className="font-semibold text-2xl tracking-tight">tetrapod</h1>
         <P>
-          the always-on box: {HOSTS.tetrapod.instance}, {HOSTS.tetrapod.os}, {HOSTS.tetrapod.region}
-          . tailnet-only, reproducible from <Ext url={URLS.repo}>the repo</Ext>. start with{" "}
-          <WikiLink to="connecting">connecting</WikiLink>, or send friends to{" "}
+          the always-on box. tailnet-only, reproducible from <Ext url={URLS.repo}>the repo</Ext>.
+          start with <WikiLink to="connecting">connecting</WikiLink>, or send friends to{" "}
           <WikiLink to="factorio">factorio</WikiLink>.
         </P>
       </header>
@@ -24,6 +37,18 @@ export function HomePage() {
       <section className="space-y-3">
         <h2 className="font-semibold text-lg tracking-tight">status</h2>
         <KumaStatus />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg tracking-tight">specs</h2>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-xl border bg-card p-4 md:grid-cols-4">
+          {specs.map((s) => (
+            <div key={s.k}>
+              <dt className="text-muted-foreground text-xs">{s.k}</dt>
+              <dd className="mt-0.5 font-mono text-xs">{s.v}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <section className="space-y-3">
