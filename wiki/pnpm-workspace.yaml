@@ -1,0 +1,5 @@
+packages: []
+
+# box installs from the committed lockfile; release-age gating of pinned
+# resolutions only breaks reproducible builds
+minimumReleaseAge: 0
