@@ -1,25 +1,12 @@
 import { KumaStatus } from "@/components/kuma-status";
+import { Neofetch } from "@/components/neofetch";
 import { Ext, P, WikiLink } from "@/components/wiki";
-import { HOSTS, URLS } from "@/config";
+import { URLS } from "@/config";
 
 const quick = [
   { title: "code-server", desc: "vscode in the browser", url: URLS.codeServer },
   { title: "uptime-kuma", desc: "monitors + alert history", url: URLS.kuma },
   { title: "repo", desc: "IaC, provisioning, this wiki", url: URLS.repo },
-];
-
-const specs = [
-  { k: "instance", v: HOSTS.tetrapod.instance },
-  { k: "cpu", v: HOSTS.tetrapod.cpu },
-  { k: "memory", v: HOSTS.tetrapod.ram },
-  { k: "disk", v: HOSTS.tetrapod.disk },
-  { k: "os", v: HOSTS.tetrapod.os },
-  { k: "region", v: HOSTS.tetrapod.region },
-  { k: "cost", v: HOSTS.tetrapod.cost },
-  {
-    k: "sibling",
-    v: `${HOSTS.lighthouse.name} (${HOSTS.lighthouse.instance}, ${HOSTS.lighthouse.cost})`,
-  },
 ];
 
 export function HomePage() {
@@ -41,14 +28,7 @@ export function HomePage() {
 
       <section className="space-y-3">
         <h2 className="font-semibold text-lg tracking-tight">specs</h2>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-xl border bg-card p-4 md:grid-cols-4">
-          {specs.map((s) => (
-            <div key={s.k}>
-              <dt className="text-muted-foreground text-xs">{s.k}</dt>
-              <dd className="mt-0.5 font-mono text-xs">{s.v}</dd>
-            </div>
-          ))}
-        </dl>
+        <Neofetch />
       </section>
 
       <section className="space-y-3">
