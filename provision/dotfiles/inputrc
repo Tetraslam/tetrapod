@@ -1,0 +1,5 @@
+# tetrapod ~/.inputrc — readline behavior to match the laptop
+set completion-ignore-case on
+set show-all-if-ambiguous on
+set colored-stats on
+set colored-completion-prefix on

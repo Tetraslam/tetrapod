@@ -138,6 +138,7 @@ export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bi
 log "dotfiles"
 mkdir -p ~/.config/helix ~/.config/zellij ~/.config/git ~/.config/mise ~/.local/bin
 cp "$HERE/dotfiles/bashrc" ~/.bashrc
+cp "$HERE/dotfiles/inputrc" ~/.inputrc
 cp "$HERE/dotfiles/starship.toml" ~/.config/starship.toml
 cp "$HERE/dotfiles/helix/config.toml" ~/.config/helix/config.toml
 cp "$HERE/dotfiles/zellij/config.kdl" ~/.config/zellij/config.kdl
