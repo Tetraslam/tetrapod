@@ -105,8 +105,10 @@ export default function App() {
         </Sidebar>
 
         <SidebarInset>
-          <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-            <button
+        <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
+          {/* mobile-only: the in-sidebar trigger is unreachable when the sheet is closed */}
+          <SidebarTrigger className="md:hidden" />
+          <button
               type="button"
               onClick={() => setPaletteOpen(true)}
               className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent/50"
