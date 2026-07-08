@@ -3,9 +3,10 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// served at https://tetrapod.<tailnet>.ts.net/wiki via tailscale serve
+// relative base: works at /wiki/ (tailscale serve + funnel) AND at / on
+// vercel (wiki.tetraslam.world) — hash routing makes this safe
 export default defineConfig({
-  base: "/wiki/",
+  base: "./",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

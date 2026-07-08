@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/kuma-api/:path*",
+      "destination": "https://tetrapod.tailc27667.ts.net:8443/kuma-api/:path*"
+    }
+  ]
+}

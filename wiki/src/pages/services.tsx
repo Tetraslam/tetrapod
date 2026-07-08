@@ -56,9 +56,11 @@ git add -A && git commit -m "..." && git push`}</CodeBlock>
             </TableRow>
             <TableRow>
               <TableCell>this wiki</TableCell>
-              <TableCell className="font-mono text-xs">{URLS.wiki}</TableCell>
+              <TableCell className="font-mono text-xs">
+                <Ext url={URLS.wikiPublic}>wiki.tetraslam.world</Ext> · {URLS.wiki}
+              </TableCell>
               <TableCell className="text-muted-foreground text-xs">
-                static dist → serve /wiki
+                vercel (public) + serve /wiki (tailnet), same source
               </TableCell>
             </TableRow>
             <TableRow>

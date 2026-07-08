@@ -27,6 +27,7 @@ export const HOSTS = {
 export const URLS = {
   codeServer: `https://${HOSTS.tetrapod.fqdn}`,
   wiki: `https://${HOSTS.tetrapod.fqdn}/wiki`,
+  wikiPublic: "https://wiki.tetraslam.world", // + wiki.tetraslam.com (vercel, kuma-api rewritten to the funnel)
   kuma: `https://${HOSTS.lighthouse.fqdn}`,
   repo: "https://github.com/tetraslam/tetrapod",
 } as const;
