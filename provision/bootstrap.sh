@@ -102,6 +102,7 @@ if ! command -v hx >/dev/null; then
   sudo rm -rf /opt/helix
   sudo mv "$tmp"/helix-* /opt/helix
   sudo ln -sf /opt/helix/hx /usr/local/bin/hx
+  sudo ln -sf /opt/helix/hx /usr/local/bin/helix # arch calls it helix; muscle-memory parity
   rm -rf "$tmp"
 fi
 
