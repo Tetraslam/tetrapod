@@ -201,6 +201,10 @@ if [ -d "$REPO/wiki" ]; then
   (cd "$REPO/wiki" && pnpm install --silent && pnpm build >/dev/null) &&
     sudo tailscale serve --bg --set-path /wiki "$REPO/wiki/dist" ||
     echo "WARN: wiki build/serve failed"
+  # public copy via funnel on :8443. NEVER funnel 443 — code-server (auth
+  # none) lives there and would become a public root shell.
+  sudo tailscale funnel --bg --https=8443 --set-path /wiki "$REPO/wiki/dist" || true
+  sudo tailscale funnel --bg --https=8443 --set-path /kuma-api http://127.0.0.1:3002 || true
 fi
 
 # -------------------------------------------------------------------- agents
