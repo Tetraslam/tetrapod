@@ -1,21 +1,5 @@
+import miku from "@/assets/miku.png";
 import { HOSTS } from "@/config";
-
-// ascii miku (twintails included). decorative; edit freely.
-const MIKU = String.raw`      /\          /\
-     /  \ .-""-. /  \
-    |    /      \    |
-    |   | ^    ^ |   |
-    |   | (o)(o) |   |
-     \  |   __   |  /
-      \  \  \/  /  /
-       \  '.__.'  /
-      .-'|      |'-.
-     /   |______|   \
-    |   /        \   |
-    |  | ♪  ||    |  |
-     \_|    ||    |_/
-       |____||____|
-        (__)  (__)`;
 
 const INFO: Array<[string, string]> = [
   ["instance", HOSTS.tetrapod.instance],
@@ -41,8 +25,13 @@ const SWATCHES = [
 
 export function Neofetch() {
   return (
-    <div className="flex flex-col gap-6 overflow-x-auto rounded-xl border bg-card p-5 font-mono text-xs leading-relaxed sm:flex-row sm:items-center sm:gap-10">
-      <pre className="shrink-0 text-cyan-400/90">{MIKU}</pre>
+    <div className="flex flex-col gap-6 rounded-xl border bg-card p-5 font-mono text-xs leading-relaxed sm:flex-row sm:items-center sm:gap-10">
+      <img
+        src={miku}
+        alt="miku, asciinated"
+        className="w-56 shrink-0 select-none self-center brightness-125 saturate-150 sm:self-auto"
+        draggable={false}
+      />
       <div className="min-w-0">
         <div>
           <span className="text-cyan-400">tetraslam</span>
