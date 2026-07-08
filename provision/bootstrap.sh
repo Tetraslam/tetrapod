@@ -192,6 +192,14 @@ sudo docker compose -f "$HERE/docker-compose.yml" up -d
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true
 
+# wiki / home dashboard at https://tetrapod.<tailnet>.ts.net/wiki
+REPO="$(cd "$HERE/.." && pwd)"
+if [ -d "$REPO/wiki" ]; then
+  (cd "$REPO/wiki" && pnpm install --silent && pnpm build >/dev/null) &&
+    sudo tailscale serve --bg --set-path /wiki "$REPO/wiki/dist" ||
+    echo "WARN: wiki build/serve failed"
+fi
+
 # -------------------------------------------------------------------- agents
 
 # opencode/claude user context (needs gh auth + opa token; fine to fail here,
