@@ -33,6 +33,8 @@ IaC'd in `~/tetrapod` (public repo, github.com/tetraslam/tetrapod).
 |------|-------|-------|
 | factorio | docker `provision-factorio-1`, udp 34197 + rcon tcp 27015 | tailnet-only, 4G mem cap, data `/opt/tetrapod/factorio` |
 | code-server | docker, `https://tetrapod.tailc27667.ts.net` via tailscale serve | localhost:8443 → container |
+| wiki / dashboard | `https://tetrapod.tailc27667.ts.net/wiki` | static `~/tetrapod/wiki/dist` via serve path mount; rebuild: `cd ~/tetrapod/wiki && pnpm build`; facts in `wiki/src/config.ts` |
+| kuma-proxy | serve path `/kuma-api` → nginx (docker) → lighthouse | same-origin kuma status api for the wiki (kuma has no CORS) |
 | restic backups | `restic-backup` (system timer, 10:00 UTC nightly) | → tigris, pings kuma push monitor on success |
 | uptime-kuma | NOT here — on sibling box `lighthouse` (t4g.micro, cloud-init only) | `https://lighthouse.tailc27667.ts.net` |
 
