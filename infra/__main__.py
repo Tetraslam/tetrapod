@@ -1,7 +1,7 @@
-"""tetrapod infra: one big pet (tetrapod) + one tiny watcher (lighthouse).
+"""tetrapod infra: two protected pets plus disposable research compute.
 
 Hard rule: nothing here may ever touch Bedrock or Bedrock-related IAM.
-The only IAM created is the SSM break-glass role and the DLM snapshot role.
+IAM is limited to SSM/DLM and isolated AWS Batch service roles.
 """
 
 import json
@@ -18,6 +18,8 @@ SSH_PUBLIC_KEY = cfg.require("sshPublicKey")
 TS_AUTH_KEY = cfg.require_secret("tailscaleAuthKey")  # reusable + pre-approved key
 BUDGET_EMAIL = cfg.get("budgetEmail")
 BUDGET_LIMIT = cfg.get("budgetLimit") or "150"
+BATCH_MAX_VCPUS = cfg.get_int("batchMaxVcpus") or 256
+BATCH_ROOT_GB = cfg.get_int("batchRootVolumeGb") or 100
 # break-glass only; tailscale-ssh is the real door. flip with:
 #   pulumi config set tetrapod:enablePublicSsh true && pulumi up
 ENABLE_PUBLIC_SSH = cfg.get_bool("enablePublicSsh") or False
@@ -28,6 +30,10 @@ ami_id = aws.ssm.get_parameter(
 ).value
 
 default_vpc = aws.ec2.get_vpc(default=True)
+default_subnets = aws.ec2.get_subnets(filters=[
+    aws.ec2.GetSubnetsFilterArgs(name="vpc-id", values=[default_vpc.id]),
+    aws.ec2.GetSubnetsFilterArgs(name="default-for-az", values=["true"]),
+])
 
 # ------------------------------------------------------------------ network
 
@@ -138,6 +144,7 @@ tetrapod = aws.ec2.Instance(
         tags={"Name": "tetrapod-root", "Backup": "tetrapod"},
     ),
     tags={"Name": "tetrapod", "Project": "tetrapod"},
+    opts=pulumi.ResourceOptions(protect=True, ignore_changes=["ami", "userData"]),
 )
 
 lighthouse = aws.ec2.Instance(
@@ -155,6 +162,168 @@ lighthouse = aws.ec2.Instance(
         tags={"Name": "lighthouse-root"},
     ),
     tags={"Name": "lighthouse", "Project": "tetrapod"},
+    opts=pulumi.ResourceOptions(protect=True, ignore_changes=["ami", "userData"]),
+)
+
+# ---------------------------------------- disposable CPU research cluster
+
+# AWS Batch has no control-plane charge and this managed environment scales to
+# zero. Workers are separate Spot instances; they never share lifecycle, IAM,
+# security groups, disks, or launch templates with either protected pet above.
+batch_tags = {"Project": "hadwiger-nelson", "Workload": "research"}
+
+batch_sg = aws.ec2.SecurityGroup(
+    "hn-batch",
+    vpc_id=default_vpc.id,
+    description="Hadwiger-Nelson Batch workers: no ingress",
+    ingress=[],
+    egress=[aws.ec2.SecurityGroupEgressArgs(
+        protocol="-1", from_port=0, to_port=0, cidr_blocks=["0.0.0.0/0"],
+    )],
+    tags=batch_tags,
+)
+
+batch_service_role = aws.iam.Role(
+    "hn-batch-service",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "batch.amazonaws.com"},
+            "Action": "sts:AssumeRole",
+        }],
+    }),
+    tags=batch_tags,
+)
+batch_service_policy = aws.iam.RolePolicyAttachment(
+    "hn-batch-service",
+    role=batch_service_role.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole",
+)
+
+batch_instance_role = aws.iam.Role(
+    "hn-batch-instance",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "ec2.amazonaws.com"},
+            "Action": "sts:AssumeRole",
+        }],
+    }),
+    tags=batch_tags,
+)
+batch_instance_policy = aws.iam.RolePolicyAttachment(
+    "hn-batch-instance",
+    role=batch_instance_role.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
+)
+batch_instance_profile = aws.iam.InstanceProfile(
+    "hn-batch-instance", role=batch_instance_role.name,
+)
+
+batch_spot_role = aws.iam.Role(
+    "hn-batch-spot",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "spotfleet.amazonaws.com"},
+            "Action": "sts:AssumeRole",
+        }],
+    }),
+    tags=batch_tags,
+)
+batch_spot_policy = aws.iam.RolePolicyAttachment(
+    "hn-batch-spot",
+    role=batch_spot_role.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole",
+)
+
+batch_launch_template = aws.ec2.LaunchTemplate(
+    "hn-batch",
+    description="Ephemeral x86 SAT and graph-search workers",
+    update_default_version=True,
+    metadata_options=aws.ec2.LaunchTemplateMetadataOptionsArgs(
+        http_tokens="required",
+    ),
+    block_device_mappings=[aws.ec2.LaunchTemplateBlockDeviceMappingArgs(
+        device_name="/dev/xvda",
+        ebs=aws.ec2.LaunchTemplateBlockDeviceMappingEbsArgs(
+            delete_on_termination="true",
+            encrypted="true",
+            volume_size=BATCH_ROOT_GB,
+            volume_type="gp3",
+        ),
+    )],
+    tag_specifications=[
+        aws.ec2.LaunchTemplateTagSpecificationArgs(
+            resource_type="instance", tags=batch_tags,
+        ),
+        aws.ec2.LaunchTemplateTagSpecificationArgs(
+            resource_type="volume", tags=batch_tags,
+        ),
+    ],
+    tags=batch_tags,
+)
+
+batch_compute = aws.batch.ComputeEnvironment(
+    "hn-spot",
+    type="MANAGED",
+    state="ENABLED",
+    service_role=batch_service_role.arn,
+    compute_resources=aws.batch.ComputeEnvironmentComputeResourcesArgs(
+        type="SPOT",
+        allocation_strategy="SPOT_CAPACITY_OPTIMIZED",
+        min_vcpus=0,
+        desired_vcpus=0,
+        max_vcpus=BATCH_MAX_VCPUS,
+        instance_types=[
+            "c6a.8xlarge", "c6a.12xlarge", "c6a.16xlarge",
+            "c7a.8xlarge", "c7a.12xlarge", "c7a.16xlarge",
+            "c7i.8xlarge", "c7i.12xlarge", "c7i.16xlarge",
+        ],
+        instance_role=batch_instance_profile.arn,
+        spot_iam_fleet_role=batch_spot_role.arn,
+        security_group_ids=[batch_sg.id],
+        subnets=default_subnets.ids,
+        launch_template=aws.batch.ComputeEnvironmentComputeResourcesLaunchTemplateArgs(
+            launch_template_id=batch_launch_template.id,
+            version=batch_launch_template.latest_version.apply(str),
+        ),
+        tags=batch_tags,
+    ),
+    tags=batch_tags,
+    opts=pulumi.ResourceOptions(depends_on=[
+        batch_service_policy, batch_instance_policy, batch_spot_policy,
+    ]),
+)
+
+batch_queue = aws.batch.JobQueue(
+    "hn-cpu",
+    state="ENABLED",
+    priority=1,
+    compute_environment_orders=[aws.batch.JobQueueComputeEnvironmentOrderArgs(
+        order=1, compute_environment=batch_compute.arn,
+    )],
+    tags=batch_tags,
+)
+
+batch_smoke_job = aws.batch.JobDefinition(
+    "hn-cpu-smoke",
+    type="container",
+    platform_capabilities=["EC2"],
+    container_properties=json.dumps({
+        "image": "public.ecr.aws/amazonlinux/amazonlinux:2023",
+        "command": ["bash", "-lc", "nproc && uname -m && echo HN_BATCH_OK"],
+        "resourceRequirements": [
+            {"type": "VCPU", "value": "1"},
+            {"type": "MEMORY", "value": "1024"},
+        ],
+    }),
+    retry_strategy=aws.batch.JobDefinitionRetryStrategyArgs(attempts=1),
+    timeout=aws.batch.JobDefinitionTimeoutArgs(attempt_duration_seconds=600),
+    tags=batch_tags,
 )
 
 # ------------------------------------------------- ebs snapshots (dlm, daily)
@@ -225,3 +394,6 @@ pulumi.export("tetrapod_id", tetrapod.id)
 pulumi.export("tetrapod_public_ip", tetrapod.public_ip)
 pulumi.export("lighthouse_id", lighthouse.id)
 pulumi.export("lighthouse_public_ip", lighthouse.public_ip)
+pulumi.export("hn_batch_max_vcpus", BATCH_MAX_VCPUS)
+pulumi.export("hn_batch_queue_arn", batch_queue.arn)
+pulumi.export("hn_batch_smoke_job_arn", batch_smoke_job.arn)

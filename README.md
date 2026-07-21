@@ -12,6 +12,7 @@ IAM, since claude models run from there.
 - **os:** ubuntu 24.04 LTS arm64
 - **instance:** `t4g.xlarge` (4 vcpu graviton2, 16 GiB, ~$98/mo on-demand) in us-west-2
 - **lighthouse:** second tiny instance, `t4g.micro` (~$6.60/mo), running uptime-kuma via cloud-init alone — watches tetrapod from outside so kuma can report tetrapod's own death. alerts via discord webhook
+- **research cpu:** AWS Batch Spot environment, x86 compute-optimized workers, scales from zero to 256 vCPUs; isolated from both persistent VMs
 - **disk:** 100GB gp3 root (3000 IOPS), daily DLM snapshots, keep 30
 - **iac:** pulumi + python (uv), state self-hosted on tigris (`s3://` backend, no pulumi cloud — keeps work pulumi org untouched; backend pinned in `Pulumi.yaml`)
 - **secrets:** passphrase secrets provider, passphrase + everything else via 1password (`opa`, the promptless agents-vault wrapper from rice)
@@ -30,6 +31,26 @@ provision/   bootstrap.sh, docker-compose.yml, dotfiles, systemd units, agent co
 wiki/        home dashboard — https://tetrapod.<tailnet>.ts.net/wiki
              (vite + shadcn, live kuma status; knobs in src/config.ts)
 ```
+
+The two persistent instances are Pulumi-protected and ignore changes to the
+moving Canonical `current` AMI and cloud-init. This prevents a routine
+`pulumi up` from replacing either pet. The Batch environment has no idle EC2
+workers or compute charge.
+
+### research cpu queue
+
+The queue and smoke job ARNs are stack outputs. Submit a one-vCPU smoke job:
+
+```bash
+QUEUE=$(pulumi stack output hn_batch_queue_arn)
+JOB=$(pulumi stack output hn_batch_smoke_job_arn)
+aws batch submit-job --job-name hn-smoke --job-queue "$QUEUE" --job-definition "$JOB"
+```
+
+Workers use diversified `c6a`, `c7a`, and `c7i` Spot instances across all
+four default subnets. They have no ingress and terminate back to zero when the
+queue drains. `tetrapod:batchMaxVcpus` and `tetrapod:batchRootVolumeGb` control
+the ceiling and ephemeral worker disk size.
 
 ## bringing it up
 

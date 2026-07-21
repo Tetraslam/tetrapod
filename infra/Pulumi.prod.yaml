@@ -3,5 +3,7 @@ config:
   aws:region: us-west-2
   tetrapod:sshPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJGUThZNtK5bdH028JInFIwWjXwejU7m8pLJHGD7OvEe bhowmickshresht@gmail.com\r"
   tetrapod:budgetEmail: bhowmickshresht@gmail.com
+  tetrapod:batchMaxVcpus: "256"
+  tetrapod:batchRootVolumeGb: "100"
   tetrapod:tailscaleAuthKey:
     secure: v1:7cPbCLYql30zlcNJ:eeevcHblCA/lTNFmttRZLVJkt05kpZRI2avHvAouBNuSX3JegdCHtb00W8w86s1TbMvmlEmEzoa3M7jkj9GUrTLYoIMI+s9rss9SB6vg
