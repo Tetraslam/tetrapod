@@ -22,6 +22,20 @@ sed -e "s|__OPENROUTER_API_KEY__|$OPENROUTER_KEY|" \
     "$HERE/nullclaw/config.json.template" > "$HOME/.nullclaw/config.json"
 chmod 600 "$HOME/.nullclaw/config.json"
 
+# persona: identity/soul/agents live in the repo; user context syncs from the
+# laptop-canonical memory dir (populated by setup-agents.sh, never committed)
+WS="$HOME/.nullclaw/workspace"
+mkdir -p "$WS/context"
+cp "$HERE/nullclaw/workspace/"*.md "$WS/"
+MEM="$HOME/.claude/projects/-home-tetraslam/memory"
+if [ -d "$MEM" ]; then
+  for f in user_profile user_deep_profile feedback_style reference_homelab; do
+    [ -f "$MEM/$f.md" ] && cp "$MEM/$f.md" "$WS/context/"
+  done
+else
+  echo "setup-nullclaw: WARN no memory dir (run setup-agents.sh first); persona ships without context/"
+fi
+
 nullclaw doctor || true
 sudo systemctl restart nullclaw
 echo "setup-nullclaw: done. check: nullclaw status && journalctl -u nullclaw -n 20"

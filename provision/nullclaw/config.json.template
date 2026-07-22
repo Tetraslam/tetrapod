@@ -24,6 +24,13 @@
     "backend": "sqlite",
     "auto_save": true
   },
+  "agent": {
+    "default_queue_mode": "latest"
+  },
+  "diagnostics": {
+    "log_tool_calls": true,
+    "log_message_receipts": true
+  },
   "gateway": {
     "host": "127.0.0.1",
     "port": 3000,
