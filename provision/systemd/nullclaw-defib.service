@@ -1,0 +1,17 @@
+[Unit]
+Description=nullclaw defibrillator - restart after each discord reply
+# WORKAROUND for upstream ws parser desync: nullclaw's discord gateway goes
+# deaf after handling exactly one message (frames arrive + are read, then
+# silently discarded; confirmed by tcpdump vs journal receipts). until it's
+# fixed upstream, bounce the service after each reply so the next message
+# lands on a fresh connection. delete this unit when upstream fixes it.
+After=nullclaw.service
+BindsTo=nullclaw.service
+
+[Service]
+ExecStart=/bin/bash -c 'journalctl -fu nullclaw -o cat --since now | grep --line-buffered "message outbound channel=discord" | while read -r _; do sleep 5; systemctl restart nullclaw; done'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
