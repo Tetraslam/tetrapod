@@ -26,7 +26,7 @@
     "auto_save": true
   },
   "agent": {
-    "default_queue_mode": "serial"
+    "default_queue_mode": "latest"
   },
   "diagnostics": {
     "log_tool_calls": true,
