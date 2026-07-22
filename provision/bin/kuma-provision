@@ -1,0 +1,108 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["uptime-kuma-api"]
+# ///
+"""Provision uptime-kuma monitors for every tetrapod service + the status page.
+
+Idempotent: existing monitors (by name) are left alone. Run on tetrapod
+(needs opa + tailnet access to lighthouse). Re-run after adding services.
+
+The nullclaw monitor is push-based (its gateway is loopback-only); this script
+writes the push URL to /opt/tetrapod/nullclaw-kuma-push.env for the systemd
+timer to use.
+"""
+
+import os
+import subprocess
+import sys
+
+from uptime_kuma_api import MonitorType, UptimeKumaApi
+
+KUMA_URL = "https://lighthouse.tailc27667.ts.net"
+OP_ITEM = "op://Agents/Uptime Kuma - Tetrapod"
+STATUS_SLUG = "tetrapod"
+HOST = "tetrapod.tailc27667.ts.net"
+
+HTTP_MONITORS = [
+    ("searxng", f"http://{HOST}:8888/", None),
+    ("steel", f"http://{HOST}:3003/v1/health", None),
+    ("jellyfin", f"http://{HOST}:8096/health", None),
+    ("qbittorrent", f"http://{HOST}:8081/", None),
+    ("prowlarr", f"http://{HOST}:9696/ping", None),
+    ("sonarr", f"http://{HOST}:8989/ping", None),
+    ("radarr", f"http://{HOST}:7878/ping", None),
+    ("pinchflat", f"http://{HOST}:8945/", None),
+    ("zipline", f"http://{HOST}:3200/", ["200-399"]),
+    ("shlink", f"http://{HOST}:8085/rest/health", None),
+    ("lightpanda", f"http://{HOST}:9222/json/version", None),
+]
+TCP_MONITORS = [("mindustry", HOST, 6567)]
+PUSH_MONITORS = ["nullclaw"]
+
+
+def opa(field: str) -> str:
+    return subprocess.run(
+        ["opa", "read", f"{OP_ITEM}/{field}"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def main() -> None:
+    api = UptimeKumaApi(KUMA_URL, timeout=30)
+    api.login(opa("username"), opa("password"))
+
+    existing = {m["name"]: m for m in api.get_monitors()}
+    created = []
+
+    def ensure(name, **kwargs):
+        if name in existing:
+            print(f"  = {name} (exists, id {existing[name]['id']})")
+            return existing[name]
+        m = api.add_monitor(name=name, **kwargs)
+        mid = m["monitorID"]
+        existing[name] = {"id": mid, "name": name}
+        created.append(name)
+        print(f"  + {name} (id {mid})")
+        return existing[name]
+
+    print("monitors:")
+    for name, url, codes in HTTP_MONITORS:
+        kwargs = dict(type=MonitorType.HTTP, url=url, interval=60, maxretries=2)
+        if codes:
+            kwargs["accepted_statuscodes"] = codes
+        ensure(name, **kwargs)
+    for name, host, port in TCP_MONITORS:
+        ensure(name, type=MonitorType.PORT, hostname=host, port=port, interval=60, maxretries=2)
+    for name in PUSH_MONITORS:
+        # push interval 120s; the timer pings every minute, so one missed beat tolerated
+        ensure(name, type=MonitorType.PUSH, interval=120, maxretries=1)
+
+    # push URL for the nullclaw timer (token only lands in the root-owned env file)
+    push = next((m for m in api.get_monitors() if m["name"] == "nullclaw"), None)
+    if push and push.get("pushToken"):
+        env = f"KUMA_PUSH_URL={KUMA_URL}/api/push/{push['pushToken']}?status=up&msg=OK\n"
+        path = "/opt/tetrapod/nullclaw-kuma-push.env"
+        subprocess.run(["sudo", "tee", path], input=env, text=True, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["sudo", "chmod", "600", path], check=True)
+        print(f"push url written to {path}")
+
+    # status page: append everything we know to the (single) group, keep order stable
+    page = api.get_status_page(STATUS_SLUG)
+    groups = page.get("publicGroupList") or [{"name": "services", "weight": 1, "monitorList": []}]
+    shown = {m["id"] for g in groups for m in g.get("monitorList", [])}
+    for m in sorted(existing.values(), key=lambda x: x["name"]):
+        if m["id"] not in shown:
+            groups[0].setdefault("monitorList", []).append({"id": m["id"]})
+            print(f"  → status page: {m['name']}")
+    api.save_status_page(slug=STATUS_SLUG, title=page.get("title") or STATUS_SLUG, publicGroupList=groups)
+
+    api.disconnect()
+    print(f"done. created {len(created)}: {', '.join(created) or 'nothing'}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:  # noqa: BLE001
+        print(f"kuma-provision failed: {e}", file=sys.stderr)
+        sys.exit(1)
