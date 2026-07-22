@@ -5,23 +5,43 @@
   "rewrites": [
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "i.tetraslam.world" }],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+      "has": [
+        {
+          "type": "host",
+          "value": "i.tetraslam.world"
+        }
+      ],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/zip/:path*"
     },
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "i.tetraslam.com" }],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+      "has": [
+        {
+          "type": "host",
+          "value": "i.tetraslam.com"
+        }
+      ],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/zip/:path*"
     },
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "link.tetraslam.world" }],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+      "has": [
+        {
+          "type": "host",
+          "value": "link.tetraslam.world"
+        }
+      ],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/lnk/:path*"
     },
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "link.tetraslam.com" }],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+      "has": [
+        {
+          "type": "host",
+          "value": "link.tetraslam.com"
+        }
+      ],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/lnk/:path*"
     },
     {
       "source": "/kuma-api/:path*",
