@@ -208,6 +208,13 @@ sudo systemctl enable --now restic-backup.timer
 log "docker compose services"
 sudo mkdir -p /opt/tetrapod/factorio
 sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
+sudo mkdir -p /opt/tetrapod/searxng
+sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
+# searxng secret: generate once, survives re-runs
+if [ ! -f /opt/tetrapod/searxng.env ]; then
+  echo "SEARXNG_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/searxng.env >/dev/null
+  sudo chmod 600 /opt/tetrapod/searxng.env
+fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
 
 # code-server at https://tetrapod.<tailnet>.ts.net

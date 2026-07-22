@@ -1,0 +1,16 @@
+# tetrapod searxng: single-user, tailnet-only, agent-friendly.
+# json format is the whole point (nullclaw/scripts hit /search?format=json).
+use_default_settings: true
+
+server:
+  # secret comes from SEARXNG_SECRET in the compose file
+  limiter: false        # single user on a tailnet; rate limiting is noise
+  image_proxy: true
+
+search:
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true
