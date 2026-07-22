@@ -141,6 +141,17 @@ services:
     user: "1000:1000"
     mem_limit: 1g
 
+  flaresolverr:
+    # cloudflare solver for prowlarr — aws IPs get hard CF challenges on most
+    # public indexers (nyaa is the exception)
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8191:8191" # only prowlarr talks to it (via docker dns)
+    environment:
+      LOG_LEVEL: info
+    mem_limit: 1g
+
   code-server:
     image: codercom/code-server:latest # TODO: pin to the digest of the first pull
     restart: unless-stopped
