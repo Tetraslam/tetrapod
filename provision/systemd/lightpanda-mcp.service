@@ -1,0 +1,19 @@
+[Unit]
+Description=lightpanda MCP server (http transport for nullclaw)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tetraslam
+# loopback only: nullclaw is the sole client; CDP on :9222 covers the tailnet
+ExecStart=/usr/local/bin/lightpanda mcp --host 127.0.0.1 --port 9223 --log-format logfmt --log-level warn
+Environment=LIGHTPANDA_DISABLE_TELEMETRY=true
+Restart=always
+RestartSec=2
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

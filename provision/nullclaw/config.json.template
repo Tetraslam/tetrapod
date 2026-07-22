@@ -1,0 +1,63 @@
+{
+  "models": {
+    "providers": {
+      "openrouter": { "api_key": "__OPENROUTER_API_KEY__" }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "openrouter/z-ai/glm-5.2" }
+    }
+  },
+  "channels": {
+    "discord": {
+      "accounts": {
+        "default": {
+          "token": "__DISCORD_BOT_TOKEN__",
+          "intents": 37377,
+          "allow_from": ["__DISCORD_USER_ID__"]
+        }
+      }
+    }
+  },
+  "memory": {
+    "backend": "sqlite",
+    "auto_save": true
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "require_pairing": true
+  },
+  "http_request": {
+    "enabled": true,
+    "search_base_url": "http://localhost:8888",
+    "search_provider": "auto",
+    "search_fallback_providers": ["duckduckgo"]
+  },
+  "autonomy": {
+    "level": "full",
+    "workspace_only": true,
+    "allowed_commands": ["*"],
+    "block_high_risk_commands": true,
+    "block_medium_risk_commands": false,
+    "require_approval_for_medium_risk": false,
+    "max_actions_per_hour": 120
+  },
+  "security": {
+    "sandbox": { "backend": "auto" },
+    "audit": { "enabled": true }
+  },
+  "mcp_servers": {
+    "firecrawl": {
+      "url": "https://mcp.firecrawl.dev/__FIRECRAWL_API_KEY__/v2/mcp"
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    },
+    "lightpanda": {
+      "url": "http://127.0.0.1:9223/mcp"
+    }
+  }
+}

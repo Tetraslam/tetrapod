@@ -206,9 +206,30 @@ if [ ! -x /usr/local/bin/lightpanda ]; then
     https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-linux
   sudo install -m755 /tmp/lightpanda /usr/local/bin/lightpanda && rm /tmp/lightpanda
 fi
-sudo cp "$HERE/systemd/lightpanda.service" /etc/systemd/system/
+sudo cp "$HERE/systemd/lightpanda.service" "$HERE/systemd/lightpanda-mcp.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now lightpanda
+sudo systemctl enable --now lightpanda lightpanda-mcp
+
+# ------------------------------------------------------------------ nullclaw
+
+# pinned release; bump deliberately. config is rendered from the vault by
+# setup-nullclaw.sh (needs opa), so the unit is installed but only started
+# once a config exists.
+log "nullclaw"
+NULLCLAW_VERSION=v2026.5.29
+if [ ! -x /usr/local/bin/nullclaw ]; then
+  curl -fsSL -o /tmp/nullclaw \
+    "https://github.com/nullclaw/nullclaw/releases/download/$NULLCLAW_VERSION/nullclaw-linux-aarch64.bin"
+  sudo install -m755 /tmp/nullclaw /usr/local/bin/nullclaw && rm /tmp/nullclaw
+fi
+sudo cp "$HERE/systemd/nullclaw.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+if [ -f "$HOME/.nullclaw/config.json" ]; then
+  sudo systemctl enable --now nullclaw
+else
+  sudo systemctl enable nullclaw
+  echo "nullclaw: no config yet — run provision/setup-nullclaw.sh after opa is in place"
+fi
 
 # ------------------------------------------------------------------- backups
 
@@ -335,4 +356,6 @@ cat <<'EOF'
   7. agents:         provision/setup-agents.sh (if it was skipped above), then
                      copy opencode auth: (laptop) croc send ~/.local/share/opencode/auth.json
                      and run `claude` once to log in
+  8. nullclaw:       provision/setup-nullclaw.sh (needs opa + op://Agents/
+                     NULLCLAW_DISCORD with token/user_id + OPENROUTER_API_KEY)
 EOF
