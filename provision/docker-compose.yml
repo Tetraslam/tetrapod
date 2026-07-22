@@ -61,6 +61,86 @@ services:
       - /opt/tetrapod/steel/.cache:/app/.cache
     mem_limit: 3g
 
+  # ------------------------------------------------------------ media stack
+  # library + downloads live on the 1TB st1 volume (/srv/media). everything
+  # tailnet-only via the SG. flow: prowlarr feeds indexers to sonarr/radarr,
+  # they grab via qbittorrent into downloads/, import into library/, jellyfin
+  # serves it. pinchflat archives youtube straight into library/youtube.
+
+  jellyfin:
+    image: jellyfin/jellyfin:2026072008
+    restart: unless-stopped
+    ports:
+      - "8096:8096" # http://tetrapod:8096
+    volumes:
+      - /opt/tetrapod/jellyfin/config:/config
+      - /opt/tetrapod/jellyfin/cache:/cache
+      - /srv/media/library:/media:ro
+    user: "1000:1000"
+    mem_limit: 3g
+
+  qbittorrent:
+    image: linuxserver/qbittorrent:5.2.3
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/Los_Angeles
+      WEBUI_PORT: "8081"
+    ports:
+      - "8081:8081"       # webui: http://tetrapod:8081
+      - "6881:6881"       # peers can't reach through the SG; outbound-only is fine
+      - "6881:6881/udp"
+    volumes:
+      - /opt/tetrapod/qbittorrent:/config
+      - /srv/media/downloads:/downloads
+    mem_limit: 1g
+
+  prowlarr:
+    image: linuxserver/prowlarr:2.4.0
+    restart: unless-stopped
+    environment: { PUID: "1000", PGID: "1000", TZ: America/Los_Angeles }
+    ports:
+      - "9696:9696"
+    volumes:
+      - /opt/tetrapod/prowlarr:/config
+    mem_limit: 512m
+
+  sonarr:
+    image: linuxserver/sonarr:4.0.19
+    restart: unless-stopped
+    environment: { PUID: "1000", PGID: "1000", TZ: America/Los_Angeles }
+    ports:
+      - "8989:8989"
+    volumes:
+      - /opt/tetrapod/sonarr:/config
+      - /srv/media:/srv/media # sees downloads/ and library/ at the same paths
+    mem_limit: 1g
+
+  radarr:
+    image: linuxserver/radarr:6.3.0
+    restart: unless-stopped
+    environment: { PUID: "1000", PGID: "1000", TZ: America/Los_Angeles }
+    ports:
+      - "7878:7878"
+    volumes:
+      - /opt/tetrapod/radarr:/config
+      - /srv/media:/srv/media
+    mem_limit: 1g
+
+  pinchflat:
+    image: ghcr.io/kieraneglin/pinchflat:v2025.9.26
+    restart: unless-stopped
+    environment:
+      TZ: America/Los_Angeles
+    ports:
+      - "8945:8945"
+    volumes:
+      - /opt/tetrapod/pinchflat:/config
+      - /srv/media/library/youtube:/downloads
+    user: "1000:1000"
+    mem_limit: 1g
+
   code-server:
     image: codercom/code-server:latest # TODO: pin to the digest of the first pull
     restart: unless-stopped
