@@ -15,7 +15,7 @@
         "default": {
           "token": "__DISCORD_BOT_TOKEN__",
           "intents": 37377,
-          "allow_from": ["__DISCORD_USER_ID__"],
+          "allow_from": ["*"],
           "require_mention": true
         }
       }
