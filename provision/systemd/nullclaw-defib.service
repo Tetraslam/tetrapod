@@ -9,7 +9,7 @@ After=nullclaw.service
 BindsTo=nullclaw.service
 
 [Service]
-ExecStart=/bin/bash -c 'journalctl -fu nullclaw -o cat --since now | grep --line-buffered "message outbound channel=discord" | while read -r _; do sleep 5; systemctl restart nullclaw; done'
+ExecStart=/bin/bash -c 'journalctl -fu nullclaw -o cat --since now | grep --line-buffered "message outbound channel=discord" | while read -r _; do sleep 1; systemctl restart nullclaw; done'
 Restart=always
 RestartSec=5
 
