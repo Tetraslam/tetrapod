@@ -138,6 +138,9 @@ services:
     volumes:
       - /opt/tetrapod/pinchflat:/config
       - /srv/media/library/youtube:/downloads
+      # modern yt-dlp wants a JS runtime for youtube extraction; the image
+      # predates that. single static binary, mounted from the host.
+      - /opt/tetrapod/deno/deno:/usr/local/bin/deno:ro
     user: "1000:1000"
     mem_limit: 1g
 
