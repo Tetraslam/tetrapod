@@ -47,6 +47,20 @@ services:
     cap_add: [CHOWN, SETGID, SETUID]
     mem_limit: 512m
 
+  steel:
+    # heavy fallback when lightpanda's engine trips on a js-heavy page.
+    # only publishes :latest, so pinned by digest (update deliberately).
+    image: ghcr.io/steel-dev/steel-browser-api@sha256:a58dd308875116fd5828c148d02c887075a2fd9dc3216eeeede64dce1277b23b
+    restart: unless-stopped
+    # api + CDP: ws://tetrapod:3003 (sessions api on http://tetrapod:3003)
+    ports:
+      - "3003:3000"
+    environment:
+      CHROME_HEADLESS: "true"
+    volumes:
+      - /opt/tetrapod/steel/.cache:/app/.cache
+    mem_limit: 3g
+
   code-server:
     image: codercom/code-server:latest # TODO: pin to the digest of the first pull
     restart: unless-stopped
