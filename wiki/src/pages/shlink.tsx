@@ -9,7 +9,7 @@ export function ShlinkPage() {
   return (
     <Page
       title="shlink"
-      intro="url shortener, api-only (the container ships no web ui). public short domain pending."
+      intro="url shortener at link.tetraslam.world (+ .com), api-only (the container ships no web ui)."
     >
       <Doc title="create a link">
         <CodeBlock>{`KEY=$(sudo grep -oP 'INITIAL_API_KEY=\\K.*' /opt/tetrapod/shlink.env)
@@ -29,6 +29,12 @@ curl -s http://${host}:8085/rest/v3/short-urls \\
               <TableCell className="text-muted-foreground">db</TableCell>
               <TableCell className="font-mono text-xs">
                 sqlite in /opt/tetrapod/shlink (in backups)
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="text-muted-foreground">public route</TableCell>
+              <TableCell className="font-mono text-xs">
+                vercel host-route → funnel :10000/lnk/ → share-proxy → shlink
               </TableCell>
             </TableRow>
             <TableRow>

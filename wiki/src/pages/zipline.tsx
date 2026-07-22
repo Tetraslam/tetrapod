@@ -5,13 +5,11 @@ import { HOSTS } from "@/config";
 
 export function ZiplinePage() {
   return (
-    <Page
-      title="zipline"
-      intro="screenshot and file host. tailnet-only until the public domain is wired."
-    >
+    <Page title="zipline" intro="screenshot and file host at i.tetraslam.world (+ .com).">
       <Doc title="upload">
         <P>
-          <Ext url={`http://${HOSTS.tetrapod.fqdn}:3200`}>{HOSTS.tetrapod.name}:3200</Ext> — first
+          <Ext url="https://i.tetraslam.world">i.tetraslam.world</Ext> (or tailnet-direct at{" "}
+          <Ext url={`http://${HOSTS.tetrapod.fqdn}:3200`}>{HOSTS.tetrapod.name}:3200</Ext>) — first
           visit creates the admin account. for sharex/flameshot/scripts: settings → api token →{" "}
           <InlineCode>POST /api/upload</InlineCode>.
         </P>
@@ -36,6 +34,12 @@ export function ZiplinePage() {
               <TableCell className="text-muted-foreground">secret</TableCell>
               <TableCell className="font-mono text-xs">
                 /opt/tetrapod/zipline.env (bootstrap-generated)
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="text-muted-foreground">public route</TableCell>
+              <TableCell className="font-mono text-xs">
+                vercel host-route → funnel :10000/zip/ → share-proxy → zipline
               </TableCell>
             </TableRow>
             <TableRow>
