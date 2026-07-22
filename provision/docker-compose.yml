@@ -129,7 +129,7 @@ services:
     mem_limit: 1g
 
   pinchflat:
-    image: ghcr.io/kieraneglin/pinchflat:v2025.9.26
+    image: ghcr.io/kieraneglin/pinchflat:v2025.6.6
     restart: unless-stopped
     environment:
       TZ: America/Los_Angeles
