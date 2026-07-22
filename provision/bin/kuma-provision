@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script --quiet
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["uptime-kuma-api"]
+# dependencies = ["uptime-kuma-api>=1.3"]
 # ///
 """Provision uptime-kuma monitors for every tetrapod service + the status page.
 
@@ -18,6 +18,19 @@ import subprocess
 import sys
 
 from uptime_kuma_api import MonitorType, UptimeKumaApi
+
+# kuma v2 added a NOT NULL `conditions` column; uptime-kuma-api 1.2.x predates
+# it and omits the key, so every add_monitor bounces off the DB constraint.
+_orig_build = UptimeKumaApi._build_monitor_data
+
+
+def _build_with_conditions(self, *args, **kwargs):
+    data = _orig_build(self, *args, **kwargs)
+    data.setdefault("conditions", [])
+    return data
+
+
+UptimeKumaApi._build_monitor_data = _build_with_conditions
 
 KUMA_URL = "https://lighthouse.tailc27667.ts.net"
 OP_ITEM = "op://Agents/Uptime Kuma - Tetrapod"
@@ -58,8 +71,6 @@ def main() -> None:
         if name in existing:
             print(f"  = {name} (exists, id {existing[name]['id']})")
             return existing[name]
-        # kuma v2 added a NOT NULL conditions column the library doesn't send
-        kwargs.setdefault("conditions", [])
         m = api.add_monitor(name=name, **kwargs)
         mid = m["monitorID"]
         existing[name] = {"id": mid, "name": name}
