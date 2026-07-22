@@ -15,7 +15,8 @@
         "default": {
           "token": "__DISCORD_BOT_TOKEN__",
           "intents": 37377,
-          "allow_from": ["__DISCORD_USER_ID__"]
+          "allow_from": ["__DISCORD_USER_ID__"],
+          "require_mention": true
         }
       }
     }
@@ -29,7 +30,8 @@
   },
   "diagnostics": {
     "log_tool_calls": true,
-    "log_message_receipts": true
+    "log_message_receipts": true,
+    "log_message_payloads": true
   },
   "gateway": {
     "host": "127.0.0.1",
