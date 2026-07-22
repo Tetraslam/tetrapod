@@ -6,7 +6,7 @@
   },
   "agents": {
     "defaults": {
-      "model": { "primary": "openrouter/z-ai/glm-5.2:nitro" }
+      "model": { "primary": "openrouter/z-ai/glm-5.2" }
     }
   },
   "channels": {
