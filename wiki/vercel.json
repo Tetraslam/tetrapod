@@ -4,6 +4,26 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "i.tetraslam.world" }],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "i.tetraslam.com" }],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "link.tetraslam.world" }],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "link.tetraslam.com" }],
+      "destination": "https://tetrapod.tailc27667.ts.net:10000/:path*"
+    },
+    {
       "source": "/kuma-api/:path*",
       "destination": "https://tetrapod.tailc27667.ts.net:8443/kuma-api/:path*"
     }

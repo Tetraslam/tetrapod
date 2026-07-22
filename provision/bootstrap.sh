@@ -290,6 +290,9 @@ if [ -d "$REPO/wiki" ]; then
   # none) lives there and would become a public root shell.
   sudo tailscale funnel --bg --https=8443 --set-path /wiki "$REPO/wiki/dist" || true
   sudo tailscale funnel --bg --https=8443 --set-path /kuma-api http://127.0.0.1:3002 || true
+  # zipline + shlink behind i./link.tetraslam.world: vercel host-rewrites to
+  # :10000, share-proxy nginx routes by x-forwarded-host
+  sudo tailscale funnel --bg --https=10000 http://127.0.0.1:3004 || true
 fi
 
 # -------------------------------------------------------------------- agents
