@@ -1,4 +1,4 @@
-import { CodeBlock, InlineCode } from "@/components/code-block";
+import { CodeBlock } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, P, Page, Reference } from "@/components/wiki";
 import { HOSTS } from "@/config";
