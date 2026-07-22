@@ -47,11 +47,23 @@ export default function App() {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+        return;
+      }
+      // j/k page-flipping in sidebar order (rules included at the end)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "j" || e.key === "k") {
+        const current = allPages.findIndex((p) => p.slug === slug);
+        const i = current === -1 ? 0 : current;
+        const next =
+          e.key === "j" ? (i + 1) % allPages.length : (i - 1 + allPages.length) % allPages.length;
+        navigate(allPages[next].slug);
       }
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, []);
+  }, [slug]);
 
   return (
     <TooltipProvider>
