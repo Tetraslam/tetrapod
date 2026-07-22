@@ -59,14 +59,17 @@
   },
   "mcp_servers": {
     "firecrawl": {
-      "url": "https://mcp.firecrawl.dev/__FIRECRAWL_API_KEY__/v2/mcp"
+      "url": "https://mcp.firecrawl.dev/__FIRECRAWL_API_KEY__/v2/mcp",
+      "timeout_ms": 120000
     },
     "context7": {
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "timeout_ms": 30000
     },
     "lightpanda": {
-      "url": "http://127.0.0.1:9223/mcp"
+      "url": "http://127.0.0.1:9223/mcp",
+      "timeout_ms": 60000
     }
   }
 }
