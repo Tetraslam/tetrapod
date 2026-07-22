@@ -2,50 +2,31 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "rewrites": [
+  "routes": [
     {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "i.tetraslam.world"
-        }
-      ],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/zip/:path*"
+      "src": "/(.*)",
+      "has": [{ "type": "host", "value": "i.tetraslam.world" }],
+      "dest": "https://tetrapod.tailc27667.ts.net:10000/zip/$1"
     },
     {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "i.tetraslam.com"
-        }
-      ],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/zip/:path*"
+      "src": "/(.*)",
+      "has": [{ "type": "host", "value": "i.tetraslam.com" }],
+      "dest": "https://tetrapod.tailc27667.ts.net:10000/zip/$1"
     },
     {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "link.tetraslam.world"
-        }
-      ],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/lnk/:path*"
+      "src": "/(.*)",
+      "has": [{ "type": "host", "value": "link.tetraslam.world" }],
+      "dest": "https://tetrapod.tailc27667.ts.net:10000/lnk/$1"
     },
     {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "link.tetraslam.com"
-        }
-      ],
-      "destination": "https://tetrapod.tailc27667.ts.net:10000/lnk/:path*"
+      "src": "/(.*)",
+      "has": [{ "type": "host", "value": "link.tetraslam.com" }],
+      "dest": "https://tetrapod.tailc27667.ts.net:10000/lnk/$1"
     },
     {
-      "source": "/kuma-api/:path*",
-      "destination": "https://tetrapod.tailc27667.ts.net:8443/kuma-api/:path*"
-    }
+      "src": "/kuma-api/(.*)",
+      "dest": "https://tetrapod.tailc27667.ts.net:8443/kuma-api/$1"
+    },
+    { "handle": "filesystem" }
   ]
 }
