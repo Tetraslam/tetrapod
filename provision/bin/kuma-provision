@@ -58,6 +58,8 @@ def main() -> None:
         if name in existing:
             print(f"  = {name} (exists, id {existing[name]['id']})")
             return existing[name]
+        # kuma v2 added a NOT NULL conditions column the library doesn't send
+        kwargs.setdefault("conditions", [])
         m = api.add_monitor(name=name, **kwargs)
         mid = m["monitorID"]
         existing[name] = {"id": mid, "name": name}
