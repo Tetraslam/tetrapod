@@ -7,27 +7,23 @@ const JELLYFIN_URL = `http://${HOSTS.tetrapod.fqdn}:8096`;
 
 export function JellyfinPage() {
   return (
-    <Page
-      title="jellyfin"
-      intro="the media center. everything the pipeline downloads ends up here; tailnet-only, so it's yours and nobody else's."
-    >
+    <Page title="jellyfin" intro="the media center. everything the pipeline downloads lands here.">
       <Doc title="watch">
         <P>
-          <Ext url={JELLYFIN_URL}>{HOSTS.tetrapod.name}:8096</Ext> in a browser, or point any jellyfin app
-          (android/ios/tv) at that address — works anywhere your device is on the tailnet.
+          <Ext url={JELLYFIN_URL}>{HOSTS.tetrapod.name}:8096</Ext> — browser or any jellyfin app on
+          the tailnet. no hardware transcode on graviton: if playback stutters, lower the client
+          quality (direct play is fine).
         </P>
       </Doc>
 
       <Doc title="libraries">
+        <CodeBlock>{`shows    ← arr pipeline      /srv/media/library/shows
+movies   ← arr pipeline      /srv/media/library/movies
+youtube  ← pinchflat         /srv/media/library/youtube`}</CodeBlock>
         <P>
-          three libraries, all reading from the 1TB media volume: shows and movies (fed by the{" "}
-          <WikiLink to="arr">arr pipeline</WikiLink>) and youtube (fed by{" "}
-          <WikiLink to="pinchflat">pinchflat</WikiLink>, added as a shows library with online
-          metadata off — tvdb has opinions about vtubers).
+          youtube is a shows library with internet metadata <em>off</em> — tvdb mismatches youtube
+          content (it once matched a livestream diary to a 1950s variety show).
         </P>
-        <CodeBlock>{`/srv/media/library/shows    → /media/shows   (in-container)
-/srv/media/library/movies   → /media/movies
-/srv/media/library/youtube  → /media/youtube`}</CodeBlock>
       </Doc>
 
       <Reference>
@@ -39,24 +35,23 @@ export function JellyfinPage() {
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">state</TableCell>
-              <TableCell className="font-mono text-xs">
-                /opt/tetrapod/jellyfin (config + cache)
-              </TableCell>
+              <TableCell className="font-mono text-xs">/opt/tetrapod/jellyfin</TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">media mount</TableCell>
-              <TableCell className="font-mono text-xs">/srv/media/library (read-only)</TableCell>
+              <TableCell className="font-mono text-xs">
+                /srv/media/library (ro) · mem cap 3G
+              </TableCell>
             </TableRow>
             <TableRow>
-              <TableCell className="text-muted-foreground">memory cap</TableCell>
-              <TableCell className="font-mono text-xs">3G</TableCell>
+              <TableCell className="text-muted-foreground">feeds</TableCell>
+              <TableCell className="font-mono text-xs">
+                <WikiLink to="arr">arr pipeline</WikiLink> ·{" "}
+                <WikiLink to="pinchflat">pinchflat</WikiLink>
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
-        <P>
-          no hardware transcode on graviton — clients should direct-play. if something transcodes
-          and stutters, lower the client's quality setting instead of blaming the box.
-        </P>
       </Reference>
     </Page>
   );

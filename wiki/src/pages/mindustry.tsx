@@ -5,10 +5,7 @@ import { HOSTS } from "@/config";
 
 export function MindustryPage() {
   return (
-    <Page
-      title="mindustry"
-      intro="because factorio wasn't enough. tailnet-only, same rules: no public IP, no randoms."
-    >
+    <Page title="mindustry" intro="game server, tailnet-only — same access model as factorio.">
       <Doc title="join">
         <Steps>
           <li>mindustry → play → + server → add server</li>

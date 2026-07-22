@@ -9,25 +9,18 @@ export function BrowsersPage() {
   return (
     <Page
       title="browsers"
-      intro="two headless browsers for agents and scripts: lightpanda when you want fast, steel when you want chromium-grade compatibility. try the fast one first."
+      intro="two headless browsers for agents: lightpanda (fast, incomplete engine) and steel (full chromium). try lightpanda first."
     >
-      <Doc title="lightpanda (fast)">
+      <Doc title="lightpanda">
         <P>
-          a from-scratch zig browser — ~10x faster page loads, ~16x less memory than headless
-          chrome. speaks CDP, so puppeteer/playwright just point at it:
+          from-scratch zig browser, ~10x faster and ~16x lighter than headless chrome. speaks CDP:
         </P>
-        <CodeBlock>{`const browser = await puppeteer.connect({ browserWSEndpoint: "ws://${host}:9222" });
-// or one-shot: lightpanda fetch --dump markdown <url>   (on the box)`}</CodeBlock>
-        <P>
-          young engine: js-heavy SPAs can trip it. that's what steel is for. nightly binary — to
-          update, delete <InlineCode>/usr/local/bin/lightpanda</InlineCode> and re-run bootstrap.
-        </P>
+        <CodeBlock>{`puppeteer.connect({ browserWSEndpoint: "ws://${host}:9222" })
+lightpanda fetch --dump markdown <url>      # one-shot, on the box`}</CodeBlock>
+        <P>js-heavy SPAs can trip its young engine — use steel for those.</P>
       </Doc>
 
-      <Doc title="steel (compatible)">
-        <P>
-          real chromium behind an agent-friendly sessions api. slower, heavier, renders everything:
-        </P>
+      <Doc title="steel">
         <CodeBlock>{`curl -X POST http://${host}:3003/v1/scrape \\
   -H 'Content-Type: application/json' \\
   -d '{"url": "https://example.com", "format": ["markdown"]}'`}</CodeBlock>
@@ -39,19 +32,25 @@ export function BrowsersPage() {
             <TableRow>
               <TableCell className="text-muted-foreground">lightpanda CDP</TableCell>
               <TableCell className="font-mono text-xs">
-                ws://{host}:9222 (systemd: lightpanda)
+                ws://{host}:9222 · systemd: lightpanda
               </TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">lightpanda MCP</TableCell>
               <TableCell className="font-mono text-xs">
-                127.0.0.1:9223/mcp (systemd: lightpanda-mcp, nullclaw's copy)
+                127.0.0.1:9223/mcp · systemd: lightpanda-mcp (nullclaw's)
               </TableCell>
             </TableRow>
             <TableRow>
-              <TableCell className="text-muted-foreground">steel api</TableCell>
+              <TableCell className="text-muted-foreground">steel</TableCell>
               <TableCell className="font-mono text-xs">
-                {host}:3003 (compose, digest-pinned — ghcr only ships :latest)
+                {host}:3003 · compose, digest-pinned
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="text-muted-foreground">update lightpanda</TableCell>
+              <TableCell className="font-mono text-xs">
+                rm /usr/local/bin/lightpanda → re-run bootstrap (nightly binary)
               </TableCell>
             </TableRow>
           </TableBody>
