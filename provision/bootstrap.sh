@@ -223,7 +223,10 @@ if [ ! -x /usr/local/bin/nullclaw ]; then
   sudo install -m755 /tmp/nullclaw /usr/local/bin/nullclaw && rm /tmp/nullclaw
 fi
 sudo cp "$HERE/systemd/nullclaw.service" /etc/systemd/system/
+sudo cp "$HERE/systemd/nullclaw-kuma-push.service" "$HERE/systemd/nullclaw-kuma-push.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
+# timer only fires usefully once kuma-provision has written the push env
+[ -f /opt/tetrapod/nullclaw-kuma-push.env ] && sudo systemctl enable --now nullclaw-kuma-push.timer
 if [ -f "$HOME/.nullclaw/config.json" ]; then
   sudo systemctl enable --now nullclaw
 else

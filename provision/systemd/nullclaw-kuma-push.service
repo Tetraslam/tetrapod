@@ -1,0 +1,10 @@
+[Unit]
+Description=push nullclaw health to kuma (gateway is loopback-only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/tetrapod/nullclaw-kuma-push.env
+# only push when the gateway actually answers — a dead gateway means a missed
+# beat, which is exactly what the push monitor is for
+ExecStart=/bin/bash -c 'curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null && curl -fsS -m 10 "$KUMA_PUSH_URL" >/dev/null'
