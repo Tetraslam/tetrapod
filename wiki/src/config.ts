@@ -12,8 +12,8 @@ export const HOSTS = {
     ram: "16 GiB (+8G zram)",
     region: "us-west-2",
     os: "ubuntu 24.04",
-    disk: "100GB gp3",
-    cost: "~$98/mo",
+    disk: "200GB gp3 + 1TB st1 media (/srv/media)",
+    cost: "~$150/mo (incl. disks)",
   },
   lighthouse: {
     name: "lighthouse",
@@ -62,6 +62,8 @@ export const BACKUPS = {
 
 export const OP_ITEMS = [
   { item: "FIRECRAWL_API_KEY", use: "firecrawl mcp + api" },
+  { item: "OpenRouter API Key - experiments", use: "nullclaw brain (glm-5.2)" },
+  { item: "NULLCLAW_DISCORD", use: "nullclaw discord bot token + owner id" },
   { item: "MORPHLLM_API_KEY", use: "morph opencode plugin (via bashrc)" },
   { item: "ANTHROPIC_API_KEY", use: "anthropic api" },
   { item: "RESTIC_BACKUP_TETRAPOD", use: "backup creds, repo, kuma push url" },

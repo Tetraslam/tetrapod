@@ -10,6 +10,21 @@ import {
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
 import { FACTORIO, HOSTS, URLS } from "@/config";
 
+// plain tailnet-http services: one row each, same treatment. anything with a
+// quirk (game ports, websockets, systemd units) gets a hand-written row below.
+const TAILNET_HTTP = [
+  { name: "jellyfin", port: 8096, note: "compose · media stack" },
+  { name: "qbittorrent", port: 8081, note: "compose · media stack" },
+  { name: "prowlarr", port: 9696, note: "compose · media stack" },
+  { name: "sonarr", port: 8989, note: "compose · media stack" },
+  { name: "radarr", port: 7878, note: "compose · media stack" },
+  { name: "pinchflat", port: 8945, note: "compose · media stack" },
+  { name: "searxng", port: 8888, note: "compose · agent stack (json api)" },
+  { name: "steel", port: 3003, note: "compose · agent stack (chromium fallback)" },
+  { name: "zipline", port: 3200, note: "compose · uploads" },
+  { name: "shlink", port: 8085, note: "compose · short links" },
+] as const;
+
 export function ServicesPage() {
   return (
     <Page
@@ -79,6 +94,40 @@ git add -A && git commit -m "..." && git push`}</CodeBlock>
               </TableCell>
               <TableCell className="text-muted-foreground text-xs">
                 docker on lighthouse (cloud-init)
+              </TableCell>
+            </TableRow>
+            {TAILNET_HTTP.map((s) => (
+              <TableRow key={s.name}>
+                <TableCell>{s.name}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <Ext url={`http://${HOSTS.tetrapod.fqdn}:${s.port}`}>
+                    {HOSTS.tetrapod.name}:{s.port}
+                  </Ext>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-xs">{s.note}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell>mindustry</TableCell>
+              <TableCell className="font-mono text-xs">{HOSTS.tetrapod.fqdn}:6567</TableCell>
+              <TableCell className="text-muted-foreground text-xs">
+                compose (temurin jre + pinned server jar)
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>lightpanda</TableCell>
+              <TableCell className="font-mono text-xs">ws://{HOSTS.tetrapod.name}:9222</TableCell>
+              <TableCell className="text-muted-foreground text-xs">
+                systemd · CDP for agents (mcp on :9223, loopback)
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>
+                <WikiLink to="agents">nullclaw</WikiLink>
+              </TableCell>
+              <TableCell className="font-mono text-xs">discord · 127.0.0.1:3000</TableCell>
+              <TableCell className="text-muted-foreground text-xs">
+                systemd · defib workaround for upstream #977
               </TableCell>
             </TableRow>
           </TableBody>
