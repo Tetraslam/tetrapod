@@ -253,6 +253,21 @@ if [ ! -f /opt/tetrapod/searxng.env ]; then
   echo "SEARXNG_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/searxng.env >/dev/null
   sudo chmod 600 /opt/tetrapod/searxng.env
 fi
+# zipline + shlink secrets: same pattern
+if [ ! -f /opt/tetrapod/zipline.env ]; then
+  echo "CORE_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/zipline.env >/dev/null
+  sudo chmod 600 /opt/tetrapod/zipline.env
+fi
+if [ ! -f /opt/tetrapod/shlink.env ]; then
+  echo "INITIAL_API_KEY=$(openssl rand -hex 24)" | sudo tee /opt/tetrapod/shlink.env >/dev/null
+  sudo chmod 600 /opt/tetrapod/shlink.env
+fi
+# mindustry server jar (pinned release, re-download by deleting the jar)
+sudo mkdir -p /opt/tetrapod/mindustry
+if [ ! -f /opt/tetrapod/mindustry/server.jar ]; then
+  sudo curl -fsSL -o /opt/tetrapod/mindustry/server.jar \
+    https://github.com/Anuken/Mindustry/releases/download/v159.7/server-release.jar
+fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
 
 # code-server at https://tetrapod.<tailnet>.ts.net
