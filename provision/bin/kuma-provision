@@ -99,15 +99,26 @@ def main() -> None:
         subprocess.run(["sudo", "chmod", "600", path], check=True)
         print(f"push url written to {path}")
 
-    # status page: append everything we know to the (single) group, keep order stable
-    page = api.get_status_page(STATUS_SLUG)
-    groups = page.get("publicGroupList") or [{"name": "services", "weight": 1, "monitorList": []}]
+    # status page: append everything we know to the (single) group, keep order
+    # stable. read via the public http api — the lib's get_status_page chokes
+    # on kuma v2's response shape ('incident' KeyError).
+    import requests
+
+    resp = requests.get(f"{KUMA_URL}/api/status-page/{STATUS_SLUG}", timeout=15).json()
+    cfg = resp["config"]
+    groups = resp.get("publicGroupList") or [{"name": "services", "weight": 1, "monitorList": []}]
     shown = {m["id"] for g in groups for m in g.get("monitorList", [])}
     for m in sorted(existing.values(), key=lambda x: x["name"]):
         if m["id"] not in shown:
-            groups[0].setdefault("monitorList", []).append({"id": m["id"]})
+            groups[0].setdefault("monitorList", []).append({"id": m["id"], "name": m["name"]})
             print(f"  → status page: {m['name']}")
-    api.save_status_page(slug=STATUS_SLUG, title=page.get("title") or STATUS_SLUG, publicGroupList=groups)
+    api.save_status_page(
+        slug=STATUS_SLUG,
+        id=cfg["id"],
+        title=cfg.get("title") or STATUS_SLUG,
+        theme=cfg.get("theme") if cfg.get("theme") in ("light", "dark") else "dark",
+        publicGroupList=groups,
+    )
 
     api.disconnect()
     print(f"done. created {len(created)}: {', '.join(created) or 'nothing'}")
