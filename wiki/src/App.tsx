@@ -17,6 +17,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -28,7 +29,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FACTORIO, URLS } from "@/config";
 import { href, navigate, useRoute } from "@/lib/route";
-import { allPages, pages, rulesPage } from "@/pages";
+import { allPages, groups, pages, rulesPage } from "@/pages";
 
 const externalLinks = [
   { title: "code-server", url: URLS.codeServer },
@@ -69,22 +70,25 @@ export default function App() {
             </div>
           </SidebarHeader>
           <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {pages.map((p) => (
-                    <SidebarMenuItem key={p.slug}>
-                      <SidebarMenuButton asChild isActive={p.slug === slug} tooltip={p.title}>
-                        <a href={href(p.slug)}>
-                          <p.icon className="size-4" />
-                          <span>{p.title}</span>
-                        </a>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            {groups.map((g) => (
+              <SidebarGroup key={g.label ?? "top"}>
+                {g.label && <SidebarGroupLabel>{g.label}</SidebarGroupLabel>}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {g.pages.map((p) => (
+                      <SidebarMenuItem key={p.slug}>
+                        <SidebarMenuButton asChild isActive={p.slug === slug} tooltip={p.title}>
+                          <a href={href(p.slug)}>
+                            <p.icon className="size-4" />
+                            <span>{p.title}</span>
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            ))}
           </SidebarContent>
           <SidebarFooter>
             <SidebarMenu>
@@ -105,10 +109,10 @@ export default function App() {
         </Sidebar>
 
         <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-          {/* mobile-only: the in-sidebar trigger is unreachable when the sheet is closed */}
-          <SidebarTrigger className="md:hidden" />
-          <button
+          <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
+            {/* mobile-only: the in-sidebar trigger is unreachable when the sheet is closed */}
+            <SidebarTrigger className="md:hidden" />
+            <button
               type="button"
               onClick={() => setPaletteOpen(true)}
               className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent/50"

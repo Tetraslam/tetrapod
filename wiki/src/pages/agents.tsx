@@ -7,7 +7,15 @@ export function AgentsPage() {
   return (
     <Page
       title="agents & ai"
-      intro="opencode and claude code are installed with full user context — agents spawning here know who tetraslam is and what this box is."
+      intro={
+        <>
+          opencode and claude code are installed with full user context — agents spawning here know
+          who tetraslam is and what this box is. the box also has a resident:{" "}
+          <WikiLink to="nullclaw">nullclaw</WikiLink>, with{" "}
+          <WikiLink to="browsers">headless browsers</WikiLink> and{" "}
+          <WikiLink to="searxng">searxng</WikiLink> to lean on.
+        </>
+      }
     >
       <Doc title="run an agent">
         <P>

@@ -13,16 +13,21 @@ import { FACTORIO, HOSTS, URLS } from "@/config";
 // plain tailnet-http services: one row each, same treatment. anything with a
 // quirk (game ports, websockets, systemd units) gets a hand-written row below.
 const TAILNET_HTTP = [
-  { name: "jellyfin", port: 8096, note: "compose · media stack" },
-  { name: "qbittorrent", port: 8081, note: "compose · media stack" },
-  { name: "prowlarr", port: 9696, note: "compose · media stack" },
-  { name: "sonarr", port: 8989, note: "compose · media stack" },
-  { name: "radarr", port: 7878, note: "compose · media stack" },
-  { name: "pinchflat", port: 8945, note: "compose · media stack" },
-  { name: "searxng", port: 8888, note: "compose · agent stack (json api)" },
-  { name: "steel", port: 3003, note: "compose · agent stack (chromium fallback)" },
-  { name: "zipline", port: 3200, note: "compose · uploads" },
-  { name: "shlink", port: 8085, note: "compose · short links" },
+  { name: "jellyfin", page: "jellyfin", port: 8096, note: "compose · media stack" },
+  { name: "qbittorrent", page: "arr", port: 8081, note: "compose · media stack" },
+  { name: "prowlarr", page: "arr", port: 9696, note: "compose · media stack" },
+  { name: "sonarr", page: "arr", port: 8989, note: "compose · media stack" },
+  { name: "radarr", page: "arr", port: 7878, note: "compose · media stack" },
+  { name: "pinchflat", page: "pinchflat", port: 8945, note: "compose · media stack" },
+  { name: "searxng", page: "searxng", port: 8888, note: "compose · agent stack (json api)" },
+  {
+    name: "steel",
+    page: "browsers",
+    port: 3003,
+    note: "compose · agent stack (chromium fallback)",
+  },
+  { name: "zipline", page: "zipline", port: 3200, note: "compose · uploads" },
+  { name: "shlink", page: "shlink", port: 8085, note: "compose · short links" },
 ] as const;
 
 export function ServicesPage() {

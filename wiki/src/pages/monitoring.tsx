@@ -10,11 +10,15 @@ import {
 import { Doc, Ext, P, Page, Reference, Steps, WikiLink } from "@/components/wiki";
 import { FACTORIO, HOSTS, KUMA_API_BASE, KUMA_STATUS_SLUG, URLS } from "@/config";
 
+// only the hand-made monitors are listed here; the 13 service monitors are
+// created by provision/bin/kuma-provision and visible on the status page
 const monitors = [
   { name: "tetrapod", type: "ping", target: "tetrapod" },
   { name: "factorio", type: "tcp", target: `tetrapod:${FACTORIO.rconPort} (rcon)` },
   { name: "code-server", type: "http", target: URLS.codeServer },
   { name: "restic backups", type: "push", target: "25h heartbeat from the backup script" },
+  { name: "nullclaw", type: "push", target: "minutely timer (gateway is loopback-only)" },
+  { name: "everything else", type: "http/tcp", target: "scripted — see below" },
 ];
 
 export function MonitoringPage() {
@@ -29,20 +33,27 @@ export function MonitoringPage() {
       }
     >
       <Doc title="add a monitor">
+        <P>
+          for a new service, don't click through kuma — add it to the list in{" "}
+          <InlineCode>provision/bin/kuma-provision</InlineCode> and run it on the box (idempotent;
+          creds via opa, status-page assignment included):
+        </P>
         <Steps>
           <li>
-            <Ext url={URLS.kuma}>open kuma</Ext> → add new monitor (discord notification is on by
-            default)
+            edit <InlineCode>HTTP_MONITORS</InlineCode> / <InlineCode>TCP_MONITORS</InlineCode> in
+            the script, commit
           </li>
           <li>
-            tailnet hostnames resolve inside kuma (its container uses tailscale dns) — use{" "}
-            <InlineCode>tetrapod</InlineCode>, not IPs
-          </li>
-          <li>
-            add it to the <InlineCode>{KUMA_STATUS_SLUG}</InlineCode> status page so it shows on the{" "}
-            <WikiLink to="home">dashboard</WikiLink>
+            <InlineCode>~/tetrapod/provision/bin/kuma-provision</InlineCode> — new monitors land on
+            the <InlineCode>{KUMA_STATUS_SLUG}</InlineCode> status page, which is what the{" "}
+            <WikiLink to="home">dashboard</WikiLink> renders
           </li>
         </Steps>
+        <P>
+          one-off hand-made monitors still work fine (<Ext url={URLS.kuma}>open kuma</Ext>, tailnet
+          hostnames resolve — use <InlineCode>tetrapod</InlineCode>, not IPs); the script won't
+          touch them.
+        </P>
       </Doc>
 
       <Doc title="the backup dead-man switch">
