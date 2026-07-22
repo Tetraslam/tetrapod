@@ -46,7 +46,7 @@ HTTP_MONITORS = [
     ("sonarr", f"http://{HOST}:8989/ping", None),
     ("radarr", f"http://{HOST}:7878/ping", None),
     ("pinchflat", f"http://{HOST}:8945/", None),
-    ("zipline", f"http://{HOST}:3200/", ["200-399"]),
+    ("zipline", f"http://{HOST}:3200/", ["200-299", "300-399"]),
     ("shlink", f"http://{HOST}:8085/rest/health", None),
     ("lightpanda", f"http://{HOST}:9222/json/version", None),
 ]
