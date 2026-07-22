@@ -12,6 +12,9 @@ WorkingDirectory=/home/tetraslam
 Restart=always
 RestartSec=5
 MemoryMax=2G
+# WORKAROUND (upstream #977): some gateway connections are born deaf, so
+# recycle at most every 10 min even without traffic. delete with the defib.
+RuntimeMaxSec=600
 
 [Install]
 WantedBy=multi-user.target
