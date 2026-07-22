@@ -13,7 +13,11 @@ IAM, since claude models run from there.
 - **instance:** `t4g.xlarge` (4 vcpu graviton2, 16 GiB, ~$98/mo on-demand) in us-west-2
 - **lighthouse:** second tiny instance, `t4g.micro` (~$6.60/mo), running uptime-kuma via cloud-init alone — watches tetrapod from outside so kuma can report tetrapod's own death. alerts via discord webhook
 - **research cpu:** AWS Batch Spot environment, x86 compute-optimized workers, scales from zero to 256 vCPUs; isolated from both persistent VMs
-- **disk:** 100GB gp3 root (3000 IOPS), daily DLM snapshots, keep 30
+- **disk:** 200GB gp3 root (3000 IOPS), daily DLM snapshots, keep 30; plus a
+  1TB st1 media volume at `/srv/media` (no snapshots — media is re-downloadable;
+  grow online via `tetrapod:mediaVolumeGb` + `growpart`-less `resize2fs`, st1
+  grows but never shrinks; no partition table, so growing is just
+  `pulumi up && resize2fs /dev/nvme1n1`)
 - **iac:** pulumi + python (uv), state self-hosted on tigris (`s3://` backend, no pulumi cloud — keeps work pulumi org untouched; backend pinned in `Pulumi.yaml`)
 - **secrets:** passphrase secrets provider, passphrase + everything else via 1password (`opa`, the promptless agents-vault wrapper from rice)
 - **network:** tailscale with tailscale-ssh; public ingress is udp 41641 only (ssh 22 behind a pulumi flag, default off; break-glass via SSM/serial console)
@@ -214,7 +218,7 @@ boring plumbing an always-on headless box wants:
 - [x] zram swap (zram-tools, 8G) — rice has zram-generator for a reason; minecraft's 6G heap + hermes on 16GB wants a cushion before the OOM killer picks a victim
 - [x] log caps — journald `SystemMaxUse=1G` + docker `daemon.json` log rotation (`max-size=50m`). always-on boxes die of full disks more often than anything else
 - [x] memory limit on the factorio container (4G cap) so a runaway save can't take out hermes
-- [x] aws budget alert in pulumi (~$150/mo threshold → email). cheap insurance for "oops the IaC made three of something"
+- [x] aws budget alert in pulumi ($500/mo threshold → email). cheap insurance for "oops the IaC made three of something"
 - [x] EC2 serial console + SSM as break-glass — with public 22 gone, if tailscale ever breaks you need *some* door. SSM instance profile is already planned; this is just "don't delete it later"
 - [x] restic timer pings a kuma push monitor on lighthouse — backups that silently stop are worse than no backups
 - [x] external "is tetrapod up" monitor — solved by lighthouse

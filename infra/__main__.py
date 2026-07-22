@@ -14,6 +14,7 @@ cfg = pulumi.Config()
 INSTANCE_TYPE = cfg.get("instanceType") or "t4g.xlarge"
 LIGHTHOUSE_TYPE = cfg.get("lighthouseType") or "t4g.micro"
 ROOT_GB = cfg.get_int("rootVolumeGb") or 100
+MEDIA_GB = cfg.get_int("mediaVolumeGb") or 1024  # st1 HDD, grows online, never shrinks
 SSH_PUBLIC_KEY = cfg.require("sshPublicKey")
 TS_AUTH_KEY = cfg.require_secret("tailscaleAuthKey")  # reusable + pre-approved key
 BUDGET_EMAIL = cfg.get("budgetEmail")
@@ -145,6 +146,27 @@ tetrapod = aws.ec2.Instance(
     ),
     tags={"Name": "tetrapod", "Project": "tetrapod"},
     opts=pulumi.ResourceOptions(protect=True, ignore_changes=["ami", "userData"]),
+)
+
+# media library volume: st1 throughput HDD (linear reads, jellyfin-grade).
+# deliberately NOT tagged Backup=tetrapod — media is re-downloadable, DLM
+# snapshotting a terabyte of anime would cost more than the disk. restic
+# covers the configs; this volume covers itself by being replaceable.
+media_volume = aws.ebs.Volume(
+    "tetrapod-media",
+    availability_zone=tetrapod.availability_zone,
+    size=MEDIA_GB,
+    type="st1",
+    encrypted=True,
+    tags={"Name": "tetrapod-media", "Project": "tetrapod"},
+    opts=pulumi.ResourceOptions(protect=True),
+)
+aws.ec2.VolumeAttachment(
+    "tetrapod-media",
+    device_name="/dev/sdf",  # shows up as /dev/nvme1n1 on nitro
+    volume_id=media_volume.id,
+    instance_id=tetrapod.id,
+    stop_instance_before_detaching=True,
 )
 
 lighthouse = aws.ec2.Instance(
@@ -392,6 +414,7 @@ if BUDGET_EMAIL:
 
 pulumi.export("tetrapod_id", tetrapod.id)
 pulumi.export("tetrapod_public_ip", tetrapod.public_ip)
+pulumi.export("tetrapod_media_volume_id", media_volume.id)
 pulumi.export("lighthouse_id", lighthouse.id)
 pulumi.export("lighthouse_public_ip", lighthouse.public_ip)
 pulumi.export("hn_batch_max_vcpus", BATCH_MAX_VCPUS)

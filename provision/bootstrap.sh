@@ -175,6 +175,27 @@ sudo systemctl restart docker
 printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' |
   sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
 
+# -------------------------------------------------------------- media volume
+
+# 1TB st1 EBS volume from pulumi (tetrapod-media), attached at /dev/sdf →
+# /dev/nvme1n1 on nitro. format-once, mount at /srv/media. nofail so a
+# detached volume never blocks boot.
+log "media volume (/srv/media)"
+if [ -b /dev/nvme1n1 ]; then
+  if ! blkid /dev/nvme1n1 >/dev/null 2>&1; then
+    sudo mkfs.ext4 -m 0 -L media /dev/nvme1n1
+  fi
+  sudo mkdir -p /srv/media
+  grep -q 'LABEL=media' /etc/fstab ||
+    echo 'LABEL=media /srv/media ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab >/dev/null
+  sudo systemctl daemon-reload
+  mountpoint -q /srv/media || sudo mount /srv/media
+  sudo chown tetraslam:tetraslam /srv/media
+  mkdir -p /srv/media/{library/{shows,movies,youtube},downloads/{complete,incomplete}}
+else
+  log "no /dev/nvme1n1 — media volume not attached, skipping"
+fi
+
 # ------------------------------------------------------------------- backups
 
 log "restic timer"

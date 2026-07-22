@@ -7,3 +7,5 @@ config:
   tetrapod:batchRootVolumeGb: "100"
   tetrapod:tailscaleAuthKey:
     secure: v1:7cPbCLYql30zlcNJ:eeevcHblCA/lTNFmttRZLVJkt05kpZRI2avHvAouBNuSX3JegdCHtb00W8w86s1TbMvmlEmEzoa3M7jkj9GUrTLYoIMI+s9rss9SB6vg
+  tetrapod:rootVolumeGb: "200"
+  tetrapod:budgetLimit: "500"
