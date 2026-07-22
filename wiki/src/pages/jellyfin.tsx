@@ -3,7 +3,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
 import { HOSTS } from "@/config";
 
-const URL = `http://${HOSTS.tetrapod.fqdn}:8096`;
+const JELLYFIN_URL = `http://${HOSTS.tetrapod.fqdn}:8096`;
 
 export function JellyfinPage() {
   return (
@@ -13,7 +13,7 @@ export function JellyfinPage() {
     >
       <Doc title="watch">
         <P>
-          <Ext url={URL}>{HOSTS.tetrapod.name}:8096</Ext> in a browser, or point any jellyfin app
+          <Ext url={JELLYFIN_URL}>{HOSTS.tetrapod.name}:8096</Ext> in a browser, or point any jellyfin app
           (android/ios/tv) at that address — works anywhere your device is on the tailnet.
         </P>
       </Doc>
