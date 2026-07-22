@@ -1,0 +1,21 @@
+[Unit]
+Description=lightpanda CDP server (headless browser for agents)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tetraslam
+# 0.0.0.0 = tailnet-reachable only (SG admits nothing else).
+# clients connect via ws://tetrapod:9222 (puppeteer/playwright browserWSEndpoint)
+ExecStart=/usr/local/bin/lightpanda serve --host 0.0.0.0 --port 9222 --log-format logfmt --log-level warn
+Environment=LIGHTPANDA_DISABLE_TELEMETRY=true
+Restart=always
+RestartSec=2
+# beta software with explicit memory control, but belt and suspenders
+MemoryMax=2G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -196,6 +196,20 @@ else
   log "no /dev/nvme1n1 — media volume not attached, skipping"
 fi
 
+# ---------------------------------------------------------------- lightpanda
+
+# nightly aarch64 binary (glibc, fine on ubuntu). no auto-update: re-download
+# deliberately by deleting the binary and re-running bootstrap.
+log "lightpanda CDP server"
+if [ ! -x /usr/local/bin/lightpanda ]; then
+  curl -fsSL -o /tmp/lightpanda \
+    https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-linux
+  sudo install -m755 /tmp/lightpanda /usr/local/bin/lightpanda && rm /tmp/lightpanda
+fi
+sudo cp "$HERE/systemd/lightpanda.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now lightpanda
+
 # ------------------------------------------------------------------- backups
 
 log "restic timer"
