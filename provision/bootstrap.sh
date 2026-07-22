@@ -246,7 +246,8 @@ sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
 sudo mkdir -p /opt/tetrapod/searxng
 sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
 # media stack state dirs (uid 1000 across the board)
-sudo mkdir -p /opt/tetrapod/{jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat}
+sudo mkdir -p /opt/tetrapod/{jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat} /opt/tetrapod/{zipline/{uploads,public,db},shlink}
+sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
 sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,qbittorrent,prowlarr,sonarr,radarr,pinchflat}
 # searxng secret: generate once, survives re-runs
 if [ ! -f /opt/tetrapod/searxng.env ]; then
