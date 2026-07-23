@@ -27,9 +27,10 @@ chmod 600 "$HOME/.nullclaw/config.json"
 WS="$HOME/.nullclaw/workspace"
 mkdir -p "$WS/context"
 cp "$HERE/nullclaw/workspace/"*.md "$WS/"
+cp "$HERE/nullclaw/workspace/context/"*.md "$WS/context/"
 MEM="$HOME/.claude/projects/-home-tetraslam/memory"
 if [ -d "$MEM" ]; then
-  for f in user_profile user_deep_profile feedback_style reference_homelab; do
+  for f in reference_homelab; do
     [ -f "$MEM/$f.md" ] && cp "$MEM/$f.md" "$WS/context/"
   done
 else

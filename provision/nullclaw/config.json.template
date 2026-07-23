@@ -16,7 +16,8 @@
           "token": "__DISCORD_BOT_TOKEN__",
           "intents": 37377,
           "allow_from": ["*"],
-          "require_mention": true
+          "require_mention": true,
+          "mention_exempt_channels": ["1475401568173162578"]
         }
       }
     }
