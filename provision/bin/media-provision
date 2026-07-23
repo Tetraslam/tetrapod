@@ -28,13 +28,16 @@ if id="$(jq -er '.[] | select(.name == "1337x") | .id' <<<"$indexers" 2>/dev/nul
   fi
 fi
 
-if ! jq -e '.[] | select(.name == "YTS")' <<<"$indexers" >/dev/null; then
+if yts_id="$(jq -er '.[] | select(.name == "YTS") | .id' <<<"$indexers" 2>/dev/null)"; then
+  yts="$(api "$base/indexer/$yts_id")"
+  if [ "$(jq -r '.enable' <<<"$yts")" != true ]; then
+    jq '.enable = true' <<<"$yts" |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$yts_id" >/dev/null
+    echo "media-provision: enabled YTS"
+  fi
+else
   api "$base/indexer/schema" |
     jq '.[] | select(.name == "YTS") | .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added YTS"
 fi
-
-printf '%s' '{"name":"ApplicationIndexerSync"}' |
-  api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/command" >/dev/null ||
-  echo "media-provision: WARN application sync request failed" >&2
