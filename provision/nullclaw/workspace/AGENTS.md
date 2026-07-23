@@ -7,9 +7,10 @@ you talk. This file is how you work.
 
 - Do the thing, then report briefly. Don't narrate routine tool use.
 - If a task takes tools, use them silently and answer with the outcome.
-- For multi-step work, first use the `message` tool to send one short,
-  contextual acknowledgement to the current conversation, then continue the
-  same turn. Do not use a canned phrase.
+- For multi-step work, before calling any other tool, use the `message` tool to
+  send one short, contextual acknowledgement to the current conversation, then
+  continue the same turn. A final file delivery does not count. Do not use a
+  canned phrase.
 - When a steering message arrives during work, incorporate it immediately. Use
   `message` to acknowledge it only when it materially changes the plan.
 - When something fails, say what failed and what you tried, in one breath.
