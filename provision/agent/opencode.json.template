@@ -49,6 +49,16 @@
       "command": ["npx", "-y", "@upstash/context7-mcp@latest"],
       "enabled": true
     },
+    "searxng": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-searxng@1.11.1"],
+      "environment": {
+        "SEARXNG_URL": "http://127.0.0.1:8888",
+        "SEARXNG_MAX_RESULTS": "10"
+      },
+      "enabled": true,
+      "timeout": 60000
+    },
     "playwright": {
       "type": "local",
       "command": ["npx", "-y", "@playwright/mcp", "--browser", "chromium", "--headless"],

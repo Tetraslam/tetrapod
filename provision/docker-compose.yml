@@ -211,6 +211,19 @@ services:
       - /opt/tetrapod/shlink:/etc/shlink/data
     mem_limit: 512m
 
+  shlink-web:
+    image: shlinkio/shlink-web-client:4.8.0
+    restart: unless-stopped
+    ports:
+      - "8086:8080" # tailnet-only management UI
+    environment:
+      SHLINK_SERVER_URL: https://link.tetraslam.world
+      SHLINK_SERVER_NAME: tetrapod
+    env_file:
+      - /opt/tetrapod/shlink.env
+    depends_on: [shlink]
+    mem_limit: 128m
+
   flaresolverr:
     # cloudflare solver for prowlarr — aws IPs get hard CF challenges on most
     # public indexers (nyaa is the exception)

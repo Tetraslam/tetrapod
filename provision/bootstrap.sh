@@ -146,6 +146,8 @@ cp "$HERE/dotfiles/gitconfig" ~/.config/git/config
 cp "$HERE/dotfiles/mise/config.toml" ~/.config/mise/config.toml
 sudo install -m755 "$HERE/bin/opa" /usr/local/bin/opa
 sudo install -m755 "$HERE/bin/restic-backup" /usr/local/bin/restic-backup
+sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
+sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
 
 # ------------------------------------------------------------------ runtimes
 
@@ -266,6 +268,14 @@ if [ ! -f /opt/tetrapod/shlink.env ]; then
   echo "INITIAL_API_KEY=$(openssl rand -hex 24)" | sudo tee /opt/tetrapod/shlink.env >/dev/null
   sudo chmod 600 /opt/tetrapod/shlink.env
 fi
+# The web client expects the same key under its own variable name. It is exposed
+# only on the tailnet; like every browser-only Shlink client, it serves the key
+# to authenticated network users.
+if ! sudo grep -q '^SHLINK_SERVER_API_KEY=' /opt/tetrapod/shlink.env; then
+  SHLINK_KEY="$(sudo sed -n 's/^INITIAL_API_KEY=//p' /opt/tetrapod/shlink.env)"
+  printf 'SHLINK_SERVER_API_KEY=%s\n' "$SHLINK_KEY" | sudo tee -a /opt/tetrapod/shlink.env >/dev/null
+  unset SHLINK_KEY
+fi
 # mindustry server jar (pinned release, re-download by deleting the jar)
 sudo mkdir -p /opt/tetrapod/mindustry
 if [ ! -f /opt/tetrapod/mindustry/server.jar ]; then
@@ -273,6 +283,7 @@ if [ ! -f /opt/tetrapod/mindustry/server.jar ]; then
     https://github.com/Anuken/Mindustry/releases/download/v159.7/server-release.jar
 fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
+media-provision || echo "WARN: media indexer provisioning failed"
 
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true

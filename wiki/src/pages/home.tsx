@@ -4,10 +4,41 @@ import { Ext, P, WikiLink } from "@/components/wiki";
 import { URLS } from "@/config";
 
 const quick = [
-  { title: "code-server", desc: "vscode in the browser", url: URLS.codeServer },
-  { title: "uptime-kuma", desc: "monitors + alert history", url: URLS.kuma },
-  { title: "repo", desc: "IaC, provisioning, this wiki", url: URLS.repo },
-];
+  {
+    title: "make",
+    links: [
+      ["code", URLS.codeServer],
+      ["upload", URLS.zipline],
+      ["shorten", URLS.shlinkWeb],
+    ],
+  },
+  {
+    title: "media",
+    links: [
+      ["watch", URLS.jellyfin],
+      ["shows", URLS.sonarr],
+      ["movies", URLS.radarr],
+      ["youtube", URLS.pinchflat],
+      ["downloads", URLS.qbittorrent],
+      ["indexers", URLS.prowlarr],
+    ],
+  },
+  {
+    title: "agents",
+    links: [
+      ["search", URLS.searxng],
+      ["browser", URLS.steel],
+    ],
+  },
+  {
+    title: "operate",
+    links: [
+      ["status", URLS.kuma],
+      ["services", "#/services"],
+      ["repo", URLS.repo],
+    ],
+  },
+] as const;
 
 export function HomePage() {
   return (
@@ -22,31 +53,39 @@ export function HomePage() {
       </header>
 
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg tracking-tight">status</h2>
-        <KumaStatus />
-      </section>
-
-      <section className="space-y-3">
         <h2 className="font-semibold text-lg tracking-tight">specs</h2>
         <Neofetch />
       </section>
 
       <section className="space-y-3">
         <h2 className="font-semibold text-lg tracking-tight">quick links</h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          {quick.map((q) => (
-            <a
-              key={q.title}
-              href={q.url}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border bg-card p-4 transition-colors hover:bg-accent/50"
-            >
-              <div className="font-medium text-sm">{q.title}</div>
-              <div className="mt-1 text-muted-foreground text-xs">{q.desc}</div>
-            </a>
+        <div className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 lg:grid-cols-4">
+          {quick.map((group) => (
+            <div key={group.title} className="bg-background p-3">
+              <h3 className="mb-2 font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
+                {group.title}
+              </h3>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {group.links.map(([label, url]) => (
+                  <a
+                    key={label}
+                    href={url}
+                    target={url.startsWith("#") ? undefined : "_blank"}
+                    rel={url.startsWith("#") ? undefined : "noreferrer"}
+                    className="text-sm underline decoration-muted-foreground/40 underline-offset-3 hover:decoration-foreground"
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg tracking-tight">status</h2>
+        <KumaStatus />
       </section>
     </article>
   );

@@ -14,7 +14,7 @@ const host = HOSTS.tetrapod.name;
 const fqdn = HOSTS.tetrapod.fqdn;
 
 const PARTS = [
-  { name: "prowlarr", port: 9696, role: "indexers (nyaa direct; cf ones via flaresolverr)" },
+  { name: "prowlarr", port: 9696, role: "indexers (nyaa for anime, yts for movies)" },
   { name: "sonarr", port: 8989, role: "tv + anime" },
   { name: "radarr", port: 7878, role: "movies" },
   { name: "qbittorrent", port: 8081, role: "downloads (no login on tailnet)" },
@@ -81,7 +81,7 @@ export function ArrPage() {
             <TableRow>
               <TableCell className="text-muted-foreground">quirks set once</TableCell>
               <TableCell className="font-mono text-xs">
-                size floors zeroed (hevc anime) · seed ratio 2 · 1337x/eztv benched
+                size floors zeroed (hevc anime) · seed ratio 2 · 1337x disabled (AWS IP blocked)
               </TableCell>
             </TableRow>
           </TableBody>

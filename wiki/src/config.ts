@@ -30,6 +30,17 @@ export const URLS = {
   wikiPublic: "https://wiki.tetraslam.world", // + wiki.tetraslam.com (vercel, kuma-api rewritten to the funnel)
   kuma: `https://${HOSTS.lighthouse.fqdn}`,
   repo: "https://github.com/tetraslam/tetrapod",
+  jellyfin: `http://${HOSTS.tetrapod.fqdn}:8096`,
+  qbittorrent: `http://${HOSTS.tetrapod.fqdn}:8081`,
+  prowlarr: `http://${HOSTS.tetrapod.fqdn}:9696`,
+  sonarr: `http://${HOSTS.tetrapod.fqdn}:8989`,
+  radarr: `http://${HOSTS.tetrapod.fqdn}:7878`,
+  pinchflat: `http://${HOSTS.tetrapod.fqdn}:8945`,
+  searxng: `http://${HOSTS.tetrapod.fqdn}:8888`,
+  steel: `http://${HOSTS.tetrapod.fqdn}:3003`,
+  zipline: "https://i.tetraslam.world",
+  shlink: "https://link.tetraslam.world",
+  shlinkWeb: `http://${HOSTS.tetrapod.fqdn}:8086`,
 } as const;
 
 // uptime-kuma status page (create in kuma: Status Pages -> New -> slug below,

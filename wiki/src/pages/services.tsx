@@ -10,31 +10,121 @@ import {
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
 import { FACTORIO, HOSTS, URLS } from "@/config";
 
-// plain tailnet-http services: one row each, same treatment. anything with a
-// quirk (game ports, websockets, systemd units) gets a hand-written row below.
-const TAILNET_HTTP = [
-  { name: "jellyfin", page: "jellyfin", port: 8096, note: "compose · media stack" },
-  { name: "qbittorrent", page: "arr", port: 8081, note: "compose · media stack" },
-  { name: "prowlarr", page: "arr", port: 9696, note: "compose · media stack" },
-  { name: "sonarr", page: "arr", port: 8989, note: "compose · media stack" },
-  { name: "radarr", page: "arr", port: 7878, note: "compose · media stack" },
-  { name: "pinchflat", page: "pinchflat", port: 8945, note: "compose · media stack" },
-  { name: "searxng", page: "searxng", port: 8888, note: "compose · agent stack (json api)" },
+const services = [
+  {
+    name: "factorio",
+    page: "factorio",
+    address: FACTORIO.connectAddress,
+    purpose: "persistent multiplayer factory",
+  },
+  {
+    name: "code-server",
+    url: URLS.codeServer,
+    address: HOSTS.tetrapod.fqdn,
+    purpose: "VS Code in the browser",
+  },
+  {
+    name: "this wiki",
+    url: URLS.wikiPublic,
+    address: "wiki.tetraslam.world",
+    purpose: "machine docs and dashboard",
+  },
+  {
+    name: "uptime-kuma",
+    url: URLS.kuma,
+    address: HOSTS.lighthouse.fqdn,
+    purpose: "health checks and alert history",
+  },
+  {
+    name: "jellyfin",
+    url: URLS.jellyfin,
+    address: "tetrapod:8096",
+    purpose: "watch movies, shows, and YouTube",
+  },
+  {
+    name: "qbittorrent",
+    url: URLS.qbittorrent,
+    address: "tetrapod:8081",
+    purpose: "torrent downloads",
+  },
+  {
+    name: "prowlarr",
+    url: URLS.prowlarr,
+    address: "tetrapod:9696",
+    purpose: "search indexers for the arr apps",
+  },
+  {
+    name: "sonarr",
+    url: URLS.sonarr,
+    address: "tetrapod:8989",
+    purpose: "find and organize shows + anime",
+  },
+  {
+    name: "radarr",
+    url: URLS.radarr,
+    address: "tetrapod:7878",
+    purpose: "find and organize movies",
+  },
+  {
+    name: "pinchflat",
+    url: URLS.pinchflat,
+    address: "tetrapod:8945",
+    purpose: "archive YouTube channels",
+  },
+  {
+    name: "searxng",
+    url: URLS.searxng,
+    address: "tetrapod:8888",
+    purpose: "private web search for people + agents",
+  },
   {
     name: "steel",
-    page: "browsers",
-    port: 3003,
-    note: "compose · agent stack (chromium fallback)",
+    url: URLS.steel,
+    address: "tetrapod:3003",
+    purpose: "full Chromium for difficult agent browsing",
   },
-  { name: "zipline", page: "zipline", port: 3200, note: "compose · uploads" },
-  { name: "shlink", page: "shlink", port: 8085, note: "compose · short links" },
+  {
+    name: "zipline",
+    url: URLS.zipline,
+    address: "i.tetraslam.world",
+    purpose: "upload and share files + screenshots",
+  },
+  {
+    name: "shlink",
+    url: URLS.shlinkWeb,
+    address: "link.tetraslam.world",
+    purpose: "short links and visit analytics",
+  },
+  {
+    name: "mindustry",
+    address: `${HOSTS.tetrapod.fqdn}:6567`,
+    purpose: "persistent multiplayer server",
+  },
+  {
+    name: "lightpanda",
+    page: "browsers",
+    address: "ws://tetrapod:9222",
+    purpose: "fast browser engine for agents",
+  },
+  {
+    name: "nullclaw",
+    page: "nullclaw",
+    address: "Discord",
+    purpose: "tetrapod's social agent",
+  },
 ] as const;
+
+function ServiceName({ service }: { service: (typeof services)[number] }) {
+  if ("url" in service) return <Ext url={service.url}>{service.name}</Ext>;
+  if ("page" in service) return <WikiLink to={service.page}>{service.name}</WikiLink>;
+  return service.name;
+}
 
 export function ServicesPage() {
   return (
     <Page
       title="services"
-      intro="everything user-facing runs in docker compose; tailscale serve handles https. no watchtower — image tags are pinned, updates are deliberate."
+      intro="the things tetrapod runs, what each one is for, and where to open it. web links are tailnet-only unless they use a public tetraslam.world domain."
     >
       <Doc title="change a service">
         <P>
@@ -45,96 +135,34 @@ $EDITOR provision/docker-compose.yml
 sudo docker compose -f provision/docker-compose.yml up -d
 git add -A && git commit -m "..." && git push`}</CodeBlock>
         <P>
-          the repo is the source of truth — ad-hoc changes on the box get lost on rebuild (see{" "}
+          the repo is the source of truth. ad-hoc changes on the box get lost on rebuild (see{" "}
           <WikiLink to="rules">rules</WikiLink>).
         </P>
       </Doc>
 
       <Reference>
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead>service</TableHead>
-              <TableHead>address</TableHead>
-              <TableHead>runs as</TableHead>
+              <TableHead className="w-32">service</TableHead>
+              <TableHead className="w-44">address</TableHead>
+              <TableHead>what it does</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow>
-              <TableCell>
-                <WikiLink to="factorio">factorio</WikiLink>
-              </TableCell>
-              <TableCell className="font-mono text-xs">{FACTORIO.connectAddress}</TableCell>
-              <TableCell className="text-muted-foreground text-xs">compose (tetrapod)</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>code-server</TableCell>
-              <TableCell className="font-mono text-xs">
-                <Ext url={URLS.codeServer}>{HOSTS.tetrapod.fqdn}</Ext>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-xs">compose → serve :8443</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>this wiki</TableCell>
-              <TableCell className="font-mono text-xs">
-                <Ext url={URLS.wikiPublic}>wiki.tetraslam.world</Ext> · {URLS.wiki}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                vercel (public) + serve /wiki (tailnet), same source
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>kuma api proxy</TableCell>
-              <TableCell className="font-mono text-xs">/kuma-api → lighthouse</TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                nginx (compose) → serve path
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>
-                <WikiLink to="monitoring">uptime-kuma</WikiLink>
-              </TableCell>
-              <TableCell className="font-mono text-xs">
-                <Ext url={URLS.kuma}>{HOSTS.lighthouse.fqdn}</Ext>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                docker on lighthouse (cloud-init)
-              </TableCell>
-            </TableRow>
-            {TAILNET_HTTP.map((s) => (
-              <TableRow key={s.name}>
-                <TableCell>{s.name}</TableCell>
-                <TableCell className="font-mono text-xs">
-                  <Ext url={`http://${HOSTS.tetrapod.fqdn}:${s.port}`}>
-                    {HOSTS.tetrapod.name}:{s.port}
-                  </Ext>
+            {services.map((service) => (
+              <TableRow key={service.name}>
+                <TableCell className="whitespace-normal">
+                  <ServiceName service={service} />
                 </TableCell>
-                <TableCell className="text-muted-foreground text-xs">{s.note}</TableCell>
+                <TableCell className="break-words font-mono text-xs whitespace-normal">
+                  {service.address}
+                </TableCell>
+                <TableCell className="text-muted-foreground text-xs whitespace-normal">
+                  {service.purpose}
+                </TableCell>
               </TableRow>
             ))}
-            <TableRow>
-              <TableCell>mindustry</TableCell>
-              <TableCell className="font-mono text-xs">{HOSTS.tetrapod.fqdn}:6567</TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                compose (temurin jre + pinned server jar)
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>lightpanda</TableCell>
-              <TableCell className="font-mono text-xs">ws://{HOSTS.tetrapod.name}:9222</TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                systemd · CDP for agents (mcp on :9223, loopback)
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell>
-                <WikiLink to="agents">nullclaw</WikiLink>
-              </TableCell>
-              <TableCell className="font-mono text-xs">discord · 127.0.0.1:3000</TableCell>
-              <TableCell className="text-muted-foreground text-xs">
-                systemd · defib workaround for upstream #977
-              </TableCell>
-            </TableRow>
           </TableBody>
         </Table>
       </Reference>

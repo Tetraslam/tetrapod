@@ -1,21 +1,22 @@
-import { CodeBlock } from "@/components/code-block";
+import { CodeBlock, InlineCode } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { Doc, Page, Reference } from "@/components/wiki";
-import { HOSTS } from "@/config";
-
-const host = HOSTS.tetrapod.name;
+import { Doc, Ext, P, Page, Reference } from "@/components/wiki";
+import { URLS } from "@/config";
 
 export function ShlinkPage() {
   return (
     <Page
       title="shlink"
-      intro="url shortener at link.tetraslam.world (+ .com), api-only (the container ships no web ui)."
+      intro="short links and visit analytics at link.tetraslam.world (+ .com), with a tiny CLI and a tailnet-only management UI."
     >
       <Doc title="create a link">
-        <CodeBlock>{`KEY=$(sudo grep -oP 'INITIAL_API_KEY=\\K.*' /opt/tetrapod/shlink.env)
-curl -s http://${host}:8085/rest/v3/short-urls \\
-  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \\
-  -d '{"longUrl": "https://example.com/long/thing"}' | jq -r .shortUrl`}</CodeBlock>
+        <CodeBlock>{`shlink https://example.com/long/thing
+shlink https://example.com/long/thing memorable-slug`}</CodeBlock>
+        <P>
+          open <Ext url={URLS.shlinkWeb}>the web client</Ext> to manage links, tags, redirects,
+          visits, and server settings. the laptop command securely runs against tetrapod over SSH;
+          the API key stays on the box.
+        </P>
       </Doc>
 
       <Reference>
@@ -38,9 +39,15 @@ curl -s http://${host}:8085/rest/v3/short-urls \\
               </TableCell>
             </TableRow>
             <TableRow>
+              <TableCell className="text-muted-foreground">web client</TableCell>
+              <TableCell className="font-mono text-xs">
+                <Ext url={URLS.shlinkWeb}>tetrapod:8086</Ext> · shlink-web-client:4.8.0
+              </TableCell>
+            </TableRow>
+            <TableRow>
               <TableCell className="text-muted-foreground">api key</TableCell>
               <TableCell className="font-mono text-xs">
-                /opt/tetrapod/shlink.env · health: GET /rest/health
+                <InlineCode>/opt/tetrapod/shlink.env</InlineCode> · health: GET /rest/health
               </TableCell>
             </TableRow>
           </TableBody>

@@ -1,4 +1,4 @@
-import { CodeBlock } from "@/components/code-block";
+import { CodeBlock, InlineCode } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
 import { HOSTS } from "@/config";
@@ -17,6 +17,14 @@ export function SearxngPage() {
           <WikiLink to="nullclaw">nullclaw</WikiLink>'s web_search) hit the json api:
         </P>
         <CodeBlock>{`curl "http://${host}:8888/search?q=lightpanda&format=json" | jq '.results[0]'`}</CodeBlock>
+      </Doc>
+
+      <Doc title="agent tools">
+        <P>
+          nullclaw and OpenCode run <InlineCode>mcp-searxng@1.11.1</InlineCode> against the local
+          instance. it adds web search, suggestions, instance discovery, and URL reading without a
+          third-party search API.
+        </P>
       </Doc>
 
       <Reference>

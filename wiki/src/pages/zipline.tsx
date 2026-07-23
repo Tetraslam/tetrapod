@@ -1,4 +1,4 @@
-import { InlineCode } from "@/components/code-block";
+import { CodeBlock, InlineCode } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference } from "@/components/wiki";
 import { HOSTS } from "@/config";
@@ -12,6 +12,15 @@ export function ZiplinePage() {
           <Ext url={`http://${HOSTS.tetrapod.fqdn}:3200`}>{HOSTS.tetrapod.name}:3200</Ext>) — first
           visit creates the admin account. for sharex/flameshot/scripts: settings → api token →{" "}
           <InlineCode>POST /api/upload</InlineCode>.
+        </P>
+      </Doc>
+
+      <Doc title="cli">
+        <CodeBlock>{`zipline screenshot.png
+cat note.txt | zipline`}</CodeBlock>
+        <P>
+          the rice wrapper runs the pinned Zipline v4 client and reads its token from 1Password.
+          URLs print directly for piping or pasting.
         </P>
       </Doc>
 
