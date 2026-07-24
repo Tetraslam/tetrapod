@@ -7,7 +7,7 @@ key="$(sudo sed -n 's/^INITIAL_API_KEY=//p' /opt/tetrapod/shlink.env)"
 base=http://127.0.0.1:8085/rest/v3/short-urls
 ready=false
 for _ in {1..30}; do
-  if curl -fsS http://127.0.0.1:8085/rest/health >/dev/null; then
+  if curl --max-time 5 -fsS http://127.0.0.1:8085/rest/health >/dev/null; then
     ready=true
     break
   fi
@@ -17,20 +17,20 @@ done
 
 while IFS='|' read -r slug url; do
   current="$(mktemp)"
-  status="$(curl -sS -o "$current" -w '%{http_code}' "$base/$slug" -H "X-Api-Key: $key")"
+  status="$(curl --max-time 15 -sS -o "$current" -w '%{http_code}' "$base/$slug" -H "X-Api-Key: $key")"
   payload="$(jq -cn --arg url "$url" '{longUrl:$url}')"
 
   case "$status" in
     200)
       if [ "$(jq -r '.longUrl' "$current")" != "$url" ]; then
-        curl -fsS -X PATCH "$base/$slug" -H "X-Api-Key: $key" \
+        curl --max-time 15 -fsS -X PATCH "$base/$slug" -H "X-Api-Key: $key" \
           -H 'Content-Type: application/json' --data-binary "$payload" >/dev/null
       fi
       ;;
     404)
       jq -cn --arg url "$url" --arg slug "$slug" \
-        '{longUrl:$url,customSlug:$slug,tags:["service"]}' |
-        curl -fsS -X POST "$base" -H "X-Api-Key: $key" \
+        '{longUrl:$url,customSlug:$slug,title:$slug,tags:["service"]}' |
+        curl --max-time 15 -fsS -X POST "$base" -H "X-Api-Key: $key" \
           -H 'Content-Type: application/json' --data-binary @- >/dev/null
       ;;
     *)
