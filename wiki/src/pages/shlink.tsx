@@ -19,6 +19,15 @@ const SERVICE_LINKS = [
   "shlink",
 ] as const;
 
+const MEDIA_LINKS = [
+  { use: "watch something", slug: "watch", app: "jellyfin" },
+  { use: "add a movie", slug: "movies", app: "radarr" },
+  { use: "add a TV show", slug: "tv", app: "sonarr" },
+  { use: "add anime", slug: "anime", app: "sonarr" },
+  { use: "archive YouTube", slug: "youtube", app: "pinchflat" },
+  { use: "see downloads", slug: "downloads", app: "qbittorrent" },
+] as const;
+
 export function ShlinkPage() {
   return (
     <Page
@@ -33,6 +42,22 @@ shlink https://example.com/long/thing memorable-slug`}</CodeBlock>
           visits, and server settings. the laptop command securely runs against tetrapod over SSH;
           the API key stays on the box.
         </P>
+      </Doc>
+
+      <Doc title="media shortcuts">
+        <Table>
+          <TableBody>
+            {MEDIA_LINKS.map((link) => (
+              <TableRow key={link.slug}>
+                <TableCell>{link.use}</TableCell>
+                <TableCell>
+                  <Ext url={`https://link.tetraslam.world/${link.slug}`}>/{link.slug}</Ext>
+                </TableCell>
+                <TableCell className="text-muted-foreground">{link.app}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Doc>
 
       <Doc title="service shortcuts">
