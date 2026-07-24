@@ -44,14 +44,17 @@ fi
 
 if eztv_id="$(jq -er '.[] | select(.name == "EZTV") | .id' <<<"$indexers" 2>/dev/null)"; then
   eztv="$(api "$base/indexer/$eztv_id")"
-  if [ "$(jq -r '.enable' <<<"$eztv")" != true ]; then
-    jq '.enable = true' <<<"$eztv" |
+  if [ "$(jq -r '.enable' <<<"$eztv")" != true ] ||
+     [ "$(jq -r '.fields[] | select(.name == "baseUrl") | .value' <<<"$eztv")" != https://eztv.wf ]; then
+    jq '(.fields[] | select(.name == "baseUrl")).value = "https://eztv.wf" | .enable = true' <<<"$eztv" |
       api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$eztv_id" >/dev/null
     echo "media-provision: enabled EZTV"
   fi
 else
   api "$base/indexer/schema" |
-    jq '.[] | select(.name == "EZTV") | .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
+    jq '.[] | select(.name == "EZTV") |
+      (.fields[] | select(.name == "baseUrl")).value = "https://eztv.wf" |
+      .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added EZTV"
 fi
