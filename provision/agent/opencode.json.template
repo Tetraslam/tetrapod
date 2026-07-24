@@ -51,7 +51,7 @@
     },
     "searxng": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-searxng@1.11.1"],
+      "command": ["npx", "-y", "mcp-searxng@0.8.0"],
       "environment": {
         "SEARXNG_URL": "http://127.0.0.1:8888",
         "SEARXNG_MAX_RESULTS": "10"
