@@ -3,6 +3,22 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference } from "@/components/wiki";
 import { URLS } from "@/config";
 
+const SERVICE_LINKS = [
+  "wiki",
+  "status",
+  "code",
+  "jellyfin",
+  "qbittorrent",
+  "prowlarr",
+  "sonarr",
+  "radarr",
+  "pinchflat",
+  "searxng",
+  "steel",
+  "zipline",
+  "shlink",
+] as const;
+
 export function ShlinkPage() {
   return (
     <Page
@@ -17,6 +33,17 @@ shlink https://example.com/long/thing memorable-slug`}</CodeBlock>
           visits, and server settings. the laptop command securely runs against tetrapod over SSH;
           the API key stays on the box.
         </P>
+      </Doc>
+
+      <Doc title="service shortcuts">
+        <P>
+          stable links are provisioned at{" "}
+          <InlineCode>link.tetraslam.world/&lt;service&gt;</InlineCode>. tailnet-only targets still
+          require tailscale.
+        </P>
+        <CodeBlock>
+          {SERVICE_LINKS.map((service) => `https://link.tetraslam.world/${service}`).join("\n")}
+        </CodeBlock>
       </Doc>
 
       <Reference>

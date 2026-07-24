@@ -147,6 +147,8 @@ cp "$HERE/dotfiles/mise/config.toml" ~/.config/mise/config.toml
 sudo install -m755 "$HERE/bin/opa" /usr/local/bin/opa
 sudo install -m755 "$HERE/bin/restic-backup" /usr/local/bin/restic-backup
 sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
+sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
+sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
 
 # ------------------------------------------------------------------ runtimes
@@ -285,6 +287,7 @@ if [ ! -f /opt/tetrapod/mindustry/server.jar ]; then
 fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
 media-provision || echo "WARN: media indexer provisioning failed"
+shlink-provision || echo "WARN: service short-link provisioning failed"
 
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true

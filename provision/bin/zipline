@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage: zipline <file> [file ...]
+
+uploads files to i.tetraslam.world and prints share URLs.
+EOF
+}
+
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+case "$1" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+command -v uvx >/dev/null || { echo "zipline: uvx is required" >&2; exit 1; }
+command -v opa >/dev/null || { echo "zipline: opa is required" >&2; exit 1; }
+
+export ZIPLINE_URL=https://i.tetraslam.world
+export ZIPLINE_TOKEN="$(opa read 'op://Agents/ZIPLINE/credential')"
+exec uvx --quiet --with click --with typing-extensions --from zipline-cli==0.3.0 zipline "$@"

@@ -1,0 +1,59 @@
+#!/bin/bash
+set -euo pipefail
+
+key="$(sudo sed -n 's/^INITIAL_API_KEY=//p' /opt/tetrapod/shlink.env)"
+[ -n "$key" ] || { echo "shlink-provision: API key is missing" >&2; exit 1; }
+
+base=http://127.0.0.1:8085/rest/v3/short-urls
+ready=false
+for _ in {1..30}; do
+  if curl -fsS http://127.0.0.1:8085/rest/health >/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+[ "$ready" = true ] || { echo "shlink-provision: Shlink is not ready" >&2; exit 1; }
+
+while IFS='|' read -r slug url; do
+  current="$(mktemp)"
+  status="$(curl -sS -o "$current" -w '%{http_code}' "$base/$slug" -H "X-Api-Key: $key")"
+  payload="$(jq -cn --arg url "$url" '{longUrl:$url}')"
+
+  case "$status" in
+    200)
+      if [ "$(jq -r '.longUrl' "$current")" != "$url" ]; then
+        curl -fsS -X PATCH "$base/$slug" -H "X-Api-Key: $key" \
+          -H 'Content-Type: application/json' --data-binary "$payload" >/dev/null
+      fi
+      ;;
+    404)
+      jq -cn --arg url "$url" --arg slug "$slug" \
+        '{longUrl:$url,customSlug:$slug,tags:["service"]}' |
+        curl -fsS -X POST "$base" -H "X-Api-Key: $key" \
+          -H 'Content-Type: application/json' --data-binary @- >/dev/null
+      ;;
+    *)
+      echo "shlink-provision: failed to read $slug (HTTP $status)" >&2
+      rm -f "$current"
+      exit 1
+      ;;
+  esac
+
+  rm -f "$current"
+  printf 'https://link.tetraslam.world/%s -> %s\n' "$slug" "$url"
+done <<'EOF'
+wiki|https://wiki.tetraslam.world
+status|https://lighthouse.tailc27667.ts.net/status/tetrapod
+code|https://tetrapod.tailc27667.ts.net
+jellyfin|http://tetrapod.tailc27667.ts.net:8096
+qbittorrent|http://tetrapod.tailc27667.ts.net:8081
+prowlarr|http://tetrapod.tailc27667.ts.net:9696
+sonarr|http://tetrapod.tailc27667.ts.net:8989
+radarr|http://tetrapod.tailc27667.ts.net:7878
+pinchflat|http://tetrapod.tailc27667.ts.net:8945
+searxng|http://tetrapod.tailc27667.ts.net:8888
+steel|http://tetrapod.tailc27667.ts.net:3003/documentation
+zipline|https://i.tetraslam.world
+shlink|http://tetrapod.tailc27667.ts.net:8086
+EOF

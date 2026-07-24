@@ -16,11 +16,15 @@ export function ZiplinePage() {
       </Doc>
 
       <Doc title="cli">
-        <CodeBlock>{`zipline screenshot.png
-cat note.txt | zipline`}</CodeBlock>
+        <CodeBlock>{`zipline                         # show usage
+zipline screenshot.png          # upload one or more files
+zipline --clipboard             # upload the latest copied file, image, or text
+zipline -c                      # short form
+zipline --stdin note.txt < note.txt`}</CodeBlock>
         <P>
           the rice wrapper runs the pinned Zipline v4 client and reads its token from 1Password.
-          URLs print directly for piping or pasting.
+          URLs print directly for piping or pasting. clipboard mode requires{" "}
+          <InlineCode>wl-paste</InlineCode> and chooses a useful filename from the clipboard type.
         </P>
       </Doc>
 

@@ -14,7 +14,7 @@ const host = HOSTS.tetrapod.name;
 const fqdn = HOSTS.tetrapod.fqdn;
 
 const PARTS = [
-  { name: "prowlarr", port: 9696, role: "indexers (nyaa for anime, yts for movies)" },
+  { name: "prowlarr", port: 9696, role: "indexers (nyaa anime, yts movies, eztv shows)" },
   { name: "sonarr", port: 8989, role: "tv + anime" },
   { name: "radarr", port: 7878, role: "movies" },
   { name: "qbittorrent", port: 8081, role: "downloads (no login on tailnet)" },
@@ -29,9 +29,11 @@ export function ArrPage() {
     >
       <Doc title="add a show">
         <P>
-          <Ext url={`http://${fqdn}:8989`}>sonarr</Ext> → add series → set type{" "}
-          <InlineCode>anime</InlineCode> for anime. everything after is automatic. movies:{" "}
-          <Ext url={`http://${fqdn}:7878`}>radarr</Ext>, same flow.
+          <Ext url={`http://${fqdn}:8989`}>sonarr</Ext> → add series → enable monitoring and start
+          the missing search. set type <InlineCode>anime</InlineCode> for anime. movies:{" "}
+          <Ext url={`http://${fqdn}:7878`}>radarr</Ext> → add movie with monitoring and start search
+          enabled. grabbing, downloading, importing, and jellyfin discovery are automatic after
+          that.
         </P>
       </Doc>
 
@@ -42,7 +44,7 @@ export function ArrPage() {
           qbit under the right category — import behaves as if sonarr grabbed it:
         </P>
         <CodeBlock>{`curl -X POST http://${host}:8081/api/v2/torrents/add \\
-  --data-urlencode "urls=<magnet>" --data "category=tv"   # or category=movies`}</CodeBlock>
+  --data-urlencode "urls=<magnet>" --data "category=tv-sonarr"   # or category=radarr`}</CodeBlock>
       </Doc>
 
       <Reference>
@@ -81,7 +83,8 @@ export function ArrPage() {
             <TableRow>
               <TableCell className="text-muted-foreground">quirks set once</TableCell>
               <TableCell className="font-mono text-xs">
-                size floors zeroed (hevc anime) · seed ratio 2 · 1337x disabled (AWS IP blocked)
+                size floors zeroed (hevc anime) · seed ratio 2 · 1337x disabled (AWS IP blocked) ·
+                yts / eztv / nyaa enabled
               </TableCell>
             </TableRow>
           </TableBody>
