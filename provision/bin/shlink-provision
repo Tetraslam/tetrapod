@@ -18,7 +18,7 @@ done
 while IFS='|' read -r slug url; do
   current="$(mktemp)"
   status="$(curl --max-time 15 -sS -o "$current" -w '%{http_code}' "$base/$slug" -H "X-Api-Key: $key")"
-  payload="$(jq -cn --arg url "$url" '{longUrl:$url}')"
+  payload="$(jq -cn --arg url "$url" '{longUrl:$url,validateUrl:false}')"
 
   case "$status" in
     200)
@@ -29,7 +29,7 @@ while IFS='|' read -r slug url; do
       ;;
     404)
       jq -cn --arg url "$url" --arg slug "$slug" \
-        '{longUrl:$url,customSlug:$slug,title:$slug,tags:["service"]}' |
+        '{longUrl:$url,customSlug:$slug,title:$slug,tags:["service"],validateUrl:false}' |
         curl --max-time 15 -fsS -X POST "$base" -H "X-Api-Key: $key" \
           -H 'Content-Type: application/json' --data-binary @- >/dev/null
       ;;
