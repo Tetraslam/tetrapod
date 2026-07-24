@@ -1,0 +1,9 @@
+[Unit]
+Description=classify and search newly added Sonarr and Radarr media
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tetraslam
+ExecStart=/usr/local/bin/media-reconcile

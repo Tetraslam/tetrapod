@@ -1,0 +1,79 @@
+#!/bin/bash
+set -euo pipefail
+
+state_dir=/opt/tetrapod/media-reconcile
+state="$state_dir/state.json"
+retry_seconds=86400
+now="$(date +%s)"
+
+mkdir -p "$state_dir"
+[ -f "$state" ] || printf '{"sonarr":{},"radarr":{}}\n' >"$state"
+
+last_search() {
+  jq -r --arg app "$1" --arg id "$2" '.[$app][$id] // 0' "$state"
+}
+
+mark_searched() {
+  local tmp
+  tmp="$(mktemp "$state_dir/state.XXXXXX")"
+  jq --arg app "$1" --arg id "$2" --argjson now "$now" '.[$app][$id] = $now' "$state" >"$tmp"
+  mv "$tmp" "$state"
+}
+
+sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
+sonarr=http://127.0.0.1:8989/api/v3
+sonarr_api() {
+  curl -fsS -H "X-Api-Key: $sonarr_key" "$@"
+}
+
+while IFS=$'\t' read -r id title series_type monitored is_anime aired missing; do
+  if [ "$is_anime" = true ] && [ "$series_type" != anime ]; then
+    sonarr_api "$sonarr/series/$id" |
+      jq '.seriesType = "anime"' |
+      sonarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$sonarr/series/$id" >/dev/null
+    echo "media-reconcile: classified $title as anime"
+  fi
+
+  previous="$(last_search sonarr "$id")"
+  if [ "$monitored" = true ] && [ "$aired" -gt "$missing" ] &&
+     [ $((now - previous)) -ge "$retry_seconds" ]; then
+    sonarr_api -X POST -H 'Content-Type: application/json' \
+      --data-binary "$(jq -cn --argjson id "$id" '{name:"SeriesSearch",seriesId:$id}')" \
+      "$sonarr/command" >/dev/null
+    mark_searched sonarr "$id"
+    echo "media-reconcile: searching missing episodes for $title"
+  fi
+done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
+  .id,
+  .title,
+  .seriesType,
+  .monitored,
+  ((.genres | index("Anime") != null) or
+    (.originalLanguage.name == "Japanese" and (.genres | index("Animation") != null))),
+  .statistics.episodeCount,
+  .statistics.episodeFileCount
+] | @tsv')
+
+radarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
+radarr=http://127.0.0.1:7878/api/v3
+radarr_api() {
+  curl -fsS -H "X-Api-Key: $radarr_key" "$@"
+}
+
+while IFS=$'\t' read -r id title monitored has_file available; do
+  previous="$(last_search radarr "$id")"
+  if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
+     [ $((now - previous)) -ge "$retry_seconds" ]; then
+    radarr_api -X POST -H 'Content-Type: application/json' \
+      --data-binary "$(jq -cn --argjson id "$id" '{name:"MoviesSearch",movieIds:[$id]}')" \
+      "$radarr/command" >/dev/null
+    mark_searched radarr "$id"
+    echo "media-reconcile: searching releases for $title"
+  fi
+done < <(radarr_api "$radarr/movie" | jq -r '.[] | [
+  .id,
+  .title,
+  .monitored,
+  .hasFile,
+  .isAvailable
+] | @tsv')

@@ -30,10 +30,10 @@ export function ArrPage() {
       <Doc title="add a show">
         <P>
           <Ext url={`http://${fqdn}:8989`}>sonarr</Ext> → add series → enable monitoring and start
-          the missing search. set type <InlineCode>anime</InlineCode> for anime. movies:{" "}
-          <Ext url={`http://${fqdn}:7878`}>radarr</Ext> → add movie with monitoring and start search
-          enabled. grabbing, downloading, importing, and jellyfin discovery are automatic after
-          that.
+          the missing search. <InlineCode>media-reconcile</InlineCode> also classifies Japanese
+          animation as anime and starts missing searches every minute, so leaving the defaults is
+          safe. movies: <Ext url={`http://${fqdn}:7878`}>radarr</Ext> → add movie. available movies
+          are searched automatically; unreleased movies remain monitored until a release exists.
         </P>
       </Doc>
 

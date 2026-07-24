@@ -150,6 +150,7 @@ sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
 sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
+sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
 
 # ------------------------------------------------------------------ runtimes
 
@@ -254,9 +255,10 @@ sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
 sudo mkdir -p /opt/tetrapod/searxng
 sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
 # media stack state dirs (uid 1000 across the board)
-sudo mkdir -p /opt/tetrapod/{jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat} /opt/tetrapod/{zipline/{uploads,public,db},shlink}
+sudo mkdir -p /opt/tetrapod/{jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile}
 sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
 sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,qbittorrent,prowlarr,sonarr,radarr,pinchflat}
+sudo chown -R 1000:1000 /opt/tetrapod/media-reconcile
 # searxng secret: generate once, survives re-runs
 if [ ! -f /opt/tetrapod/searxng.env ]; then
   echo "SEARXNG_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/searxng.env >/dev/null
@@ -288,6 +290,10 @@ fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
 media-provision || echo "WARN: media indexer provisioning failed"
 shlink-provision || echo "WARN: service short-link provisioning failed"
+sudo cp "$HERE/systemd/media-reconcile.service" "$HERE/systemd/media-reconcile.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now media-reconcile.timer
+media-reconcile || echo "WARN: media reconciliation failed"
 
 # code-server at https://tetrapod.<tailnet>.ts.net
 sudo tailscale serve --bg 8443 || true
