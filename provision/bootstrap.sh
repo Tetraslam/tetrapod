@@ -209,8 +209,9 @@ if [ ! -x /usr/local/bin/lightpanda ]; then
   sudo install -m755 /tmp/lightpanda /usr/local/bin/lightpanda && rm /tmp/lightpanda
 fi
 sudo cp "$HERE/systemd/lightpanda.service" "$HERE/systemd/lightpanda-mcp.service" /etc/systemd/system/
+sudo cp "$HERE/systemd/searxng-mcp.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now lightpanda lightpanda-mcp
+sudo systemctl enable --now lightpanda lightpanda-mcp searxng-mcp
 
 # ------------------------------------------------------------------ nullclaw
 

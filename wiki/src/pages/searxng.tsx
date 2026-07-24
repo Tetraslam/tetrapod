@@ -21,8 +21,8 @@ export function SearxngPage() {
 
       <Doc title="agent tools">
         <P>
-          nullclaw and OpenCode run <InlineCode>mcp-searxng@0.8.0</InlineCode> against the local
-          instance. it adds web search, suggestions, instance discovery, and URL reading without a
+          nullclaw and OpenCode share a loopback <InlineCode>mcp-searxng@1.11.1</InlineCode>
+          service. it adds web search, suggestions, instance discovery, and URL reading without a
           third-party search API.
         </P>
       </Doc>

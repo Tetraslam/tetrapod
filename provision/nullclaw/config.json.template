@@ -69,12 +69,7 @@
       "timeout_ms": 30000
     },
     "searxng": {
-      "command": "npx",
-      "args": ["-y", "mcp-searxng@0.8.0"],
-      "env": {
-        "SEARXNG_URL": "http://127.0.0.1:8888",
-        "SEARXNG_MAX_RESULTS": "10"
-      },
+      "url": "http://127.0.0.1:8890/mcp",
       "timeout_ms": 60000
     },
     "lightpanda": {

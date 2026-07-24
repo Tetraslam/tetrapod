@@ -50,14 +50,9 @@
       "enabled": true
     },
     "searxng": {
-      "type": "local",
-      "command": ["npx", "-y", "mcp-searxng@0.8.0"],
-      "environment": {
-        "SEARXNG_URL": "http://127.0.0.1:8888",
-        "SEARXNG_MAX_RESULTS": "10"
-      },
-      "enabled": true,
-      "timeout": 60000
+      "type": "remote",
+      "url": "http://127.0.0.1:8890/mcp",
+      "enabled": true
     },
     "playwright": {
       "type": "local",
