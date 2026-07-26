@@ -58,3 +58,17 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added EZTV"
 fi
+
+if tpb_id="$(jq -er '.[] | select(.name == "The Pirate Bay") | .id' <<<"$indexers" 2>/dev/null)"; then
+  tpb="$(api "$base/indexer/$tpb_id")"
+  if [ "$(jq -r '.enable' <<<"$tpb")" != true ]; then
+    jq '.enable = true' <<<"$tpb" |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$tpb_id" >/dev/null
+    echo "media-provision: enabled The Pirate Bay"
+  fi
+else
+  api "$base/indexer/schema" |
+    jq '.[] | select(.name == "The Pirate Bay") | .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
+    api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
+  echo "media-provision: added The Pirate Bay"
+fi
