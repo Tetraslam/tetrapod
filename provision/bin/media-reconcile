@@ -26,6 +26,9 @@ sonarr_api() {
   curl -fsS -H "X-Api-Key: $sonarr_key" "$@"
 }
 
+sonarr_search_active="$(sonarr_api "$sonarr/command" | jq 'any(.[]; (.name == "SeriesSearch" or .name == "MissingEpisodeSearch") and (.status == "queued" or .status == "started"))')"
+sonarr_search_started=false
+
 while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime aired files; do
   if [ "$is_anime" = true ] && [ "$series_type" != anime ]; then
     sonarr_api "$sonarr/series/$id" |
@@ -43,11 +46,13 @@ while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime 
 
   previous="$(last_search sonarr "$id")"
   if [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
+     [ "$sonarr_search_active" = false ] && [ "$sonarr_search_started" = false ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
     sonarr_api -X POST -H 'Content-Type: application/json' \
       --data-binary "$(jq -cn --argjson id "$id" '{name:"SeriesSearch",seriesId:$id}')" \
       "$sonarr/command" >/dev/null
     mark_searched sonarr "$id"
+    sonarr_search_started=true
     echo "media-reconcile: searching missing episodes for $title"
   fi
 done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
@@ -68,6 +73,9 @@ radarr_api() {
   curl -fsS -H "X-Api-Key: $radarr_key" "$@"
 }
 
+radarr_search_active="$(radarr_api "$radarr/command" | jq 'any(.[]; .name == "MoviesSearch" and (.status == "queued" or .status == "started"))')"
+radarr_search_started=false
+
 while IFS=$'\t' read -r id title quality_profile monitored has_file available; do
   if [ "$quality_profile" = 1 ]; then
     radarr_api "$radarr/movie/$id" |
@@ -78,11 +86,13 @@ while IFS=$'\t' read -r id title quality_profile monitored has_file available; d
 
   previous="$(last_search radarr "$id")"
   if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
+     [ "$radarr_search_active" = false ] && [ "$radarr_search_started" = false ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
     radarr_api -X POST -H 'Content-Type: application/json' \
       --data-binary "$(jq -cn --argjson id "$id" '{name:"MoviesSearch",movieIds:[$id]}')" \
       "$radarr/command" >/dev/null
     mark_searched radarr "$id"
+    radarr_search_started=true
     echo "media-reconcile: searching releases for $title"
   fi
 done < <(radarr_api "$radarr/movie" | jq -r '.[] | [
