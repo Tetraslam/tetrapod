@@ -35,6 +35,20 @@ set_minimum_seeders() {
   fi
 }
 
+inherit_minimum_seeders() {
+  local name="$1"
+  local id current
+
+  id="$(api "$base/indexer" | jq -er --arg name "$name" '.[] | select(.name == $name) | .id')"
+  current="$(api "$base/indexer/$id")"
+
+  if [ "$(jq -r '.fields[] | select(.name == "torrentBaseSettings.appMinimumSeeders") | .value' <<<"$current")" != null ]; then
+    jq '(.fields[] | select(.name == "torrentBaseSettings.appMinimumSeeders")).value = null' <<<"$current" |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$id" >/dev/null
+    echo "media-provision: set $name to the fallback seeder policy"
+  fi
+}
+
 profile="$(api "$base/appprofile/1")"
 if [ "$(jq -r '.minimumSeeders' <<<"$profile")" != 0 ]; then
   jq '.minimumSeeders = 0' <<<"$profile" |
@@ -105,8 +119,16 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added Knaben"
 fi
-set_minimum_seeders Nyaa.si 1
+inherit_minimum_seeders Nyaa.si
 set_minimum_seeders Knaben 1
+
+knaben_id="$(api "$base/indexer" | jq -er '.[] | select(.name == "Knaben") | .id')"
+knaben="$(api "$base/indexer/$knaben_id")"
+if [ "$(jq -r '.fields[] | select(.name == "torrentBaseSettings.preferMagnetUrl") | .value' <<<"$knaben")" != true ]; then
+  jq '(.fields[] | select(.name == "torrentBaseSettings.preferMagnetUrl")).value = true' <<<"$knaben" |
+    api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$knaben_id" >/dev/null
+  echo "media-provision: configured Knaben to prefer magnets"
+fi
 
 api -X POST -H 'Content-Type: application/json' \
   --data-binary '{"name":"ApplicationIndexerSync"}' "$base/command" >/dev/null
