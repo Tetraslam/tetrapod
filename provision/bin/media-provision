@@ -18,6 +18,23 @@ api() {
   curl -fsS -H "X-Api-Key: $key" "$@"
 }
 
+set_minimum_seeders() {
+  local name="$1"
+  local minimum="$2"
+  local id current configured
+
+  id="$(api "$base/indexer" | jq -er --arg name "$name" '.[] | select(.name == $name) | .id')"
+  current="$(api "$base/indexer/$id")"
+  configured="$(jq -r '.fields[] | select(.name == "torrentBaseSettings.appMinimumSeeders") | .value' <<<"$current")"
+
+  if [ "$configured" != "$minimum" ]; then
+    jq --argjson minimum "$minimum" \
+      '(.fields[] | select(.name == "torrentBaseSettings.appMinimumSeeders")).value = $minimum' <<<"$current" |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$id" >/dev/null
+    echo "media-provision: set $name minimum seeders to $minimum"
+  fi
+}
+
 indexers="$(api "$base/indexer")"
 if id="$(jq -er '.[] | select(.name == "1337x") | .id' <<<"$indexers" 2>/dev/null)"; then
   current="$(api "$base/indexer/$id")"
@@ -41,6 +58,7 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added YTS"
 fi
+set_minimum_seeders YTS 0
 
 if eztv_id="$(jq -er '.[] | select(.name == "EZTV") | .id' <<<"$indexers" 2>/dev/null)"; then
   eztv="$(api "$base/indexer/$eztv_id")"
@@ -58,17 +76,30 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added EZTV"
 fi
+set_minimum_seeders EZTV 0
 
 if tpb_id="$(jq -er '.[] | select(.name == "The Pirate Bay") | .id' <<<"$indexers" 2>/dev/null)"; then
   tpb="$(api "$base/indexer/$tpb_id")"
-  if [ "$(jq -r '.enable' <<<"$tpb")" != true ]; then
-    jq '.enable = true' <<<"$tpb" |
+  if [ "$(jq -r '.enable' <<<"$tpb")" = true ]; then
+    jq '.enable = false' <<<"$tpb" |
       api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$tpb_id" >/dev/null
-    echo "media-provision: enabled The Pirate Bay"
+    echo "media-provision: disabled The Pirate Bay (API unavailable)"
+  fi
+fi
+
+if knaben_id="$(jq -er '.[] | select(.name == "Knaben") | .id' <<<"$indexers" 2>/dev/null)"; then
+  knaben="$(api "$base/indexer/$knaben_id")"
+  if [ "$(jq -r '.enable' <<<"$knaben")" != true ]; then
+    jq '.enable = true' <<<"$knaben" |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/indexer/$knaben_id" >/dev/null
+    echo "media-provision: enabled Knaben"
   fi
 else
   api "$base/indexer/schema" |
-    jq '.[] | select(.name == "The Pirate Bay") | .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
+    jq '.[] | select(.name == "Knaben") | .enable = true | .priority = 25 | .tags = [] | .appProfileId = 1' |
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
-  echo "media-provision: added The Pirate Bay"
+  echo "media-provision: added Knaben"
 fi
+
+api -X POST -H 'Content-Type: application/json' \
+  --data-binary '{"name":"ApplicationIndexerSync"}' "$base/command" >/dev/null

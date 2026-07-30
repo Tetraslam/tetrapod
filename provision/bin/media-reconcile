@@ -3,7 +3,7 @@ set -euo pipefail
 
 state_dir=/opt/tetrapod/media-reconcile
 state="$state_dir/state.json"
-retry_seconds=86400
+retry_seconds=3600
 now="$(date +%s)"
 
 mkdir -p "$state_dir"
@@ -26,7 +26,7 @@ sonarr_api() {
   curl -fsS -H "X-Api-Key: $sonarr_key" "$@"
 }
 
-while IFS=$'\t' read -r id title series_type monitored is_anime aired missing; do
+while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime aired files; do
   if [ "$is_anime" = true ] && [ "$series_type" != anime ]; then
     sonarr_api "$sonarr/series/$id" |
       jq '.seriesType = "anime"' |
@@ -34,8 +34,15 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired missing; d
     echo "media-reconcile: classified $title as anime"
   fi
 
+  if [ "$quality_profile" = 1 ]; then
+    sonarr_api "$sonarr/series/$id" |
+      jq '.qualityProfileId = 4' |
+      sonarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$sonarr/series/$id" >/dev/null
+    echo "media-reconcile: set $title to HD-1080p"
+  fi
+
   previous="$(last_search sonarr "$id")"
-  if [ "$monitored" = true ] && [ "$aired" -gt "$missing" ] &&
+  if [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
     sonarr_api -X POST -H 'Content-Type: application/json' \
       --data-binary "$(jq -cn --argjson id "$id" '{name:"SeriesSearch",seriesId:$id}')" \
@@ -47,6 +54,7 @@ done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
   .id,
   .title,
   .seriesType,
+  .qualityProfileId,
   .monitored,
   ((.genres | index("Anime") != null) or
     (.originalLanguage.name == "Japanese" and (.genres | index("Animation") != null))),
@@ -60,7 +68,14 @@ radarr_api() {
   curl -fsS -H "X-Api-Key: $radarr_key" "$@"
 }
 
-while IFS=$'\t' read -r id title monitored has_file available; do
+while IFS=$'\t' read -r id title quality_profile monitored has_file available; do
+  if [ "$quality_profile" = 1 ]; then
+    radarr_api "$radarr/movie/$id" |
+      jq '.qualityProfileId = 4' |
+      radarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$radarr/movie/$id" >/dev/null
+    echo "media-reconcile: set $title to HD-1080p"
+  fi
+
   previous="$(last_search radarr "$id")"
   if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
@@ -73,7 +88,28 @@ while IFS=$'\t' read -r id title monitored has_file available; do
 done < <(radarr_api "$radarr/movie" | jq -r '.[] | [
   .id,
   .title,
+  .qualityProfileId,
   .monitored,
   .hasFile,
   .isAvailable
 ] | @tsv')
+
+file_count="$(jq -n \
+  --argjson sonarr "$(sonarr_api "$sonarr/series")" \
+  --argjson radarr "$(radarr_api "$radarr/movie")" \
+  '[($sonarr | map(.statistics.episodeFileCount) | add // 0),
+    ($radarr | map(.statistics.movieFileCount) | add // 0)] | add')"
+previous_file_count="$(jq -r '.jellyfin.fileCount // -1' "$state")"
+
+if [ "$file_count" != "$previous_file_count" ]; then
+  jellyfin_token="$(sqlite3 /opt/tetrapod/jellyfin/config/data/jellyfin.db \
+    'SELECT AccessToken FROM ApiKeys ORDER BY Id LIMIT 1;' 2>/dev/null || true)"
+  if [ -n "$jellyfin_token" ]; then
+    curl -fsS -X POST http://127.0.0.1:8096/Library/Refresh \
+      -H "Authorization: MediaBrowser Token=\"$jellyfin_token\""
+    tmp="$(mktemp "$state_dir/state.XXXXXX")"
+    jq --argjson count "$file_count" '.jellyfin.fileCount = $count' "$state" >"$tmp"
+    mv "$tmp" "$state"
+    echo "media-reconcile: refreshed Jellyfin library"
+  fi
+fi
