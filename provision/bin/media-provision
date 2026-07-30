@@ -35,6 +35,13 @@ set_minimum_seeders() {
   fi
 }
 
+profile="$(api "$base/appprofile/1")"
+if [ "$(jq -r '.minimumSeeders' <<<"$profile")" != 0 ]; then
+  jq '.minimumSeeders = 0' <<<"$profile" |
+    api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/appprofile/1" >/dev/null
+  echo "media-provision: allowed indexers without seeder metadata"
+fi
+
 indexers="$(api "$base/indexer")"
 if id="$(jq -er '.[] | select(.name == "1337x") | .id' <<<"$indexers" 2>/dev/null)"; then
   current="$(api "$base/indexer/$id")"
@@ -58,7 +65,6 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added YTS"
 fi
-set_minimum_seeders YTS 0
 
 if eztv_id="$(jq -er '.[] | select(.name == "EZTV") | .id' <<<"$indexers" 2>/dev/null)"; then
   eztv="$(api "$base/indexer/$eztv_id")"
@@ -76,7 +82,6 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added EZTV"
 fi
-set_minimum_seeders EZTV 0
 
 if tpb_id="$(jq -er '.[] | select(.name == "The Pirate Bay") | .id' <<<"$indexers" 2>/dev/null)"; then
   tpb="$(api "$base/indexer/$tpb_id")"
@@ -100,6 +105,8 @@ else
     api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/indexer" >/dev/null
   echo "media-provision: added Knaben"
 fi
+set_minimum_seeders Nyaa.si 1
+set_minimum_seeders Knaben 1
 
 api -X POST -H 'Content-Type: application/json' \
   --data-binary '{"name":"ApplicationIndexerSync"}' "$base/command" >/dev/null
