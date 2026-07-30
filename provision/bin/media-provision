@@ -132,3 +132,12 @@ fi
 
 api -X POST -H 'Content-Type: application/json' \
   --data-binary '{"name":"ApplicationIndexerSync"}' "$base/command" >/dev/null
+
+qbittorrent=http://127.0.0.1:8081/api/v2
+preferences="$(curl -fsS "$qbittorrent/app/preferences")"
+if [ "$(jq -r '.max_active_downloads' <<<"$preferences")" -lt 6 ] ||
+   [ "$(jq -r '.max_active_torrents' <<<"$preferences")" -lt 12 ]; then
+  curl -fsS -X POST "$qbittorrent/app/setPreferences" \
+    --data-urlencode 'json={"max_active_downloads":6,"max_active_torrents":12}'
+  echo "media-provision: increased qBittorrent active download capacity"
+fi
