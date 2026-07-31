@@ -1,7 +1,7 @@
 import { CodeBlock, InlineCode } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
-import { HOSTS } from "@/config";
+import { HOSTS, URLS } from "@/config";
 
 const host = HOSTS.tetrapod.name;
 
@@ -13,8 +13,9 @@ export function SearxngPage() {
     >
       <Doc title="use it">
         <P>
-          <Ext url={`http://${HOSTS.tetrapod.fqdn}:8888`}>{host}:8888</Ext>. agents (including{" "}
-          <WikiLink to="nullclaw">nullclaw</WikiLink>'s web_search) hit the json api:
+          <Ext url={URLS.searxng}>searxng.tetraslam.world</Ext> uses the shared public login. agents
+          (including <WikiLink to="nullclaw">nullclaw</WikiLink>'s web_search) use the direct
+          tailnet JSON API:
         </P>
         <CodeBlock>{`curl "http://${host}:8888/search?q=lightpanda&format=json" | jq '.results[0]'`}</CodeBlock>
       </Doc>

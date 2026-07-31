@@ -1,18 +1,18 @@
 import { CodeBlock } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
-import { HOSTS } from "@/config";
+import { URLS } from "@/config";
 
-const JELLYFIN_URL = `http://${HOSTS.tetrapod.fqdn}:8096`;
+const JELLYFIN_URL = URLS.jellyfin;
 
 export function JellyfinPage() {
   return (
     <Page title="jellyfin" intro="the media center. everything the pipeline downloads lands here.">
       <Doc title="watch">
         <P>
-          <Ext url={JELLYFIN_URL}>{HOSTS.tetrapod.name}:8096</Ext> — browser or any jellyfin app on
-          the tailnet. no hardware transcode on graviton: if playback stutters, lower the client
-          quality (direct play is fine).
+          <Ext url={JELLYFIN_URL}>jellyfin.tetraslam.world</Ext> — browser or any Jellyfin app,
+          using Jellyfin's native login. no hardware transcode on graviton: if playback stutters,
+          lower the client quality (direct play is fine).
         </P>
       </Doc>
 

@@ -8,10 +8,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
-import { HOSTS } from "@/config";
+import { HOSTS, URLS } from "@/config";
 
 const host = HOSTS.tetrapod.name;
-const fqdn = HOSTS.tetrapod.fqdn;
 
 const PARTS = [
   { name: "prowlarr", port: 9696, role: "indexers (nyaa anime, yts movies, eztv shows)" },
@@ -29,19 +28,19 @@ export function ArrPage() {
     >
       <Doc title="add a show">
         <P>
-          <Ext url={`http://${fqdn}:8989`}>sonarr</Ext> → add series → enable monitoring and start
-          the missing search. <InlineCode>media-reconcile</InlineCode> also classifies Japanese
-          animation as anime and starts missing searches every minute, so leaving the defaults is
-          safe. movies: <Ext url={`http://${fqdn}:7878`}>radarr</Ext> → add movie. available movies
-          are searched automatically; unreleased movies remain monitored until a release exists.
+          <Ext url={URLS.sonarr}>sonarr</Ext> → add series → enable monitoring and start the missing
+          search. <InlineCode>media-reconcile</InlineCode> also classifies Japanese animation as
+          anime and starts missing searches every minute, so leaving the defaults is safe. movies:{" "}
+          <Ext url={URLS.radarr}>radarr</Ext> → add movie. available movies are searched
+          automatically; unreleased movies remain monitored until a release exists.
         </P>
       </Doc>
 
       <Doc title="backfill old seasons by hand">
         <P>
           sonarr's own backfill search is slow (alt-title expansion) and nyaa is mostly season
-          packs. faster: search <Ext url={`http://${fqdn}:9696`}>prowlarr</Ext>, feed the magnet to
-          qbit under the right category — import behaves as if sonarr grabbed it:
+          packs. faster: search <Ext url={URLS.prowlarr}>prowlarr</Ext>, feed the magnet to qbit
+          under the right category — import behaves as if sonarr grabbed it:
         </P>
         <CodeBlock>{`curl -X POST http://${host}:8081/api/v2/torrents/add \\
   --data-urlencode "urls=<magnet>" --data "category=tv-sonarr"   # or category=radarr`}</CodeBlock>

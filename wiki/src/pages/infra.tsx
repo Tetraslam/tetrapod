@@ -20,9 +20,10 @@ pulumi up`}</CodeBlock>
       <Doc title="what's declared">
         <P>
           tetrapod ({HOSTS.tetrapod.instance}, termination-protected, {HOSTS.tetrapod.disk}),
-          lighthouse ({HOSTS.lighthouse.instance}, kuma via cloud-init), the tailnet-only security
-          group, SSM break-glass role, daily EBS snapshots (DLM, keep 30), and a $150/mo budget
-          alert. lighthouse has no bootstrap — to change it, change its cloud-init in{" "}
+          lighthouse ({HOSTS.lighthouse.instance}, kuma via cloud-init), tailnet and public-service
+          security groups, tetrapod's protected Elastic IP ({HOSTS.tetrapod.publicIp}), SSM
+          break-glass, daily EBS snapshots (DLM, keep 30), and a $150/mo budget alert. lighthouse
+          has no bootstrap — to change it, change its cloud-init in{" "}
           <InlineCode>infra/__main__.py</InlineCode> (see <WikiLink to="runbook">runbook</WikiLink>{" "}
           for rebuild).
         </P>

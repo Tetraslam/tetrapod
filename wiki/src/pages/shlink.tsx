@@ -32,7 +32,7 @@ export function ShlinkPage() {
   return (
     <Page
       title="shlink"
-      intro="short links and visit analytics at link.tetraslam.world (+ .com), with a tiny CLI and a tailnet-only management UI."
+      intro="public redirects at link.tetraslam.world, with a tiny CLI and an authenticated management UI at shlink.tetraslam.world."
     >
       <Doc title="create a link">
         <CodeBlock>{`shlink https://example.com/long/thing
@@ -63,8 +63,8 @@ shlink https://example.com/long/thing memorable-slug`}</CodeBlock>
       <Doc title="service shortcuts">
         <P>
           stable links are provisioned at{" "}
-          <InlineCode>link.tetraslam.world/&lt;service&gt;</InlineCode>. tailnet-only targets still
-          require tailscale.
+          <InlineCode>link.tetraslam.world/&lt;service&gt;</InlineCode>. code-server, Steel, and
+          other raw tools still require Tailscale.
         </P>
         <CodeBlock>
           {SERVICE_LINKS.map((service) => `https://link.tetraslam.world/${service}`).join("\n")}

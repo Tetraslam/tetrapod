@@ -7,7 +7,7 @@ export function ConnectingPage() {
   return (
     <Page
       title="connecting"
-      intro="every path onto the box. all of them require being on the tailnet."
+      intro="shells and raw service ports require the tailnet. selected web and game services have authenticated public endpoints."
     >
       <Doc title="shell">
         <CodeBlock>{`ssh tetraslam@tetrapod        # tailscale-ssh, no keys
@@ -24,6 +24,11 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
           <Ext url={URLS.codeServer}>code-server</Ext> is vscode against the box's real filesystem.
           works from the ipad. this wiki lives at <InlineCode>{URLS.wiki}</InlineCode>.
         </P>
+        <P>
+          public administrative apps use username <InlineCode>tetraslam</InlineCode> and the
+          password at <InlineCode>op://Agents/TETRAPOD_PUBLIC_SERVICES/password</InlineCode>.
+          Jellyfin keeps its own app-compatible login.
+        </P>
       </Doc>
 
       <Doc title="if tailscale is down">
@@ -36,6 +41,10 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
       <Reference>
         <Table>
           <TableBody>
+            <TableRow>
+              <TableCell className="text-muted-foreground">public ip</TableCell>
+              <TableCell className="font-mono text-xs">{HOSTS.tetrapod.publicIp}</TableCell>
+            </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">hostname</TableCell>
               <TableCell className="font-mono text-xs">{HOSTS.tetrapod.fqdn}</TableCell>
@@ -52,7 +61,9 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">public ingress</TableCell>
-              <TableCell className="font-mono text-xs">udp 41641 (wireguard) only</TableCell>
+              <TableCell className="font-mono text-xs">
+                tcp 80/443 (Caddy) · udp 34197 (Factorio) · udp 41641 (WireGuard)
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>

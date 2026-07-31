@@ -7,18 +7,19 @@ export function FactorioPage() {
   return (
     <Page
       title="factorio"
-      intro="the server is tailnet-only: no public IP, no server browser, no griefers."
+      intro="public direct-connect server protected by the shared game password. rcon remains private."
     >
       <Doc title="join">
         <Steps>
-          <li>install tailscale, get invited to the tailnet (or have tetrapod shared with you)</li>
           <li>
             factorio → multiplayer → connect to address →{" "}
             <InlineCode>{FACTORIO.connectAddress}</InlineCode>
           </li>
           <li>
-            if that address doesn't resolve (shared nodes don't get magicdns), use{" "}
-            <InlineCode>{FACTORIO.connectAddressIp}</InlineCode>
+            if DNS does not resolve, use <InlineCode>{FACTORIO.connectAddressIp}</InlineCode>
+          </li>
+          <li>
+            password: ask tetraslam, or read <InlineCode>{FACTORIO.gamePasswordRef}</InlineCode>
           </li>
         </Steps>
       </Doc>
@@ -45,7 +46,7 @@ sudo docker restart ${FACTORIO.container}`}</CodeBlock>
           <TableBody>
             <TableRow>
               <TableCell className="text-muted-foreground">game port</TableCell>
-              <TableCell className="font-mono text-xs">udp {FACTORIO.gamePort}</TableCell>
+              <TableCell className="font-mono text-xs">public udp {FACTORIO.gamePort}</TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">rcon</TableCell>

@@ -7,6 +7,7 @@ export const HOSTS = {
     name: "tetrapod",
     fqdn: `tetrapod.${TAILNET}`,
     tailscaleIp: "100.79.126.72",
+    publicIp: "44.253.116.33",
     instance: "t4g.xlarge",
     cpu: "4 vcpu graviton2 (arm64)",
     ram: "16 GiB (+8G zram)",
@@ -30,17 +31,17 @@ export const URLS = {
   wikiPublic: "https://wiki.tetraslam.world", // + wiki.tetraslam.com (vercel, kuma-api rewritten to the funnel)
   kuma: `https://${HOSTS.lighthouse.fqdn}`,
   repo: "https://github.com/tetraslam/tetrapod",
-  jellyfin: `http://${HOSTS.tetrapod.fqdn}:8096`,
-  qbittorrent: `http://${HOSTS.tetrapod.fqdn}:8081`,
-  prowlarr: `http://${HOSTS.tetrapod.fqdn}:9696`,
-  sonarr: `http://${HOSTS.tetrapod.fqdn}:8989`,
-  radarr: `http://${HOSTS.tetrapod.fqdn}:7878`,
-  pinchflat: `http://${HOSTS.tetrapod.fqdn}:8945`,
-  searxng: `http://${HOSTS.tetrapod.fqdn}:8888`,
+  jellyfin: "https://jellyfin.tetraslam.world",
+  qbittorrent: "https://qbittorrent.tetraslam.world",
+  prowlarr: "https://prowlarr.tetraslam.world",
+  sonarr: "https://sonarr.tetraslam.world",
+  radarr: "https://radarr.tetraslam.world",
+  pinchflat: "https://pinchflat.tetraslam.world",
+  searxng: "https://searxng.tetraslam.world",
   steel: `http://${HOSTS.tetrapod.fqdn}:3003`,
   zipline: "https://i.tetraslam.world",
   shlink: "https://link.tetraslam.world",
-  shlinkWeb: `http://${HOSTS.tetrapod.fqdn}:8086`,
+  shlinkWeb: "https://shlink.tetraslam.world",
 } as const;
 
 // uptime-kuma status page (create in kuma: Status Pages -> New -> slug below,
@@ -51,11 +52,12 @@ export const KUMA_API_BASE = "/kuma-api";
 export const KUMA_REFRESH_MS = 60_000;
 
 export const FACTORIO = {
-  connectAddress: `${HOSTS.tetrapod.fqdn}:34197`,
-  connectAddressIp: `${HOSTS.tetrapod.tailscaleIp}:34197`,
+  connectAddress: "factorio.tetraslam.world:34197",
+  connectAddressIp: `${HOSTS.tetrapod.publicIp}:34197`,
   gamePort: 34197,
   rconPort: 27015,
   rconPasswordPath: "/opt/tetrapod/factorio/config/rconpw",
+  gamePasswordRef: "op://Agents/TETRAPOD_PUBLIC_SERVICES/password",
   dataPath: "/opt/tetrapod/factorio",
   container: "provision-factorio-1",
   memCap: "4G",
@@ -81,6 +83,7 @@ export const OP_ITEMS = [
   { item: "GOG_KEYRING", use: "gog file-keyring password (gog-env)" },
   { item: "TETRAPOD_PULUMI", use: "pulumi state passphrase (laptop-side)" },
   { item: "TETRAPOD_TIGRIS", use: "tigris key for pulumi state bucket (laptop-side)" },
+  { item: "TETRAPOD_PUBLIC_SERVICES", use: "public web login + Factorio password" },
 ] as const;
 
 export const GOG_ACCOUNTS = [

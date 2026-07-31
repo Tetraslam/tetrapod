@@ -1,7 +1,7 @@
 import { CodeBlock, InlineCode } from "@/components/code-block";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
-import { HOSTS } from "@/config";
+import { URLS } from "@/config";
 
 export function PinchflatPage() {
   return (
@@ -11,8 +11,8 @@ export function PinchflatPage() {
     >
       <Doc title="add a channel">
         <P>
-          <Ext url={`http://${HOSTS.tetrapod.fqdn}:8945`}>pinchflat</Ext> → sources → new source →
-          paste url, pick the media profile. big channels index for hours. output lands in{" "}
+          <Ext url={URLS.pinchflat}>pinchflat</Ext> → sources → new source → paste url, pick the
+          media profile. big channels index for hours. output lands in{" "}
           <WikiLink to="jellyfin">jellyfin</WikiLink>'s youtube library with season/episode naming.
         </P>
       </Doc>

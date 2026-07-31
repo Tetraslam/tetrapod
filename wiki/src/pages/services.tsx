@@ -38,43 +38,43 @@ const services = [
   {
     name: "jellyfin",
     url: URLS.jellyfin,
-    address: "tetrapod:8096",
+    address: "jellyfin.tetraslam.world",
     purpose: "watch movies, shows, and YouTube",
   },
   {
     name: "qbittorrent",
     url: URLS.qbittorrent,
-    address: "tetrapod:8081",
+    address: "qbittorrent.tetraslam.world",
     purpose: "torrent downloads",
   },
   {
     name: "prowlarr",
     url: URLS.prowlarr,
-    address: "tetrapod:9696",
+    address: "prowlarr.tetraslam.world",
     purpose: "search indexers for the arr apps",
   },
   {
     name: "sonarr",
     url: URLS.sonarr,
-    address: "tetrapod:8989",
+    address: "sonarr.tetraslam.world",
     purpose: "find and organize shows + anime",
   },
   {
     name: "radarr",
     url: URLS.radarr,
-    address: "tetrapod:7878",
+    address: "radarr.tetraslam.world",
     purpose: "find and organize movies",
   },
   {
     name: "pinchflat",
     url: URLS.pinchflat,
-    address: "tetrapod:8945",
+    address: "pinchflat.tetraslam.world",
     purpose: "archive YouTube channels",
   },
   {
     name: "searxng",
     url: URLS.searxng,
-    address: "tetrapod:8888",
+    address: "searxng.tetraslam.world",
     purpose: "private web search for people + agents",
   },
   {
@@ -92,7 +92,7 @@ const services = [
   {
     name: "shlink",
     url: URLS.shlinkWeb,
-    address: "link.tetraslam.world",
+    address: "shlink.tetraslam.world",
     purpose: "short links and visit analytics",
   },
   {
@@ -124,7 +124,7 @@ export function ServicesPage() {
   return (
     <Page
       title="services"
-      intro="the things tetrapod runs, what each one is for, and where to open it. web links are tailnet-only unless they use a public tetraslam.world domain."
+      intro="the things tetrapod runs, what each one is for, and where to open it. public administrative web apps use the shared Caddy login; raw ports and agent tools stay on the tailnet."
     >
       <Doc title="change a service">
         <P>

@@ -5,7 +5,10 @@ import { HOSTS } from "@/config";
 
 export function MindustryPage() {
   return (
-    <Page title="mindustry" intro="game server, tailnet-only — same access model as factorio.">
+    <Page
+      title="mindustry"
+      intro="tailnet-only until player UUIDs are available for its native whitelist. v159.7 has no server-password setting."
+    >
       <Doc title="join">
         <Steps>
           <li>mindustry → play → + server → add server</li>
@@ -18,9 +21,9 @@ export function MindustryPage() {
       </Doc>
 
       <Doc title="admin">
-        <P>the server wants a console, so it runs with a tty — attach for commands:</P>
-        <CodeBlock>{`sudo docker attach provision-mindustry-1   # detach: ctrl-p ctrl-q (NOT ctrl-c)
-# console: help, maps, host <map> <mode>, kick <player>, pause`}</CodeBlock>
+        <P>the server wants a console, so use the PTY-safe helper for one command:</P>
+        <CodeBlock>{`printf 'status\n' | mindustry-console
+# console commands: help, maps, host <map> <mode>, kick <player>, pause`}</CodeBlock>
       </Doc>
 
       <Reference>

@@ -46,8 +46,9 @@ export function HomePage() {
       <header className="space-y-2">
         <h1 className="font-semibold text-2xl tracking-tight">tetrapod</h1>
         <P>
-          the always-on box. tailnet-only, reproducible from <Ext url={URLS.repo}>the repo</Ext>.
-          start with <WikiLink to="connecting">connecting</WikiLink>, or send friends to{" "}
+          the always-on box. public services, private administration, reproducible from{" "}
+          <Ext url={URLS.repo}>the repo</Ext>. start with{" "}
+          <WikiLink to="connecting">connecting</WikiLink>, or send friends to{" "}
           <WikiLink to="factorio">factorio</WikiLink>.
         </P>
       </header>
