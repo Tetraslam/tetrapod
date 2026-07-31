@@ -82,14 +82,6 @@ public_sg = aws.ec2.SecurityGroup(
             protocol="udp", from_port=34197, to_port=34197, cidr_blocks=["0.0.0.0/0"],
             description="factorio",
         ),
-        aws.ec2.SecurityGroupIngressArgs(
-            protocol="tcp", from_port=6567, to_port=6567, cidr_blocks=["0.0.0.0/0"],
-            description="mindustry tcp",
-        ),
-        aws.ec2.SecurityGroupIngressArgs(
-            protocol="udp", from_port=6567, to_port=6567, cidr_blocks=["0.0.0.0/0"],
-            description="mindustry udp",
-        ),
     ],
     egress=[aws.ec2.SecurityGroupEgressArgs(
         protocol="-1", from_port=0, to_port=0, cidr_blocks=["0.0.0.0/0"],

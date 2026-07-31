@@ -6,10 +6,13 @@ password="$(opa read "$credential_ref")"
 [ -n "$password" ] || { echo "public-services-provision: credential is empty" >&2; exit 1; }
 
 hash="$(printf '%s\n' "$password" | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
+public_bind_ip="$(ip -4 route get 1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") print $(i + 1)}')"
+[ -n "$public_bind_ip" ] || { echo "public-services-provision: public bind IP is missing" >&2; exit 1; }
 env_file="$(mktemp)"
 trap 'rm -f "$env_file"' EXIT
 umask 077
-printf "PUBLIC_USER=tetraslam\nPUBLIC_PASSWORD_HASH=%s\n" "$hash" >"$env_file"
+printf "PUBLIC_USER=tetraslam\nPUBLIC_PASSWORD_HASH=%s\nPUBLIC_BIND_IP=%s\n" \
+  "$hash" "$public_bind_ip" >"$env_file"
 sudo install -o root -g root -m 600 "$env_file" /opt/tetrapod/public-services.env
 
 factorio_config=/opt/tetrapod/factorio/config/server-settings.json
@@ -27,6 +30,4 @@ if [ -f "$factorio_config" ] && [ "$(sudo jq -r '.game_password // ""' "$factori
   echo "public-services-provision: configured Factorio password"
 fi
 
-printf 'config password %s\n' "$password" | mindustry-console
-echo "public-services-provision: configured Mindustry password"
 echo "public-services-provision: rendered Caddy credentials"
