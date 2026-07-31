@@ -12,6 +12,7 @@ http://radarr.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
 http://shlink.tetraslam.world,
+http://kuma-api.tetraslam.world,
 http://link.tetraslam.world,
 http://i.tetraslam.world {
 	redir https://{host}{uri} permanent
@@ -73,6 +74,17 @@ searxng.tetraslam.world {
 shlink.tetraslam.world {
 	import private
 	reverse_proxy 127.0.0.1:8086
+}
+
+kuma-api.tetraslam.world {
+	import security
+
+	@status path /api/status-page/*
+	handle @status {
+		reverse_proxy 127.0.0.1:3002
+	}
+
+	respond 404
 }
 
 link.tetraslam.world {

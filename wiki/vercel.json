@@ -25,7 +25,7 @@
     },
     {
       "src": "/kuma-api/(.*)",
-      "dest": "https://tetrapod.tailc27667.ts.net:8443/kuma-api/$1"
+      "dest": "https://kuma-api.tetraslam.world/$1"
     },
     { "handle": "filesystem" }
   ]
