@@ -151,6 +151,8 @@ sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
+sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-console
+sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
 
 # ------------------------------------------------------------------ runtimes
 
@@ -255,7 +257,7 @@ sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
 sudo mkdir -p /opt/tetrapod/searxng
 sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
 # media stack state dirs (uid 1000 across the board)
-sudo mkdir -p /opt/tetrapod/{jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile}
+sudo mkdir -p /opt/tetrapod/{caddy/{data,config},jellyfin/config,jellyfin/cache,qbittorrent,prowlarr,sonarr,radarr,pinchflat} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile}
 sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
 sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,qbittorrent,prowlarr,sonarr,radarr,pinchflat}
 sudo chown -R 1000:1000 /opt/tetrapod/media-reconcile
@@ -288,6 +290,12 @@ if [ ! -f /opt/tetrapod/mindustry/server.jar ]; then
     https://github.com/Anuken/Mindustry/releases/download/v159.7/server-release.jar
 fi
 sudo docker compose -f "$HERE/docker-compose.yml" up -d
+if opa read 'op://Agents/TETRAPOD_PUBLIC_SERVICES/password' >/dev/null 2>&1; then
+  (cd "$HERE" && public-services-provision) || echo "WARN: public service provisioning failed"
+  sudo docker compose -f "$HERE/docker-compose.yml" up -d caddy
+else
+  echo "WARN: public services need opa access to TETRAPOD_PUBLIC_SERVICES"
+fi
 media-provision || echo "WARN: media indexer provisioning failed"
 shlink-provision || echo "WARN: service short-link provisioning failed"
 sudo cp "$HERE/systemd/media-reconcile.service" "$HERE/systemd/media-reconcile.timer" /etc/systemd/system/

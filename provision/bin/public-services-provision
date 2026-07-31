@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+credential_ref=op://Agents/TETRAPOD_PUBLIC_SERVICES/password
+password="$(opa read "$credential_ref")"
+[ -n "$password" ] || { echo "public-services-provision: credential is empty" >&2; exit 1; }
+
+hash="$(printf '%s' "$password" | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
+env_file="$(mktemp)"
+trap 'rm -f "$env_file"' EXIT
+umask 077
+printf "PUBLIC_USER=tetraslam\nPUBLIC_PASSWORD_HASH=%s\n" "$hash" >"$env_file"
+sudo install -o root -g root -m 600 "$env_file" /opt/tetrapod/public-services.env
+
+factorio_config=/opt/tetrapod/factorio/config/server-settings.json
+if [ -f "$factorio_config" ] && [ "$(sudo jq -r '.game_password // ""' "$factorio_config")" != "$password" ]; then
+  players="$(docker exec provision-factorio-1 rcon /players online)"
+  if ! grep -q 'Online players (0)' <<<"$players"; then
+    echo "public-services-provision: Factorio has active players; password change deferred" >&2
+    exit 1
+  fi
+
+  updated="$(printf '%s' "$password" | sudo jq --rawfile password /dev/stdin \
+    '.game_password = $password' "$factorio_config")"
+  printf '%s\n' "$updated" | sudo tee "$factorio_config" >/dev/null
+  docker restart provision-factorio-1 >/dev/null
+  echo "public-services-provision: configured Factorio password"
+fi
+
+printf 'config password %s\n' "$password" | mindustry-console
+echo "public-services-provision: configured Mindustry password"
+echo "public-services-provision: rendered Caddy credentials"

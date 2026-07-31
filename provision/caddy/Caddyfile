@@ -1,0 +1,71 @@
+{
+	email bhowmickshresht@gmail.com
+}
+
+(security) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+(private) {
+	import security
+	basic_auth {
+		{$PUBLIC_USER} {$PUBLIC_PASSWORD_HASH}
+	}
+}
+
+jellyfin.tetraslam.world {
+	import security
+	reverse_proxy jellyfin:8096
+}
+
+qbittorrent.tetraslam.world {
+	import private
+	reverse_proxy qbittorrent:8081
+}
+
+prowlarr.tetraslam.world {
+	import private
+	reverse_proxy prowlarr:9696
+}
+
+sonarr.tetraslam.world {
+	import private
+	reverse_proxy sonarr:8989
+}
+
+radarr.tetraslam.world {
+	import private
+	reverse_proxy radarr:7878
+}
+
+pinchflat.tetraslam.world {
+	import private
+	reverse_proxy pinchflat:8945
+}
+
+searxng.tetraslam.world {
+	import private
+	reverse_proxy searxng:8080
+}
+
+shlink.tetraslam.world {
+	import private
+	reverse_proxy shlink-web:8080
+}
+
+link.tetraslam.world {
+	import security
+	reverse_proxy shlink:8080
+}
+
+i.tetraslam.world {
+	import security
+	reverse_proxy zipline:3000
+}

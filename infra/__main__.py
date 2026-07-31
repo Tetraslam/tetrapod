@@ -65,6 +65,38 @@ sg = aws.ec2.SecurityGroup(
     tags={"Project": "tetrapod"},
 )
 
+public_sg = aws.ec2.SecurityGroup(
+    "tetrapod-public",
+    vpc_id=default_vpc.id,
+    description="tetrapod: public web and game services",
+    ingress=[
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="tcp", from_port=80, to_port=80, cidr_blocks=["0.0.0.0/0"],
+            description="caddy http certificate challenges and redirects",
+        ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="tcp", from_port=443, to_port=443, cidr_blocks=["0.0.0.0/0"],
+            description="caddy https",
+        ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="udp", from_port=34197, to_port=34197, cidr_blocks=["0.0.0.0/0"],
+            description="factorio",
+        ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="tcp", from_port=6567, to_port=6567, cidr_blocks=["0.0.0.0/0"],
+            description="mindustry tcp",
+        ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="udp", from_port=6567, to_port=6567, cidr_blocks=["0.0.0.0/0"],
+            description="mindustry udp",
+        ),
+    ],
+    egress=[aws.ec2.SecurityGroupEgressArgs(
+        protocol="-1", from_port=0, to_port=0, cidr_blocks=["0.0.0.0/0"],
+    )],
+    tags={"Name": "tetrapod-public", "Project": "tetrapod"},
+)
+
 key_pair = aws.ec2.KeyPair("tetrapod", public_key=SSH_PUBLIC_KEY)
 
 # ------------------------------------------------------- ssm break-glass iam
@@ -131,7 +163,7 @@ tetrapod = aws.ec2.Instance(
     ami=ami_id,
     instance_type=INSTANCE_TYPE,
     key_name=key_pair.key_name,
-    vpc_security_group_ids=[sg.id],
+    vpc_security_group_ids=[sg.id, public_sg.id],
     iam_instance_profile=instance_profile.name,
     user_data=user_data("tetrapod"),
     user_data_replace_on_change=False,  # never recreate the pet over cloud-init edits
@@ -146,6 +178,18 @@ tetrapod = aws.ec2.Instance(
     ),
     tags={"Name": "tetrapod", "Project": "tetrapod"},
     opts=pulumi.ResourceOptions(protect=True, ignore_changes=["ami", "userData"]),
+)
+
+public_ip = aws.ec2.Eip(
+    "tetrapod-public",
+    domain="vpc",
+    tags={"Name": "tetrapod-public", "Project": "tetrapod"},
+    opts=pulumi.ResourceOptions(protect=True),
+)
+aws.ec2.EipAssociation(
+    "tetrapod-public",
+    allocation_id=public_ip.id,
+    instance_id=tetrapod.id,
 )
 
 # media library volume: st1 throughput HDD (linear reads, jellyfin-grade).
@@ -413,7 +457,7 @@ if BUDGET_EMAIL:
     )
 
 pulumi.export("tetrapod_id", tetrapod.id)
-pulumi.export("tetrapod_public_ip", tetrapod.public_ip)
+pulumi.export("tetrapod_public_ip", public_ip.public_ip)
 pulumi.export("tetrapod_media_volume_id", media_volume.id)
 pulumi.export("lighthouse_id", lighthouse.id)
 pulumi.export("lighthouse_public_ip", lighthouse.public_ip)
