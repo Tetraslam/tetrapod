@@ -5,7 +5,7 @@ credential_ref=op://Agents/TETRAPOD_PUBLIC_SERVICES/password
 password="$(opa read "$credential_ref")"
 [ -n "$password" ] || { echo "public-services-provision: credential is empty" >&2; exit 1; }
 
-hash="$(printf '%s' "$password" | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
+hash="$(printf '%s\n' "$password" | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
 env_file="$(mktemp)"
 trap 'rm -f "$env_file"' EXIT
 umask 077
