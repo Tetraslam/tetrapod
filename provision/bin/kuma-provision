@@ -113,12 +113,25 @@ def main() -> None:
         if m["id"] not in shown:
             groups[0].setdefault("monitorList", []).append({"id": m["id"], "name": m["name"]})
             print(f"  → status page: {m['name']}")
-    api.save_status_page(
+    # uptime-kuma-api's status-page reader expects v1-only incident fields.
+    # Build the save payload directly until the library supports Kuma v2.
+    page_id = api._call("getStatusPage", STATUS_SLUG)["config"]["id"]
+    payload = api._build_status_page_data(
         slug=STATUS_SLUG,
+        id=page_id,
         title=cfg.get("title") or STATUS_SLUG,
+        description=cfg.get("description"),
         theme=cfg.get("theme") if cfg.get("theme") in ("light", "dark") else "dark",
+        published=cfg.get("published", True),
+        showTags=cfg.get("showTags", False),
+        customCSS=cfg.get("customCSS", ""),
+        footerText=cfg.get("footerText"),
+        showPoweredBy=cfg.get("showPoweredBy", True),
+        showCertificateExpiry=cfg.get("showCertificateExpiry", False),
+        icon=cfg.get("icon", "/icon.svg"),
         publicGroupList=groups,
     )
+    api._call("saveStatusPage", payload)
 
     api.disconnect()
     print(f"done. created {len(created)}: {', '.join(created) or 'nothing'}")
