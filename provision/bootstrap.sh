@@ -151,6 +151,7 @@ sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
+sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-release-fallback
 sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-console
 sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
 

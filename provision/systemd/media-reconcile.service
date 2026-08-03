@@ -6,4 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=tetraslam
+StateDirectory=media-reconcile
 ExecStart=/usr/local/bin/media-reconcile

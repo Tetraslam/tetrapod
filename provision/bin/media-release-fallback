@@ -1,0 +1,67 @@
+#!/bin/bash
+set -euo pipefail
+
+series_id="${1:?usage: media-release-fallback SERIES_ID}"
+sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
+prowlarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/prowlarr/config.xml)"
+sonarr=http://127.0.0.1:8989/api/v3
+prowlarr=http://127.0.0.1:9696/api/v1
+qbittorrent=http://127.0.0.1:8081/api/v2
+
+series="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/series/$series_id")"
+title="$(jq -r '.title' <<<"$series")"
+year="$(jq -r '.year' <<<"$series")"
+season="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/episode?seriesId=$series_id" |
+  jq '[.[] | select(.seasonNumber > 0 and .monitored and (.hasFile | not)) | .seasonNumber] | min // 1')"
+
+if curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
+   jq -e --arg title "$title" 'any(.[]; .name | ascii_downcase | contains($title | ascii_downcase))' >/dev/null; then
+  exit 1
+fi
+
+results="$(curl -fsS -G -H "X-Api-Key: $prowlarr_key" \
+  --data-urlencode "query=$title $year" \
+  --data-urlencode 'type=search' \
+  --data-urlencode 'categories=5000' \
+  "$prowlarr/search")"
+
+release="$(jq -cer --arg title "$title" '
+  map(select(
+    .protocol == "torrent" and
+    (.seeders // 0) > 0 and
+    (.title | ascii_downcase | contains($title | ascii_downcase)) and
+    (.title | test("(^|[^0-9])(1080p|2160p|4k)([^0-9]|$)"; "i")) and
+    ((.downloadUrl // .magnetUrl // "") | startswith("http://127.0.0.1:9696/"))
+  )) |
+  sort_by(
+    (if (.title | test("2160p|4k"; "i")) then 1 else 0 end),
+    (.seeders // 0)
+  ) |
+  last
+' <<<"$results" 2>/dev/null)" || {
+  echo "media-release-fallback: no seeded 1080p/2160p release found for $title"
+  exit 1
+}
+
+release_title="$(jq -r '.title' <<<"$release")"
+release_url="$(jq -r '.downloadUrl // .magnetUrl' <<<"$release")"
+quality="$(jq -r 'if (.title | test("2160p|4k"; "i")) then "2160p" else "1080p" end' <<<"$release")"
+torrent="$(mktemp /tmp/media-release.XXXXXX.torrent)"
+trap 'rm -f "$torrent"' EXIT
+
+curl -fsS "$release_url" -o "$torrent"
+curl -fsS -X POST \
+  -F "torrents=@$torrent;type=application/x-bittorrent" \
+  -F 'category=tv-sonarr' \
+  -F 'savepath=/downloads/complete' \
+  -F "rename=$title S$(printf '%02d' "$season") $quality" \
+  "$qbittorrent/torrents/add" >/dev/null
+
+sleep 2
+if ! curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
+     jq -e --arg title "$title" 'any(.[]; .name | ascii_downcase | contains($title | ascii_downcase))' >/dev/null; then
+  echo "media-release-fallback: qBittorrent rejected the selected release for $title" >&2
+  exit 1
+fi
+
+echo "media-release-fallback: added $quality release for $title: $release_title"
