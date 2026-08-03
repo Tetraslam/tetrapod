@@ -58,14 +58,27 @@ api -X POST "$base/system/settings" \
   >/dev/null
 echo "bazarr-provision: configured arr connections, English subtitles, and providers"
 
-run_sync() {
+ensure_populated() {
   local task="$1"
+  local endpoint="$2"
+  local task_state
+  if [ "$(api "$base/$endpoint" | jq -r '.total')" -gt 0 ]; then
+    return
+  fi
   for _ in {1..30}; do
-    if api "$base/system/tasks" | jq -e --arg task "$task" '.data[] | select(.job_id == $task)' >/dev/null; then
-      api -X POST --data-urlencode "taskid=$task" "$base/system/tasks" >/dev/null
-      while [ "$(api "$base/system/tasks?taskid=$task" | jq -r '.data[0].job_running')" = true ]; do
+    task_state="$(api "$base/system/tasks" | jq -r --arg task "$task" '.data[] | select(.job_id == $task) | .job_running')"
+    if [ -n "$task_state" ]; then
+      if [ "$task_state" != true ]; then
+        api -X POST --data-urlencode "taskid=$task" "$base/system/tasks" >/dev/null
+      fi
+      for _ in {1..30}; do
+        if [ "$(api "$base/$endpoint" | jq -r '.total')" -gt 0 ] ||
+           [ "$(api "$base/system/tasks?taskid=$task" | jq -r '.data[0].job_running')" != true ]; then
+          return
+        fi
         sleep 2
       done
+      echo "bazarr-provision: $task is continuing in the background"
       return
     fi
     sleep 2
@@ -74,8 +87,8 @@ run_sync() {
   exit 1
 }
 
-run_sync update_series
-run_sync update_movies
+ensure_populated update_series series
+ensure_populated update_movies movies
 
 assign_profiles() {
   local endpoint="$1"
