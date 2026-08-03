@@ -31,7 +31,8 @@ release="$(jq -cer --arg title "$title" '
     (.seeders // 0) > 0 and
     (.title | ascii_downcase | contains($title | ascii_downcase)) and
     (.title | test("(^|[^0-9])(1080p|2160p|4k)([^0-9]|$)"; "i")) and
-    ((.downloadUrl // .magnetUrl // "") | startswith("http://127.0.0.1:9696/"))
+    (((.infoHash // "") | test("^[0-9a-f]{40}$"; "i")) or
+     ((.downloadUrl // .magnetUrl // "") | startswith("http://127.0.0.1:9696/")))
   )) |
   sort_by(
     (if (.title | test("2160p|4k"; "i")) then 1 else 0 end),
@@ -44,18 +45,30 @@ release="$(jq -cer --arg title "$title" '
 }
 
 release_title="$(jq -r '.title' <<<"$release")"
-release_url="$(jq -r '.downloadUrl // .magnetUrl' <<<"$release")"
 quality="$(jq -r 'if (.title | test("2160p|4k"; "i")) then "2160p" else "1080p" end' <<<"$release")"
-torrent="$(mktemp /tmp/media-release.XXXXXX.torrent)"
-trap 'rm -f "$torrent"' EXIT
+rename="$title S$(printf '%02d' "$season") $quality"
+info_hash="$(jq -r '.infoHash // empty' <<<"$release")"
 
-curl -fsS "$release_url" -o "$torrent"
-curl -fsS -X POST \
-  -F "torrents=@$torrent;type=application/x-bittorrent" \
-  -F 'category=tv-sonarr' \
-  -F 'savepath=/downloads/complete' \
-  -F "rename=$title S$(printf '%02d' "$season") $quality" \
-  "$qbittorrent/torrents/add" >/dev/null
+if [[ "$info_hash" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+  encoded_title="$(jq -nr --arg value "$release_title" '$value | @uri')"
+  curl -fsS -X POST \
+    --data-urlencode "urls=magnet:?xt=urn:btih:$info_hash&dn=$encoded_title" \
+    --data-urlencode 'category=tv-sonarr' \
+    --data-urlencode 'savepath=/downloads/complete' \
+    --data-urlencode "rename=$rename" \
+    "$qbittorrent/torrents/add" >/dev/null
+else
+  release_url="$(jq -r '.downloadUrl // .magnetUrl' <<<"$release")"
+  torrent="$(mktemp /tmp/media-release.XXXXXX.torrent)"
+  trap 'rm -f "$torrent"' EXIT
+  curl -fsS "$release_url" -o "$torrent"
+  curl -fsS -X POST \
+    -F "torrents=@$torrent;type=application/x-bittorrent" \
+    -F 'category=tv-sonarr' \
+    -F 'savepath=/downloads/complete' \
+    -F "rename=$rename" \
+    "$qbittorrent/torrents/add" >/dev/null
+fi
 
 sleep 2
 if ! curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
