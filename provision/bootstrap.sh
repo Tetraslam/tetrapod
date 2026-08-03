@@ -150,6 +150,7 @@ sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
 sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
+sudo install -m755 "$HERE/bin/bazarr-provision" /usr/local/bin/bazarr-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
 sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-release-fallback
 sudo install -m755 "$HERE/bin/viki-subtitles" /usr/local/bin/viki-subtitles
@@ -300,6 +301,7 @@ else
   echo "WARN: public services need opa access to TETRAPOD_PUBLIC_SERVICES"
 fi
 media-provision || echo "WARN: media indexer provisioning failed"
+bazarr-provision || echo "WARN: Bazarr provisioning failed"
 shlink-provision || echo "WARN: service short-link provisioning failed"
 sudo cp "$HERE/systemd/media-reconcile.service" "$HERE/systemd/media-reconcile.timer" /etc/systemd/system/
 sudo systemctl daemon-reload

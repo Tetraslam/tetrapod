@@ -1,0 +1,104 @@
+#!/bin/bash
+set -euo pipefail
+
+config=/opt/tetrapod/bazarr/config/config.yaml
+base=http://127.0.0.1:6767/api
+ready=false
+for _ in {1..60}; do
+  if [ -f "$config" ] && curl -fsS http://127.0.0.1:6767/api/system/ping >/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+[ "$ready" = true ] || { echo "bazarr-provision: Bazarr is not ready" >&2; exit 1; }
+
+bazarr_key="$(perl -ne 'if (/^\s*apikey:\s*(\S+)/) { print $1; exit }' "$config")"
+sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
+radarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
+api() {
+  curl -fsS -H "X-API-KEY: $bazarr_key" "$@"
+}
+
+profile='[{"profileId":1,"name":"English","tag":null,"items":[{"id":1,"language":"en","hi":"False","forced":"False","audio_exclude":"False","audio_only_include":"False"}],"cutoff":null,"mustContain":[],"mustNotContain":[],"originalFormat":false}]'
+
+api -X POST "$base/system/settings" \
+  --data-urlencode 'languages-enabled=en' \
+  --data-urlencode "languages-profiles=$profile" \
+  --data-urlencode 'settings-general-use_sonarr=true' \
+  --data-urlencode 'settings-sonarr-ip=sonarr' \
+  --data-urlencode 'settings-sonarr-port=8989' \
+  --data-urlencode 'settings-sonarr-base_url=/' \
+  --data-urlencode "settings-sonarr-apikey=$sonarr_key" \
+  --data-urlencode 'settings-sonarr-ssl=false' \
+  --data-urlencode 'settings-sonarr-series_sync_on_live=true' \
+  --data-urlencode 'settings-sonarr-only_monitored=true' \
+  --data-urlencode 'settings-general-minimum_score=80' \
+  --data-urlencode 'settings-general-use_radarr=true' \
+  --data-urlencode 'settings-radarr-ip=radarr' \
+  --data-urlencode 'settings-radarr-port=7878' \
+  --data-urlencode 'settings-radarr-base_url=/' \
+  --data-urlencode "settings-radarr-apikey=$radarr_key" \
+  --data-urlencode 'settings-radarr-ssl=false' \
+  --data-urlencode 'settings-radarr-movies_sync_on_live=true' \
+  --data-urlencode 'settings-radarr-only_monitored=true' \
+  --data-urlencode 'settings-general-minimum_score_movie=80' \
+  --data-urlencode 'settings-general-serie_default_enabled=true' \
+  --data-urlencode 'settings-general-serie_default_profile=1' \
+  --data-urlencode 'settings-general-movie_default_enabled=true' \
+  --data-urlencode 'settings-general-movie_default_profile=1' \
+  --data-urlencode 'settings-general-enabled_providers=gestdown' \
+  --data-urlencode 'settings-general-enabled_providers=tvsubtitles' \
+  --data-urlencode 'settings-general-enabled_providers=yifysubtitles' \
+  --data-urlencode 'settings-general-subfolder=current' \
+  --data-urlencode 'settings-general-utf8_encode=true' \
+  --data-urlencode 'settings-subsync-use_subsync=true' \
+  --data-urlencode 'settings-subsync-force_audio=true' \
+  --data-urlencode 'settings-subsync-use_original_language=true' \
+  >/dev/null
+echo "bazarr-provision: configured arr connections, English subtitles, and providers"
+
+run_sync() {
+  local task="$1"
+  for _ in {1..30}; do
+    if api "$base/system/tasks" | jq -e --arg task "$task" '.data[] | select(.job_id == $task)' >/dev/null; then
+      api -X POST --data-urlencode "taskid=$task" "$base/system/tasks" >/dev/null
+      while [ "$(api "$base/system/tasks?taskid=$task" | jq -r '.data[0].job_running')" = true ]; do
+        sleep 2
+      done
+      return
+    fi
+    sleep 2
+  done
+  echo "bazarr-provision: $task task did not appear" >&2
+  exit 1
+}
+
+run_sync update_series
+run_sync update_movies
+
+assign_profiles() {
+  local endpoint="$1"
+  local id_field="$2"
+  local form_field="$3"
+  local count=0
+  while read -r id; do
+    [ -n "$id" ] || continue
+    api -X POST --data-urlencode "$form_field=$id" --data-urlencode 'profileid=1' \
+      "$base/$endpoint" >/dev/null
+    count=$((count + 1))
+  done < <(api "$base/$endpoint" | jq -r --arg field "$id_field" '.data[] | select(.profileId != 1) | .[$field]')
+  echo "bazarr-provision: assigned English profile to $count existing $endpoint"
+}
+
+assign_profiles series sonarrSeriesId seriesid
+assign_profiles movies radarrId radarrid
+
+settings="$(api "$base/system/settings")"
+jq -e '
+  .general.use_sonarr == true and
+  .general.use_radarr == true and
+  .general.enabled_providers == ["gestdown", "tvsubtitles", "yifysubtitles"] and
+  .subsync.use_subsync == true
+' <<<"$settings" >/dev/null
+echo "bazarr-provision: configuration verified"
