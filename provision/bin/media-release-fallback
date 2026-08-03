@@ -14,7 +14,11 @@ season="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/episode?seriesId=$serie
   jq '[.[] | select(.seasonNumber > 0 and .monitored and (.hasFile | not)) | .seasonNumber] | min // 1')"
 
 if curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
-   jq -e --arg title "$title" 'any(.[]; .name | ascii_downcase | contains($title | ascii_downcase))' >/dev/null; then
+   jq -e --arg title "$title" '
+     def normalized: ascii_downcase | gsub("[^a-z0-9]+"; " ") | gsub("^ | $"; "");
+     ($title | normalized) as $wanted |
+     any(.[]; .name | normalized | contains($wanted))
+   ' >/dev/null; then
   exit 1
 fi
 
@@ -74,7 +78,11 @@ fi
 
 sleep 2
 if ! curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
-     jq -e --arg title "$title" 'any(.[]; .name | ascii_downcase | contains($title | ascii_downcase))' >/dev/null; then
+     jq -e --arg title "$title" '
+       def normalized: ascii_downcase | gsub("[^a-z0-9]+"; " ") | gsub("^ | $"; "");
+       ($title | normalized) as $wanted |
+       any(.[]; .name | normalized | contains($wanted))
+     ' >/dev/null; then
   echo "media-release-fallback: qBittorrent rejected the selected release for $title" >&2
   exit 1
 fi
