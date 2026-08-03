@@ -10,7 +10,6 @@ qbittorrent=http://127.0.0.1:8081/api/v2
 
 series="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/series/$series_id")"
 title="$(jq -r '.title' <<<"$series")"
-year="$(jq -r '.year' <<<"$series")"
 season="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/episode?seriesId=$series_id" |
   jq '[.[] | select(.seasonNumber > 0 and .monitored and (.hasFile | not)) | .seasonNumber] | min // 1')"
 
@@ -20,7 +19,7 @@ if curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
 fi
 
 results="$(curl -fsS -G -H "X-Api-Key: $prowlarr_key" \
-  --data-urlencode "query=$title $year" \
+  --data-urlencode "query=$title" \
   --data-urlencode 'type=search' \
   --data-urlencode 'categories=5000' \
   "$prowlarr/search")"
