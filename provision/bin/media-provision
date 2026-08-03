@@ -141,3 +141,13 @@ if [ "$(jq -r '.max_active_downloads' <<<"$preferences")" -lt 6 ] ||
     --data-urlencode 'json={"max_active_downloads":6,"max_active_torrents":12}'
   echo "media-provision: increased qBittorrent active download capacity"
 fi
+
+sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
+sonarr=http://127.0.0.1:8989/api/v3
+media_management="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/config/mediamanagement")"
+if [ "$(jq -r '.importExtraFiles' <<<"$media_management")" != true ]; then
+  jq '.importExtraFiles = true | .extraFileExtensions = "srt"' <<<"$media_management" |
+    curl -fsS -X PUT -H "X-Api-Key: $sonarr_key" -H 'Content-Type: application/json' \
+      --data-binary @- "$sonarr/config/mediamanagement" >/dev/null
+  echo "media-provision: enabled Sonarr subtitle imports"
+fi

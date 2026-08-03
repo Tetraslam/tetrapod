@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+
+container_id="${1:?usage: viki-subtitles CONTAINER_ID TARGET_PREFIX}"
+target_prefix="${2:?usage: viki-subtitles CONTAINER_ID TARGET_PREFIX}"
+[[ "$container_id" =~ ^[0-9]+c$ ]] || { echo "invalid Viki container ID" >&2; exit 2; }
+
+headers=(
+  -H 'Referer: https://www.viki.com/'
+  -H 'X-Viki-App-Ver: 2.151.1'
+  -H 'X-Viki-Device-ID: 239083520d'
+  -H 'User-Agent: Mozilla/5.0'
+)
+episodes="$(curl -fsS "${headers[@]}" -G \
+  --data-urlencode 'direction=asc' \
+  --data-urlencode 'with_upcoming=true' \
+  --data-urlencode 'sort=number' \
+  --data-urlencode 'blocked=true' \
+  --data-urlencode 'only_ids=false' \
+  --data-urlencode 'app=100000a' \
+  --data-urlencode 'page=1' \
+  --data-urlencode 'per_page=50' \
+  "https://api.viki.io/v4/containers/$container_id/episodes.json")"
+
+downloaded=0
+while IFS=$'\t' read -r video_id episode; do
+  target="${target_prefix}.S01E$(printf '%02d' "$episode").en.srt"
+  mkdir -p "$(dirname "$target")"
+  tmp="${target}.tmp"
+  curl -fsS "${headers[@]}" -G --data-urlencode 'app=100000a' \
+    "https://api.viki.io/v4/videos/$video_id/auth_subtitles/en.srt" -o "$tmp"
+  mv "$tmp" "$target"
+  downloaded=$((downloaded + 1))
+done < <(jq -r '.response[] | select(.subtitle_completions.en >= 90) | [.id, .number] | @tsv' <<<"$episodes")
+
+[ "$downloaded" -gt 0 ] || { echo "no complete English subtitles found" >&2; exit 1; }
+echo "viki-subtitles: downloaded $downloaded English subtitles"
