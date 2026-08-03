@@ -13,8 +13,8 @@ export const HOSTS = {
     ram: "16 GiB (+8G zram)",
     region: "us-west-2",
     os: "ubuntu 24.04",
-    disk: "200GB gp3 + 1TB st1 media (/srv/media)",
-    cost: "~$150/mo (incl. disks)",
+    disk: "200GB gp3 + 4TB sc1 media (/srv/media)",
+    cost: "~$175/mo (incl. disks)",
   },
   lighthouse: {
     name: "lighthouse",

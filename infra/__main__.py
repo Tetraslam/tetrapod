@@ -14,7 +14,7 @@ cfg = pulumi.Config()
 INSTANCE_TYPE = cfg.get("instanceType") or "t4g.xlarge"
 LIGHTHOUSE_TYPE = cfg.get("lighthouseType") or "t4g.micro"
 ROOT_GB = cfg.get_int("rootVolumeGb") or 100
-MEDIA_GB = cfg.get_int("mediaVolumeGb") or 1024  # st1 HDD, grows online, never shrinks
+MEDIA_GB = cfg.get_int("mediaVolumeGb") or 1024  # sc1 HDD, grows online, never shrinks
 SSH_PUBLIC_KEY = cfg.require("sshPublicKey")
 TS_AUTH_KEY = cfg.require_secret("tailscaleAuthKey")  # reusable + pre-approved key
 BUDGET_EMAIL = cfg.get("budgetEmail")
@@ -192,15 +192,15 @@ aws.ec2.EipAssociation(
     instance_id=tetrapod.id,
 )
 
-# media library volume: st1 throughput HDD (linear reads, jellyfin-grade).
+# media library volume: sc1 cold HDD (sequential media reads, jellyfin-grade).
 # deliberately NOT tagged Backup=tetrapod — media is re-downloadable, DLM
-# snapshotting a terabyte of anime would cost more than the disk. restic
+# snapshotting the media library would cost more than the disk. restic
 # covers the configs; this volume covers itself by being replaceable.
 media_volume = aws.ebs.Volume(
     "tetrapod-media",
     availability_zone=tetrapod.availability_zone,
     size=MEDIA_GB,
-    type="st1",
+    type="sc1",
     encrypted=True,
     tags={"Name": "tetrapod-media", "Project": "tetrapod"},
     opts=pulumi.ResourceOptions(protect=True),

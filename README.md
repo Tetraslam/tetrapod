@@ -14,8 +14,8 @@ IAM, since claude models run from there.
 - **lighthouse:** second tiny instance, `t4g.micro` (~$6.60/mo), running uptime-kuma via cloud-init alone — watches tetrapod from outside so kuma can report tetrapod's own death. alerts via discord webhook
 - **research cpu:** AWS Batch Spot environment, x86 compute-optimized workers, scales from zero to 256 vCPUs; isolated from both persistent VMs
 - **disk:** 200GB gp3 root (3000 IOPS), daily DLM snapshots, keep 30; plus a
-  1TB st1 media volume at `/srv/media` (no snapshots — media is re-downloadable;
-  grow online via `tetrapod:mediaVolumeGb` + `growpart`-less `resize2fs`, st1
+  4TB sc1 media volume at `/srv/media` (no snapshots — media is re-downloadable;
+  grow online via `tetrapod:mediaVolumeGb` + `growpart`-less `resize2fs`, sc1
   grows but never shrinks; no partition table, so growing is just
   `pulumi up && resize2fs /dev/nvme1n1`)
 - **iac:** pulumi + python (uv), state self-hosted on tigris (`s3://` backend, no pulumi cloud — keeps work pulumi org untouched; backend pinned in `Pulumi.yaml`)

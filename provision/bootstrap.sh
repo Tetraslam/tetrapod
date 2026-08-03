@@ -187,7 +187,7 @@ printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgr
 
 # -------------------------------------------------------------- media volume
 
-# 1TB st1 EBS volume from pulumi (tetrapod-media), attached at /dev/sdf →
+# sc1 EBS volume from pulumi (tetrapod-media), attached at /dev/sdf →
 # /dev/nvme1n1 on nitro. format-once, mount at /srv/media. nofail so a
 # detached volume never blocks boot.
 log "media volume (/srv/media)"

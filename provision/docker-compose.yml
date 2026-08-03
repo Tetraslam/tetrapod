@@ -120,7 +120,7 @@ services:
     mem_limit: 3g
 
   # ------------------------------------------------------------ media stack
-  # library + downloads live on the 1TB st1 volume (/srv/media). everything
+  # library + downloads live on the 4TB sc1 volume (/srv/media). everything
   # tailnet-only via the SG. flow: prowlarr feeds indexers to sonarr/radarr,
   # they grab via qbittorrent into downloads/, import into library/, bazarr
   # adds subtitles, and jellyfin serves it. pinchflat archives youtube.
