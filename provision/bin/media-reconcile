@@ -55,7 +55,7 @@ ensure_quality_profile() {
     del(.id) |
     .name = $name |
     .upgradeAllowed = true |
-    .cutoff = 18 |
+    .cutoff = 19 |
     (.items[] | select(.quality != null)) |= (
       .allowed = (.quality.resolution >= 1080 and
         ((.quality.name | test("Remux|Raw-HD|BR-DISK"; "i")) | not))
@@ -67,6 +67,10 @@ ensure_quality_profile() {
   ' <<<"$template" |
     curl -fsS -X POST -H "X-Api-Key: $key" -H 'Content-Type: application/json' \
       --data-binary @- "$base/qualityprofile" | jq -r '.id')"
+  if [[ ! "$id" =~ ^[0-9]+$ ]]; then
+    echo "media-reconcile: failed to create $name quality profile" >&2
+    return 1
+  fi
   echo "media-reconcile: created $name quality profile" >&2
   printf '%s\n' "$id"
 }
