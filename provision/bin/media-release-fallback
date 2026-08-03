@@ -34,6 +34,9 @@ release="$(jq -cer --arg title "$title" '
      ((.downloadUrl // .magnetUrl // "") | startswith("http://127.0.0.1:9696/")))
   )) |
   sort_by(
+    (if (.title | test("english|eng(lish)?[ ._-]?sub|multi[ ._-]?sub"; "i")) then 2
+     elif (.title | test("\\p{Cyrillic}|(^|[^a-z])rus([^a-z]|$)"; "i")) then 0
+     else 1 end),
     (if (.title | test("2160p|4k"; "i")) then 1 else 0 end),
     (.seeders // 0)
   ) |
