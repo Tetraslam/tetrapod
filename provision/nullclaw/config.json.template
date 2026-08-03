@@ -48,6 +48,7 @@
   "autonomy": {
     "level": "full",
     "workspace_only": true,
+    "allowed_paths": ["/home/tetraslam/tetrapod"],
     "allowed_commands": ["*"],
     "block_high_risk_commands": true,
     "block_medium_risk_commands": false,
