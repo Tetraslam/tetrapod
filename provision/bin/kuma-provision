@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script --quiet
+#!/usr/bin/env -S /home/tetraslam/.local/bin/uv run --script --quiet
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["uptime-kuma-api"]
@@ -115,7 +115,6 @@ def main() -> None:
             print(f"  → status page: {m['name']}")
     api.save_status_page(
         slug=STATUS_SLUG,
-        id=cfg["id"],
         title=cfg.get("title") or STATUS_SLUG,
         theme=cfg.get("theme") if cfg.get("theme") in ("light", "dark") else "dark",
         publicGroupList=groups,
