@@ -13,8 +13,8 @@ export function SearxngPage() {
     >
       <Doc title="use it">
         <P>
-          <Ext url={URLS.searxng}>searxng.tetraslam.world</Ext> uses the shared public login. agents
-          (including <WikiLink to="nullclaw">nullclaw</WikiLink>'s web_search) use the direct
+          <Ext url={URLS.searxng}>searxng.tetraslam.world</Ext> uses the shared Authelia session.
+          agents (including <WikiLink to="nullclaw">nullclaw</WikiLink>'s web_search) use the direct
           tailnet JSON API:
         </P>
         <CodeBlock>{`curl "http://${host}:8888/search?q=lightpanda&format=json" | jq '.results[0]'`}</CodeBlock>

@@ -4,6 +4,8 @@ set -euo pipefail
 credential_ref=op://Agents/TETRAPOD_PUBLIC_SERVICES/password
 password="$(opa read "$credential_ref")"
 [ -n "$password" ] || { echo "public-services-provision: credential is empty" >&2; exit 1; }
+authelia_secret="$(opa read 'op://Agents/TETRAPOD_AUTHELIA/password')"
+[ -n "$authelia_secret" ] || { echo "public-services-provision: Authelia secret is empty" >&2; exit 1; }
 
 hash="$(printf '%s\n' "$password" | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
 public_bind_ip="$(ip -4 route get 1 | awk '{for (i = 1; i <= NF; i++) if ($i == "src") print $(i + 1)}')"
@@ -11,9 +13,28 @@ public_bind_ip="$(ip -4 route get 1 | awk '{for (i = 1; i <= NF; i++) if ($i == 
 env_file="$(mktemp)"
 trap 'rm -f "$env_file"' EXIT
 umask 077
-printf "PUBLIC_USER=tetraslam\nPUBLIC_PASSWORD_HASH=%s\nPUBLIC_BIND_IP=%s\n" \
-  "$hash" "$public_bind_ip" >"$env_file"
+printf "PUBLIC_BIND_IP=%s\n" "$public_bind_ip" >"$env_file"
 sudo install -o root -g root -m 600 "$env_file" /opt/tetrapod/public-services.env
+
+authelia_dir="$(mktemp -d)"
+trap 'rm -f "$env_file"; rm -rf "$authelia_dir"' EXIT
+printf '%s' "$authelia_secret" >"$authelia_dir/core"
+printf 'requirepass %s\n' "$authelia_secret" >"$authelia_dir/redis.conf"
+cat >"$authelia_dir/users.yml" <<EOF
+users:
+  tetraslam:
+    disabled: false
+    displayname: tetraslam
+    password: '$hash'
+    email: bhowmickshresht@gmail.com
+    groups:
+      - admins
+EOF
+sudo install -d -o root -g 1000 -m 750 /opt/tetrapod/authelia/secrets
+sudo install -d -o 1000 -g 1000 -m 750 /opt/tetrapod/authelia/data
+sudo install -o root -g 1000 -m 440 "$authelia_dir/core" /opt/tetrapod/authelia/secrets/core
+sudo install -o root -g 1000 -m 440 "$authelia_dir/redis.conf" /opt/tetrapod/authelia/secrets/redis.conf
+sudo install -o root -g 1000 -m 440 "$authelia_dir/users.yml" /opt/tetrapod/authelia/data/users.yml
 
 factorio_config=/opt/tetrapod/factorio/config/server-settings.json
 if [ -f "$factorio_config" ] && [ "$(sudo jq -r '.game_password // ""' "$factorio_config")" != "$password" ]; then
@@ -30,4 +51,4 @@ if [ -f "$factorio_config" ] && [ "$(sudo jq -r '.game_password // ""' "$factori
   echo "public-services-provision: configured Factorio password"
 fi
 
-echo "public-services-provision: rendered Caddy credentials"
+echo "public-services-provision: rendered Authelia user and service secrets"

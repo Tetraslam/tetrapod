@@ -29,6 +29,7 @@ export const URLS = {
   codeServer: `https://${HOSTS.tetrapod.fqdn}`,
   wiki: `https://${HOSTS.tetrapod.fqdn}/wiki`,
   wikiPublic: "https://wiki.tetraslam.world", // + wiki.tetraslam.com (vercel, kuma-api rewritten to the funnel)
+  auth: "https://auth.tetraslam.world",
   kuma: `https://${HOSTS.lighthouse.fqdn}`,
   repo: "https://github.com/tetraslam/tetrapod",
   jellyfin: "https://jellyfin.tetraslam.world",
@@ -83,7 +84,8 @@ export const OP_ITEMS = [
   { item: "GOG_KEYRING", use: "gog file-keyring password (gog-env)" },
   { item: "TETRAPOD_PULUMI", use: "pulumi state passphrase (laptop-side)" },
   { item: "TETRAPOD_TIGRIS", use: "tigris key for pulumi state bucket (laptop-side)" },
-  { item: "TETRAPOD_PUBLIC_SERVICES", use: "public web login + Factorio password" },
+  { item: "TETRAPOD_PUBLIC_SERVICES", use: "Authelia user + Factorio password" },
+  { item: "TETRAPOD_AUTHELIA", use: "Authelia session, storage, and Redis secrets" },
 ] as const;
 
 export const GOG_ACCOUNTS = [

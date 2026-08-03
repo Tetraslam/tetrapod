@@ -15,6 +15,40 @@ services:
       - /opt/tetrapod/caddy/config:/config
     mem_limit: 256m
 
+  authelia:
+    image: authelia/authelia:4.39.20
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9091:9091"
+    environment:
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/core
+      AUTHELIA_SESSION_SECRET_FILE: /secrets/core
+      AUTHELIA_SESSION_REDIS_PASSWORD_FILE: /secrets/core
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/core
+    volumes:
+      - ./authelia/configuration.yml:/config/configuration.yml:ro
+      - /opt/tetrapod/authelia/data:/data
+      - /opt/tetrapod/authelia/secrets:/secrets:ro
+    depends_on:
+      - authelia-redis
+    mem_limit: 256m
+
+  authelia-redis:
+    image: redis:7.4.5-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - /secrets/redis.conf
+      - --save
+      - "60"
+      - "1"
+      - --loglevel
+      - warning
+    volumes:
+      - /opt/tetrapod/authelia/redis:/data
+      - /opt/tetrapod/authelia/secrets:/secrets:ro
+    mem_limit: 128m
+
   factorio:
     image: factoriotools/factorio:2.0.76 # arm64 via box64; megabase => resize to amd64
     restart: unless-stopped

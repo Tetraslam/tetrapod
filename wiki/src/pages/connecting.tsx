@@ -25,9 +25,11 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
           works from the ipad. this wiki lives at <InlineCode>{URLS.wiki}</InlineCode>.
         </P>
         <P>
-          public administrative apps use username <InlineCode>tetraslam</InlineCode> and the
-          password at <InlineCode>op://Agents/TETRAPOD_PUBLIC_SERVICES/password</InlineCode>.
-          Jellyfin keeps its own app-compatible login.
+          public administrative apps redirect through <Ext url={URLS.auth}>Authelia</Ext>. sign in
+          as <InlineCode>tetraslam</InlineCode> with the password at{" "}
+          <InlineCode>op://Agents/TETRAPOD_PUBLIC_SERVICES/password</InlineCode>, select remember
+          me, then optionally register a passkey in account settings. Jellyfin keeps its own
+          app-compatible login.
         </P>
       </Doc>
 

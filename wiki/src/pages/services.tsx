@@ -30,6 +30,12 @@ const services = [
     purpose: "machine docs and dashboard",
   },
   {
+    name: "authelia",
+    url: URLS.auth,
+    address: "auth.tetraslam.world",
+    purpose: "persistent SSO for public admin apps",
+  },
+  {
     name: "uptime-kuma",
     url: URLS.kuma,
     address: HOSTS.lighthouse.fqdn,
@@ -124,7 +130,7 @@ export function ServicesPage() {
   return (
     <Page
       title="services"
-      intro="the things tetrapod runs, what each one is for, and where to open it. public administrative web apps use the shared Caddy login; raw ports and agent tools stay on the tailnet."
+      intro="the things tetrapod runs, what each one is for, and where to open it. public administrative web apps share one persistent Authelia session; raw ports and agent tools stay on the tailnet."
     >
       <Doc title="change a service">
         <P>

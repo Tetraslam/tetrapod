@@ -1,0 +1,70 @@
+server:
+  address: tcp4://:9091
+  endpoints:
+    authz:
+      forward-auth:
+        implementation: ForwardAuth
+
+log:
+  level: info
+
+identity_validation:
+  reset_password:
+    jwt_lifespan: 5m
+
+authentication_backend:
+  password_reset:
+    disable: true
+  file:
+    path: /data/users.yml
+    watch: true
+    password:
+      algorithm: bcrypt
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain:
+        - qbittorrent.tetraslam.world
+        - prowlarr.tetraslam.world
+        - sonarr.tetraslam.world
+        - radarr.tetraslam.world
+        - pinchflat.tetraslam.world
+        - searxng.tetraslam.world
+        - shlink.tetraslam.world
+      policy: one_factor
+
+session:
+  name: tetrapod_session
+  same_site: lax
+  inactivity: 30d
+  expiration: 12h
+  remember_me: 3M
+  cookies:
+    - domain: tetraslam.world
+      authelia_url: https://auth.tetraslam.world
+      default_redirection_url: https://wiki.tetraslam.world
+  redis:
+    host: authelia-redis
+    port: 6379
+
+regulation:
+  max_retries: 5
+  find_time: 2m
+  ban_time: 10m
+
+storage:
+  local:
+    path: /data/db.sqlite3
+
+notifier:
+  disable_startup_check: true
+  filesystem:
+    filename: /data/notification.txt
+
+webauthn:
+  enable_passkey_login: true
+  display_name: tetrapod
+  selection_criteria:
+    discoverability: preferred
+    user_verification: required

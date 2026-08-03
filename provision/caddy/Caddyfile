@@ -12,6 +12,7 @@ http://radarr.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
 http://shlink.tetraslam.world,
+http://auth.tetraslam.world,
 http://kuma-api.tetraslam.world,
 http://link.tetraslam.world,
 http://i.tetraslam.world {
@@ -31,8 +32,9 @@ http://i.tetraslam.world {
 
 (private) {
 	import security
-	basic_auth {
-		{$PUBLIC_USER} {$PUBLIC_PASSWORD_HASH}
+	forward_auth 127.0.0.1:9091 {
+		uri /api/authz/forward-auth
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 	}
 }
 
@@ -74,6 +76,11 @@ searxng.tetraslam.world {
 shlink.tetraslam.world {
 	import private
 	reverse_proxy 127.0.0.1:8086
+}
+
+auth.tetraslam.world {
+	import security
+	reverse_proxy 127.0.0.1:9091
 }
 
 kuma-api.tetraslam.world {
