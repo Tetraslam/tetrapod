@@ -36,6 +36,15 @@ sudo install -o root -g 1000 -m 440 "$authelia_dir/core" /opt/tetrapod/authelia/
 sudo install -o root -g 1000 -m 440 "$authelia_dir/redis.conf" /opt/tetrapod/authelia/secrets/redis.conf
 sudo install -o root -g 1000 -m 440 "$authelia_dir/users.yml" /opt/tetrapod/authelia/data/users.yml
 
+for app in prowlarr sonarr radarr; do
+  config="/opt/tetrapod/$app/config.xml"
+  if [ -f "$config" ] && [ "$(sudo xmlstarlet sel -t -v /Config/AuthenticationMethod "$config")" != External ]; then
+    sudo xmlstarlet ed --inplace -u /Config/AuthenticationMethod -v External "$config"
+    docker restart "provision-$app-1" >/dev/null
+    echo "public-services-provision: delegated $app authentication to Authelia"
+  fi
+done
+
 factorio_config=/opt/tetrapod/factorio/config/server-settings.json
 if [ -f "$factorio_config" ] && [ "$(sudo jq -r '.game_password // ""' "$factorio_config")" != "$password" ]; then
   players="$(docker exec provision-factorio-1 rcon /players online)"
