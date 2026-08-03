@@ -141,6 +141,11 @@ if [ "$(jq -r '.max_active_downloads' <<<"$preferences")" -lt 6 ] ||
     --data-urlencode 'json={"max_active_downloads":6,"max_active_torrents":12}'
   echo "media-provision: increased qBittorrent active download capacity"
 fi
+if [ "$(jq -r '.announce_to_all_trackers' <<<"$preferences")" != true ]; then
+  curl -fsS -X POST "$qbittorrent/app/setPreferences" \
+    --data-urlencode 'json={"announce_to_all_trackers":true}'
+  echo "media-provision: enabled all-tracker announcements"
+fi
 
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 sonarr=http://127.0.0.1:8989/api/v3

@@ -63,6 +63,11 @@ if [[ "$info_hash" =~ ^[0-9A-Fa-f]{40}$ ]]; then
     --data-urlencode 'savepath=/downloads/complete' \
     --data-urlencode "rename=$rename" \
     "$qbittorrent/torrents/add" >/dev/null
+  trackers=$'udp://tracker.opentrackr.org:1337/announce\nudp://open.stealth.si:80/announce\nudp://tracker.torrent.eu.org:451/announce\nudp://exodus.desync.com:6969/announce'
+  curl -fsS -X POST \
+    --data-urlencode "hash=${info_hash,,}" \
+    --data-urlencode "urls=$trackers" \
+    "$qbittorrent/torrents/addTrackers" >/dev/null
 else
   release_url="$(jq -r '.downloadUrl // .magnetUrl' <<<"$release")"
   torrent="$(mktemp /tmp/media-release.XXXXXX.torrent)"
