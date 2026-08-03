@@ -18,6 +18,7 @@ const quick = [
       ["watch", URLS.jellyfin],
       ["shows", URLS.sonarr],
       ["movies", URLS.radarr],
+      ["subtitles", URLS.bazarr],
       ["youtube", URLS.pinchflat],
       ["downloads", URLS.qbittorrent],
       ["indexers", URLS.prowlarr],

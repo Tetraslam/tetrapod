@@ -45,6 +45,7 @@ HTTP_MONITORS = [
     ("prowlarr", f"http://{HOST}:9696/ping", None),
     ("sonarr", f"http://{HOST}:8989/ping", None),
     ("radarr", f"http://{HOST}:7878/ping", None),
+    ("bazarr", f"http://{HOST}:6767/", None),
     ("pinchflat", f"http://{HOST}:8945/", None),
     ("zipline", f"http://{HOST}:3200/", ["200-299", "300-399"]),
     ("shlink", f"http://{HOST}:8085/rest/health", None),

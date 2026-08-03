@@ -29,6 +29,7 @@ access_control:
         - prowlarr.tetraslam.world
         - sonarr.tetraslam.world
         - radarr.tetraslam.world
+        - bazarr.tetraslam.world
         - pinchflat.tetraslam.world
         - searxng.tetraslam.world
         - shlink.tetraslam.world

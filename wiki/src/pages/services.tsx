@@ -72,6 +72,12 @@ const services = [
     purpose: "find and organize movies",
   },
   {
+    name: "bazarr",
+    url: URLS.bazarr,
+    address: "bazarr.tetraslam.world",
+    purpose: "find and synchronize subtitles",
+  },
+  {
     name: "pinchflat",
     url: URLS.pinchflat,
     address: "pinchflat.tetraslam.world",

@@ -16,6 +16,7 @@ const PARTS = [
   { name: "prowlarr", port: 9696, role: "indexers (nyaa anime, yts movies, eztv shows)" },
   { name: "sonarr", port: 8989, role: "tv + anime" },
   { name: "radarr", port: 7878, role: "movies" },
+  { name: "bazarr", port: 6767, role: "English subtitles + synchronization" },
   { name: "qbittorrent", port: 8081, role: "downloads (no login on tailnet)" },
   { name: "flaresolverr", port: 8191, role: "cloudflare solver (loopback)" },
 ] as const;
@@ -24,7 +25,7 @@ export function ArrPage() {
   return (
     <Page
       title="arr pipeline"
-      intro="prowlarr (indexers) → sonarr/radarr (what to get) → qbittorrent (fetch) → jellyfin. you interact with sonarr/radarr; the rest is automatic."
+      intro="prowlarr finds releases, sonarr/radarr choose them, qbittorrent fetches them, bazarr adds subtitles, and jellyfin serves the result."
     >
       <Doc title="add a show">
         <P>
@@ -33,6 +34,14 @@ export function ArrPage() {
           anime and starts missing searches every minute, so leaving the defaults is safe. movies:{" "}
           <Ext url={URLS.radarr}>radarr</Ext> → add movie. available movies are searched
           automatically; unreleased movies remain monitored until a release exists.
+        </P>
+      </Doc>
+
+      <Doc title="subtitles">
+        <P>
+          <Ext url={URLS.bazarr}>bazarr</Ext> mirrors the Sonarr and Radarr libraries, searches for
+          English subtitles, stores them beside each media file, and synchronizes timing when the
+          downloaded subtitle does not match the release exactly.
         </P>
       </Doc>
 
@@ -70,7 +79,7 @@ export function ArrPage() {
             <TableRow>
               <TableCell className="text-muted-foreground">flow</TableCell>
               <TableCell className="font-mono text-xs">
-                downloads/ → import → library/ → <WikiLink to="jellyfin">jellyfin</WikiLink>
+                downloads/ → import → bazarr subtitles → <WikiLink to="jellyfin">jellyfin</WikiLink>
               </TableCell>
             </TableRow>
             <TableRow>
@@ -82,8 +91,8 @@ export function ArrPage() {
             <TableRow>
               <TableCell className="text-muted-foreground">quirks set once</TableCell>
               <TableCell className="font-mono text-xs">
-                size floors zeroed (hevc anime) · seed ratio 2 · 1337x disabled (AWS IP blocked) ·
-                yts / eztv / nyaa enabled
+                size floors zeroed (hevc anime) · seed to ratio 1 or 7 days, then arr removes the
+                imported download · 1337x disabled (AWS IP blocked) · yts / eztv / nyaa enabled
               </TableCell>
             </TableRow>
           </TableBody>

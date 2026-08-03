@@ -37,6 +37,7 @@ export const URLS = {
   prowlarr: "https://prowlarr.tetraslam.world",
   sonarr: "https://sonarr.tetraslam.world",
   radarr: "https://radarr.tetraslam.world",
+  bazarr: "https://bazarr.tetraslam.world",
   pinchflat: "https://pinchflat.tetraslam.world",
   searxng: "https://searxng.tetraslam.world",
   steel: `http://${HOSTS.tetrapod.fqdn}:3003`,

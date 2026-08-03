@@ -122,8 +122,8 @@ services:
   # ------------------------------------------------------------ media stack
   # library + downloads live on the 1TB st1 volume (/srv/media). everything
   # tailnet-only via the SG. flow: prowlarr feeds indexers to sonarr/radarr,
-  # they grab via qbittorrent into downloads/, import into library/, jellyfin
-  # serves it. pinchflat archives youtube straight into library/youtube.
+  # they grab via qbittorrent into downloads/, import into library/, bazarr
+  # adds subtitles, and jellyfin serves it. pinchflat archives youtube.
 
   jellyfin:
     image: jellyfin/jellyfin:2026072008
@@ -185,6 +185,17 @@ services:
       - /opt/tetrapod/radarr:/config
       - /srv/media:/srv/media
     mem_limit: 1g
+
+  bazarr:
+    image: linuxserver/bazarr:v1.6.0-ls356
+    restart: unless-stopped
+    environment: { PUID: "1000", PGID: "1000", TZ: America/Los_Angeles }
+    ports:
+      - "6767:6767"
+    volumes:
+      - /opt/tetrapod/bazarr:/config
+      - /srv/media:/srv/media
+    mem_limit: 512m
 
   pinchflat:
     image: ghcr.io/kieraneglin/pinchflat:v2025.6.6

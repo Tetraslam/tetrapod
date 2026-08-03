@@ -9,6 +9,7 @@ http://qbittorrent.tetraslam.world,
 http://prowlarr.tetraslam.world,
 http://sonarr.tetraslam.world,
 http://radarr.tetraslam.world,
+http://bazarr.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
 http://shlink.tetraslam.world,
@@ -61,6 +62,11 @@ sonarr.tetraslam.world {
 radarr.tetraslam.world {
 	import private
 	reverse_proxy 127.0.0.1:7878
+}
+
+bazarr.tetraslam.world {
+	import private
+	reverse_proxy 127.0.0.1:6767
 }
 
 pinchflat.tetraslam.world {

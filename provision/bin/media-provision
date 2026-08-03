@@ -146,6 +146,33 @@ if [ "$(jq -r '.announce_to_all_trackers' <<<"$preferences")" != true ]; then
     --data-urlencode 'json={"announce_to_all_trackers":true}'
   echo "media-provision: enabled all-tracker announcements"
 fi
+if [ "$(jq -r '.max_ratio' <<<"$preferences")" != 1 ] ||
+   [ "$(jq -r '.max_seeding_time' <<<"$preferences")" != 10080 ] ||
+   [ "$(jq -r '.max_seeding_time_enabled' <<<"$preferences")" != true ]; then
+  curl -fsS -X POST "$qbittorrent/app/setPreferences" \
+    --data-urlencode 'json={"max_ratio":1,"max_ratio_act":0,"max_seeding_time":10080,"max_seeding_time_enabled":true}'
+  echo "media-provision: set seed lifecycle to ratio 1 or 7 days"
+fi
+
+configure_download_cleanup() {
+  local app="$1"
+  local port="$2"
+  local app_key client
+
+  app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
+  client="$(curl -fsS -H "X-Api-Key: $app_key" "http://127.0.0.1:$port/api/v3/downloadclient" |
+    jq -cer '.[] | select(.implementation == "QBittorrent")')"
+  if [ "$(jq -r '.removeCompletedDownloads' <<<"$client")" != true ] ||
+     [ "$(jq -r '.removeFailedDownloads' <<<"$client")" != true ]; then
+    jq '.removeCompletedDownloads = true | .removeFailedDownloads = true' <<<"$client" |
+      curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
+        --data-binary @- "http://127.0.0.1:$port/api/v3/downloadclient/$(jq -r '.id' <<<"$client")" >/dev/null
+    echo "media-provision: enabled $app completed-download cleanup"
+  fi
+}
+
+configure_download_cleanup sonarr 8989
+configure_download_cleanup radarr 7878
 
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 sonarr=http://127.0.0.1:8989/api/v3
