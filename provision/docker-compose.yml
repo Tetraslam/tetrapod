@@ -147,7 +147,7 @@ services:
       WEBUI_PORT: "8081"
     ports:
       - "8081:8081"       # webui: http://tetrapod:8081
-      - "6881:6881"       # peers can't reach through the SG; outbound-only is fine
+      - "6881:6881"       # public peer ingress is restricted to this port by the SG
       - "6881:6881/udp"
     volumes:
       - /opt/tetrapod/qbittorrent:/config

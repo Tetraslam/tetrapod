@@ -20,7 +20,9 @@ IAM, since claude models run from there.
   `pulumi up && resize2fs /dev/nvme1n1`)
 - **iac:** pulumi + python (uv), state self-hosted on tigris (`s3://` backend, no pulumi cloud — keeps work pulumi org untouched; backend pinned in `Pulumi.yaml`)
 - **secrets:** passphrase secrets provider, passphrase + everything else via 1password (`opa`, the promptless agents-vault wrapper from rice)
-- **network:** tailscale with tailscale-ssh; public ingress is udp 41641 only (ssh 22 behind a pulumi flag, default off; break-glass via SSM/serial console)
+- **network:** tailscale with tailscale-ssh; public ingress is web/game ports plus
+  tcp+udp 6881 for BitTorrent peers (ssh 22 is behind a Pulumi flag, default
+  off; break-glass via SSM/serial console)
 - **services:** docker compose — factorio (`factoriotools/factorio`, arm64 via box64, tailnet-only, pinned tag), code-server (localhost + `tailscale serve`)
 - **hermes agent:** on the host, not docker (it wants the filesystem)
 - **backups:** restic → tigris nightly (ported from rice) with healthcheck ping, plus EBS snapshots
