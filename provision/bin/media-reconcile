@@ -38,6 +38,67 @@ sonarr_api() {
   curl -fsS -H "X-Api-Key: $sonarr_key" "$@"
 }
 
+radarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
+radarr=http://127.0.0.1:7878/api/v3
+radarr_api() {
+  curl -fsS -H "X-Api-Key: $radarr_key" "$@"
+}
+
+qbittorrent=http://127.0.0.1:8081/api/v2
+
+fail_stalled_downloads() {
+  local torrents sonarr_queue radarr_queue failed hash name category state queue api key id
+  torrents="$(mktemp "$state_dir/torrents.XXXXXX")"
+  sonarr_queue="$(mktemp "$state_dir/sonarr-queue.XXXXXX")"
+  radarr_queue="$(mktemp "$state_dir/radarr-queue.XXXXXX")"
+
+  curl -fsS "$qbittorrent/torrents/info" >"$torrents"
+  sonarr_api "$sonarr/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true" >"$sonarr_queue"
+  radarr_api "$radarr/queue?page=1&pageSize=1000&includeUnknownMovieItems=true" >"$radarr_queue"
+
+  failed=0
+  while IFS=$'\t' read -r hash name category state; do
+    if [ "$category" = tv-sonarr ]; then
+      queue="$sonarr_queue"
+      api="$sonarr"
+      key="$sonarr_key"
+    else
+      queue="$radarr_queue"
+      api="$radarr"
+      key="$radarr_key"
+    fi
+
+    id="$(jq -r --arg hash "$hash" '
+      [.records[] | select(((.downloadId // "") | ascii_downcase) == $hash) | .id][0] // empty
+    ' "$queue")"
+    if [ -n "$id" ]; then
+      curl -fsS -X DELETE -H "X-Api-Key: $key" \
+        "$api/queue/$id?removeFromClient=true&blocklist=true&skipRedownload=false&changeCategory=false&message=No%20peers%20within%20the%20download%20deadline" \
+        >/dev/null
+    else
+      curl -fsS -X POST --data-urlencode "hashes=$hash" --data-urlencode 'deleteFiles=true' \
+        "$qbittorrent/torrents/delete" >/dev/null
+    fi
+    failed=$((failed + 1))
+    echo "media-reconcile: failed stalled $state download: $name"
+  done < <(jq -r --argjson now "$now" '
+    [.[] | select(
+      (.category == "tv-sonarr" or .category == "radarr") and
+      .progress < 1 and .dlspeed == 0 and (
+        (.state == "metaDL" and ($now - .added_on) >= 1800) or
+        ((.state == "stalledDL" or .state == "error") and
+         (.num_seeds // 0) == 0 and
+         ($now - (.last_activity // .added_on)) >= 21600)
+      )
+    )] | sort_by(.added_on) | .[:4][] | [.hash, .name, .category, .state] | @tsv
+  ' "$torrents")
+
+  rm -f "$torrents" "$sonarr_queue" "$radarr_queue"
+  [ "$failed" -eq 0 ] || echo "media-reconcile: failed $failed stalled downloads for replacement"
+}
+
+fail_stalled_downloads
+
 ensure_quality_profile() {
   local base="$1"
   local key="$2"
@@ -126,12 +187,6 @@ done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
   .statistics.episodeCount,
   .statistics.episodeFileCount
 ] | @tsv')
-
-radarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
-radarr=http://127.0.0.1:7878/api/v3
-radarr_api() {
-  curl -fsS -H "X-Api-Key: $radarr_key" "$@"
-}
 
 radarr_quality_profile="$(ensure_quality_profile "$radarr" "$radarr_key")"
 

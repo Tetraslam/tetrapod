@@ -50,10 +50,10 @@ inherit_minimum_seeders() {
 }
 
 profile="$(api "$base/appprofile/1")"
-if [ "$(jq -r '.minimumSeeders' <<<"$profile")" != 0 ]; then
-  jq '.minimumSeeders = 0' <<<"$profile" |
+if [ "$(jq -r '.minimumSeeders' <<<"$profile")" != 3 ]; then
+  jq '.minimumSeeders = 3' <<<"$profile" |
     api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/appprofile/1" >/dev/null
-  echo "media-provision: allowed indexers without seeder metadata"
+  echo "media-provision: require at least 3 reported seeders"
 fi
 
 indexers="$(api "$base/indexer")"
@@ -120,7 +120,7 @@ else
   echo "media-provision: added Knaben"
 fi
 inherit_minimum_seeders Nyaa.si
-set_minimum_seeders Knaben 1
+set_minimum_seeders Knaben 3
 
 knaben_id="$(api "$base/indexer" | jq -er '.[] | select(.name == "Knaben") | .id')"
 knaben="$(api "$base/indexer/$knaben_id")"

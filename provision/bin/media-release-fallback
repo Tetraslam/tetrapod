@@ -31,7 +31,7 @@ results="$(curl -fsS -G -H "X-Api-Key: $prowlarr_key" \
 release="$(jq -cer --arg title "$title" '
   map(select(
     .protocol == "torrent" and
-    (.seeders // 0) > 0 and
+    (.seeders // 0) >= 3 and
     (.title | ascii_downcase | contains($title | ascii_downcase)) and
     (.title | test("(^|[^0-9])(1080p|2160p|4k)([^0-9]|$)"; "i")) and
     (((.infoHash // "") | test("^[0-9a-f]{40}$"; "i")) or
