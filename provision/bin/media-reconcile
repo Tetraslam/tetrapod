@@ -139,6 +139,8 @@ ensure_quality_profile() {
 sonarr_quality_profile="$(ensure_quality_profile "$sonarr" "$sonarr_key")"
 
 sonarr_search_active="$(sonarr_api "$sonarr/command" | jq 'any(.[]; (.name == "SeriesSearch" or .name == "MissingEpisodeSearch") and (.status == "queued" or .status == "started"))')"
+sonarr_downloading_series="$(sonarr_api "$sonarr/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true" |
+  jq '[.records[] | select(.status == "downloading" or .status == "queued") | .seriesId | select(. != null)] | unique')"
 sonarr_search_started=false
 
 while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime aired files; do
@@ -158,7 +160,9 @@ while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime 
 
   previous="$(last_search sonarr "$id")"
   fallback_previous="$(last_fallback "$id")"
+  has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$sonarr_downloading_series")"
   if [ "$monitored" = true ] && [ "$files" -eq 0 ] && [ "$previous" -gt 0 ] &&
+     [ "$has_active_download" = false ] &&
      [ "$fallback_previous" -lt "$previous" ] &&
      [ $((now - previous)) -ge "$fallback_seconds" ] &&
      [ $((now - previous)) -lt "$retry_seconds" ]; then
@@ -167,6 +171,7 @@ while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime 
   fi
 
   if [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
+     [ "$has_active_download" = false ] &&
      [ "$sonarr_search_active" = false ] && [ "$sonarr_search_started" = false ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
     sonarr_api -X POST -H 'Content-Type: application/json' \
@@ -191,6 +196,8 @@ done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
 radarr_quality_profile="$(ensure_quality_profile "$radarr" "$radarr_key")"
 
 radarr_search_active="$(radarr_api "$radarr/command" | jq 'any(.[]; .name == "MoviesSearch" and (.status == "queued" or .status == "started"))')"
+radarr_downloading_movies="$(radarr_api "$radarr/queue?page=1&pageSize=1000&includeUnknownMovieItems=true" |
+  jq '[.records[] | select(.status == "downloading" or .status == "queued") | .movieId | select(. != null)] | unique')"
 radarr_search_started=false
 
 while IFS=$'\t' read -r id title quality_profile monitored has_file available; do
@@ -202,7 +209,9 @@ while IFS=$'\t' read -r id title quality_profile monitored has_file available; d
   fi
 
   previous="$(last_search radarr "$id")"
+  has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$radarr_downloading_movies")"
   if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
+     [ "$has_active_download" = false ] &&
      [ "$radarr_search_active" = false ] && [ "$radarr_search_started" = false ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
     radarr_api -X POST -H 'Content-Type: application/json' \
