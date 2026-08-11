@@ -30,8 +30,12 @@ git clone https://github.com/tetraslam/tetrapod && cd tetrapod
 
       <Doc title="break-glass (tailscale is down)">
         <P>
-          aws console → EC2 → tetrapod → connect → <strong>session manager</strong> (SSM, instance
-          role is pre-attached), or the serial console. or temporarily open ssh:
+          use the laptop&apos;s OpenSSH-over-SSM alias (AWS CLI and Session Manager plugin required):
+        </P>
+        <CodeBlock>{`ssh tetrapod-ssm`}</CodeBlock>
+        <P>
+          otherwise use aws console → EC2 → tetrapod → connect → <strong>session manager</strong>,
+          or the serial console. as a last resort, temporarily open ssh:
         </P>
         <CodeBlock>{`pulumi config set tetrapod:enablePublicSsh true && pulumi up   # revert after!`}</CodeBlock>
       </Doc>

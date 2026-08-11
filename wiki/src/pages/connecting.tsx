@@ -35,8 +35,12 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
 
       <Doc title="if tailscale is down">
         <P>
-          there is no public ssh. use the break-glass paths in the{" "}
-          <WikiLink to="runbook">runbook</WikiLink> (SSM session manager or the EC2 serial console).
+          there is no public ssh. the laptop&apos;s <InlineCode>tetrapod-ssm</InlineCode> alias tunnels
+          OpenSSH through SSM while retaining the known tetrapod host key:
+        </P>
+        <CodeBlock>{`ssh tetrapod-ssm`}</CodeBlock>
+        <P>
+          see the <WikiLink to="runbook">runbook</WikiLink> for console fallbacks.
         </P>
       </Doc>
 
