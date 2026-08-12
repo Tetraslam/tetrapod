@@ -5,7 +5,13 @@ It turns every submitted entry into a repository-backed project and keeps that
 project moving until Shresht explicitly stops it.
 
 This document records current product decisions. It should become more precise
-as the design is discussed; it is not an implementation plan yet.
+as the design is discussed; it is not an implementation plan, and no Tetrarium
+implementation work has started.
+
+Treat answers in the surrounding design discussion with ordinary theory of
+mind. A response to one proposed detail settles that detail at most; it does not
+create a general doctrine, mandatory protocol, or fleet-wide policy unless the
+discussion actually establishes one.
 
 ## Invariants
 
@@ -16,6 +22,9 @@ as the design is discussed; it is not an implementation plan yet.
 - Only Shresht decides to stop a pursuit.
 - Every pursuit has a Git repository as its durable home, including
   mathematical research, literature synthesis, model experiments, and design.
+- Every entry creates a new pursuit and a new private repository under the
+  `Tetraslam` GitHub account. Repositories are created locally first and pushed
+  immediately.
 - Everything is steerable while it runs, like a normal OpenCode session.
 - There is at most one active main-agent run per pursuit. A pursuit may have
   many main-agent runs over time and concurrent subagent runs.
@@ -23,6 +32,7 @@ as the design is discussed; it is not an implementation plan yet.
   repository rather than a separate universal knowledge ontology.
 - The orchestrator keeps pursuits healthy. It does not decide which pursuits
   deserve attention or ask Shresht to manage routine task allocation.
+- Pursuits are not merged unless Shresht explicitly asks for it.
 
 ## Ontology
 
@@ -50,9 +60,11 @@ replaced with a fresh-context main run. Only one main run is active at a time.
 ### Artifact
 
 A useful output of a pursuit, such as software, a service, model, dataset,
-paper, proof, benchmark, design, prototype, or research result. Artifacts may
-live in the repository or be referenced from it when their size or deployment
-requires external storage.
+paper, proof, benchmark, design, prototype, or research result. The artifact
+itself lives in the repository or is referenced from it when its size or
+deployment requires external storage. Tetrarium keeps a first-class artifact
+index so outputs can be found across pursuits without moving their ownership
+out of Git.
 
 ## Repository Contract
 
@@ -78,6 +90,11 @@ Dependency changes must use the package manager, such as `uv add <package>`,
 not type dependency versions into manifests by hand. Templates should enforce
 this through hooks or CI rather than relying only on prose.
 
+The first template should target research and ML while retaining the quality of
+Shresht's normal local development setup. It should include ready-to-use Python
+through uv, relevant toolchains, and committed 1Password references for services
+such as Modal and OpenRouter. Resolved credentials never enter the repository.
+
 We still need to design:
 
 - the common base template
@@ -102,7 +119,13 @@ ticket another scheduler interprets later.
 
 Individual pursuit agents may contact Shresht directly when they need a real
 answer. The orchestrator may contact him when a pursuit is unhealthy or cannot
-continue autonomously.
+continue autonomously. Shresht and the orchestrator may replace a main run with
+a fresh-context run.
+
+A pursuit agent may wait for a concrete external condition, including a long
+GPU job. Waiting does not require the run to end. OpenCode 2 may already be
+durable enough for this. If it is not, a small plugin can provide a programmable
+sleep-until-signal tool similar to Claude Code monitoring tools.
 
 ## Orchestrator
 
@@ -110,11 +133,16 @@ The central orchestrator is operational, not managerial. It should ensure that:
 
 - every entry has a repository and an active or recoverably scheduled pursuit
 - runs start, resume, and recover correctly
-- no pursuit silently stalls
+- stopped runs are noticed and referred to the main orchestrator agent
 - one main run per pursuit is respected
 - subagents and external compute jobs remain observable
 - credentials, repositories, workspaces, and provider access are functioning
 - actionable failures reach Shresht
+
+The main orchestrator agent decides what to do when a pursuit run stops. It can
+tell the run to continue, change its direction, ask the pursuit agent to contact
+Shresht, or contact Shresht itself. Tetrarium does not enforce continuous token
+consumption, but pursuit agents cannot silently treat stopping as completion.
 
 It should handle ordinary failures itself. Notifications should describe a
 decision or action Shresht must take, not merely report that an agent encountered
@@ -127,14 +155,10 @@ ordinary words, and explicit referents. They should be extremely concise without
 dropping information needed to decide or act. Sentence fragments, status noise,
 management jargon, and long agent-authored incident reports are unacceptable.
 
-A useful escalation usually contains:
-
-- what cannot continue
-- why Tetrarium could not resolve it
-- the smallest action or decision needed
-- the agent's recommendation when there is a real choice
-
-These should normally fit in a few short sentences.
+This needs good agent instructions and a message tool call, not a separate
+message schema or rendering protocol. The tool description should require the
+agent to state the problem, requested action, and recommendation when relevant
+in a few short sentences.
 
 ## OpenCode Architecture
 
@@ -162,13 +186,13 @@ documents, messages, task ontology, or fixed agent roles.
 
 ## Open Questions
 
-- Does each entry always create a new repository, or can Shresht explicitly add
-  an entry to an existing pursuit?
-- When should Tetrarium replace a main run with fresh context?
+- What other repository creation details belong between local initialization
+  and the immediate first push?
+- When should the orchestrator replace a main run with fresh context?
 - What summary or repository file hands state from one main run to the next?
-- Can a pursuit intentionally wait for an external event, or must it always have
-  an agent actively searching for another approach?
+- Which OpenCode V2 behavior is sufficient for programmable waiting, and what
+  minimal plugin is needed if its sessions cannot wait durably?
 - What exact health states exist between healthy and requiring human action?
 - How should the observatory present dozens or hundreds of indefinite pursuits?
 - What belongs in Tetrarium's own database beyond IDs, repository locations,
-  run references, health, and notification state?
+  run references, artifact index entries, health, and notification state?
