@@ -26,10 +26,9 @@ These are related systems, not a forced product hierarchy. Some may eventually
 merge; others may remain independent and exchange data or capabilities through
 stable interfaces.
 
-1. **Autonomous project system (name TBD):** Turns ideas into sustained software,
-   research, and design projects. "Foundry" is rejected as a name. We will
-   heavily fork Stoneforge, but the fork's identity and eventual name remain
-   open.
+1. **Tetrarium:** Turns every submitted entry into an indefinitely pursued,
+   repository-backed software, research, or design project. See
+   [`tetrarium.md`](tetrarium.md).
 2. **Tetracorpus:** Captures high-fidelity personal data, preserves immutable
    raw inputs, and exposes rebuildable analytical and agent-facing interfaces.
 3. **Curator:** Continuously discovers things that may matter, estimates whether
@@ -47,54 +46,39 @@ stable interfaces.
 The examples that motivated these ideas are evidence, not exhaustive product
 specifications. In particular, Curator is not merely a media recommender,
 personal models are not merely recommenders trained on Tetracorpus, and public
-capabilities need not be outputs from the autonomous project system.
+capabilities need not be outputs from Tetrarium.
 
-## 1. Autonomous Project System (Name TBD)
+## 1. Tetrarium
 
-We will maintain our own heavily modified fork of Stoneforge. Upstream is a
-useful starting point, not a product boundary. We may replace behavior,
-architecture, terminology, and UI that do not fit the intended system. The
-system needs a name that does not evoke Palantir, industrial extraction, or a
-generic AI startup.
+Tetrarium is an autonomous, steerable environment for long-running pursuits.
+Every entry starts a pursuit. Every pursuit owns a repository, receives one or
+more OpenCode runs over its lifetime, and continues until Shresht explicitly
+stops it.
 
-Stoneforge already supplies useful primitives:
+Its complete current design is in [`tetrarium.md`](tetrarium.md). The core
+ontology is deliberately small:
 
-- event-sourced JSONL state with a rebuildable SQLite cache
-- dependency-aware tasks, plans, workflows, and agent pools
-- isolated git worktrees and automated merge review
-- director, worker, and steward roles
-- persistent messages, documents, handoffs, and a live dashboard
-- Claude Code, OpenCode, and Codex providers
+- **entry:** raw input submitted to Tetrarium
+- **pursuit:** the repository-backed project created from one entry
+- **run:** one main-agent or subagent execution within a pursuit
+- **artifact:** a useful output produced by a pursuit
 
-The fork must grow beyond repository-scoped coding orchestration:
-
-- append-only idea intake from text, chat, agents, and an API
-- portfolio scheduling across fresh repositories and long-lived workspaces
-- heterogeneous software, research, and design projects
-- AWS Batch and other elastic execution backends
-- Discord escalation for blockers and consequential forks
-- wall-clock, compute, spending, permission, and quality constraints, with an
-  explicit unbounded mode
-- shared research methods, components, failure history, engineering lessons,
-  taste, and standards
-- live observability across projects, agents, artifacts, cost, and decisions
-- durable outputs including production software, prototypes, research results,
-  and design explorations
-
-Agents should otherwise proceed as autonomously as possible. The system should
-make parallel pursuit cheap rather than ask the operator to choose one idea.
+Tetrarium will likely be its own thin orchestration system around OpenCode rather
+than a Stoneforge fork. OpenCode 2's single background server and client API fit
+the intended architecture, but its server contracts are still being finalized
+during beta. Design and repository-template work can proceed now; tight API
+integration should target the stable V2 release.
 
 ### Questions To Discuss
 
-- What is the central metaphor, if any, and what should the system be called?
-- Is an "idea" the root object, or are goals, questions, curiosities, and
-  obligations equally fundamental?
-- How does it choose what to start, continue, pause, abandon, revive, or combine?
-- What is a project across code, mathematical research, empirical research, and
-  design work?
-- Which decisions require Shresht, and how should Discord escalation work?
+- How should Tetrarium turn arbitrary entries into well-scaffolded repositories?
+- Which repository templates are needed, and what belongs in every template?
+- How should a new main run inherit context from earlier runs without preserving
+  all conversational baggage?
+- How should steering work across the UI, terminal, Discord, and API?
+- What exactly counts as "wrong" enough for the orchestrator to notify Shresht?
 - What should the live observatory reveal without turning into management work?
-- Which Stoneforge assumptions should survive the fork?
+- Which OpenCode V2 events and controls should Tetrarium persist itself?
 
 ## 2. Tetracorpus
 
@@ -246,13 +230,12 @@ software will lose to a worse feature already present on their phones.
 
 ## Initial Build Sequence
 
-1. Create and document the Stoneforge fork, then run it against a disposable
-   repository while mapping the first architectural changes.
+1. Design Tetrarium's repository templates and test OpenCode 2 against a
+   disposable pursuit while its API remains in beta.
 2. Define the raw object and manifest contract, create the Tigris bucket, and
    implement authenticated ingestion with a local retry spool.
 3. Add two useful collectors, likely ActivityWatch and GitHub, without waiting
    for the complete platform.
 4. Normalize selected raw objects to Parquet and prove a full ClickHouse rebuild.
 5. Add Grafana and agent-facing SQL/API access.
-6. Extend the autonomous project system with global intake, Discord escalation,
-   research jobs, and cross-project memory.
+6. Build Tetrarium's OpenCode integration after the stable V2 contracts land.
