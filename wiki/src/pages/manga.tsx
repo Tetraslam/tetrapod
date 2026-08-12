@@ -26,6 +26,15 @@ export function MangaPage() {
 http://tetrapod:4567/api/graphql`}</CodeBlock>
       </Doc>
 
+      <Doc title="seed library">
+        <P>
+          <InlineCode>Call of the Night (Yofukashi no Uta)</InlineCode>,{" "}
+          <InlineCode>2.5 Dimensional Seduction</InlineCode>, and{" "}
+          <InlineCode>My Dress-Up Darling</InlineCode> use Weeb Central. MangaDex finds all three
+          but currently exposes no English chapters for them.
+        </P>
+      </Doc>
+
       <Reference>
         <Table>
           <TableBody>
@@ -37,7 +46,9 @@ http://tetrapod:4567/api/graphql`}</CodeBlock>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">extension store</TableCell>
-              <TableCell className="font-mono text-xs">Keiyoushi</TableCell>
+              <TableCell className="font-mono text-xs">
+                Keiyoushi · MangaDex + Weeb Central
+              </TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">downloads</TableCell>
