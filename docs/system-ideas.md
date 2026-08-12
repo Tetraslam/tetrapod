@@ -31,6 +31,7 @@ stable interfaces.
    [`tetrarium.md`](tetrarium.md).
 2. **Tetracorpus:** Captures high-fidelity personal data, preserves immutable
    raw inputs, and exposes rebuildable analytical and agent-facing interfaces.
+   See [`tetracorpus.md`](tetracorpus.md).
 3. **Curator:** Continuously discovers things that may matter, estimates whether
    they are unusually good matches, and acts when confidence and policy allow.
 4. **Personal models:** An intentionally broad research area covering models
@@ -82,71 +83,18 @@ integration should target the stable V2 release.
 
 ## 2. Tetracorpus
 
-The corpus captures raw data first and keeps it by default. Potential sources
-include the laptop, phone, tetrapod, cloud accounts, wearables, and house
-sensors. Relevant classes include computer activity, communications, media and
-taste, physical activity, location, finance, social graph, and creative work.
-
-Intended uses include personal model training, agent context, pattern discovery,
-and unknown future work. Provider-side processing is acceptable when useful.
-
-### Ownership Model
-
-```text
-collectors
-    |
-    v
-Tigris raw objects + manifests       authoritative and immutable
-    |
-    v
-normalizers
-    |
-    +-- derived Parquet in Tigris    portable analytical artifacts
-    |
-    +-- ClickHouse                   rebuildable serving/index layer
-            |
-            +-- SQL and APIs
-            +-- Grafana
-            +-- timeline and search
-            +-- model-ready exports
-```
-
-The raw object should include or reference its source, capture time, content
-hash, media type, collector version, schema version, and provenance. Derived
-data may be replaced at any time without touching raw objects.
-
-HPI can supply parsers and normalized Python interfaces for some exported data.
-It is not the ingestion or storage substrate. An event stream may notify
-downstream consumers, but it is not authoritative.
-
-### ClickHouse Decision
-
-Self-managed single-node ClickHouse is acceptable for this workload and can be
-operated through this repository. It has an official ARM64 image, ordinary
-Docker deployment, SQL migrations, native Parquet and S3-compatible access,
-HTTP and native query interfaces, backups, and strong Grafana support.
-
-The difficult parts are schema and lifecycle design, not keeping one node
-running. We avoid the operationally expensive parts initially:
-
-- no cluster, replication, ClickHouse Keeper, or Kubernetes
-- no authoritative data stored only in ClickHouse
-- no premature real-time ingestion fabric
-- no unbounded high-cardinality indexes without measured need
-
-Initial operations should include pinned images, memory and disk limits,
-healthchecks, migration files, metrics, deliberate upgrades, and a tested
-rebuild from Tigris. Start with batch `INSERT ... SELECT` or explicit imports.
-Adopt `S3Queue` only if ingestion latency warrants its extra state and duplicate
-handling.
+Tetracorpus captures raw personal data, keeps it by default, and includes the
+interfaces for searching, querying, visualizing, streaming, and exporting it.
+Tigris stores authoritative source material; ClickHouse and other derived stores
+remain rebuildable. The complete current design is in
+[`tetracorpus.md`](tetracorpus.md).
 
 ### Questions To Discuss
 
-- Which raw-data contract survives every future collector and schema change?
-- What gets captured first, and which sources are too invasive or noisy?
-- How do provenance, consent, access control, deletion exceptions, and secrets
-  work across personal and third-party data?
-- Which interfaces should exist immediately versus emerge from real queries?
+- Which sources are technically collectible, and what collection method does
+  each source support?
+- What exact raw-object and capture-record contracts should implementations use?
+- Which sources should be the first implementation slice?
 - What does a tested full rebuild from raw objects look like?
 
 ## 3. Curator
