@@ -26,6 +26,7 @@ access_control:
   rules:
     - domain:
         - qbittorrent.tetraslam.world
+        - seerr.tetraslam.world
         - prowlarr.tetraslam.world
         - sonarr.tetraslam.world
         - radarr.tetraslam.world

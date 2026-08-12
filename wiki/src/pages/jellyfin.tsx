@@ -16,6 +16,14 @@ export function JellyfinPage() {
         </P>
       </Doc>
 
+      <Doc title="request anything">
+        <P>
+          Jellyfin Enhanced merges <Ext url={URLS.seerr}>Seerr</Ext> results into Jellyfin search.
+          Request a missing movie or show there; Seerr sends it to Radarr or Sonarr and Jellyfin
+          shows request and download progress without opening an Arr app.
+        </P>
+      </Doc>
+
       <Doc title="libraries">
         <CodeBlock>{`shows    ← arr pipeline      /srv/media/library/shows
 movies   ← arr pipeline      /srv/media/library/movies

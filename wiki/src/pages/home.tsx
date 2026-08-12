@@ -16,6 +16,7 @@ const quick = [
     title: "media",
     links: [
       ["watch", URLS.jellyfin],
+      ["request", URLS.seerr],
       ["shows", URLS.sonarr],
       ["movies", URLS.radarr],
       ["subtitles", URLS.bazarr],

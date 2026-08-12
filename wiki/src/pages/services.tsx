@@ -48,6 +48,12 @@ const services = [
     purpose: "watch movies, shows, and YouTube",
   },
   {
+    name: "seerr",
+    url: URLS.seerr,
+    address: "seerr.tetraslam.world",
+    purpose: "discover and request media from Jellyfin",
+  },
+  {
     name: "qbittorrent",
     url: URLS.qbittorrent,
     address: "qbittorrent.tetraslam.world",

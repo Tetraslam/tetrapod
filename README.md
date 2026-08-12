@@ -211,6 +211,7 @@ where they live (repos? gists?):
 - [x] code-server on tetrapod (localhost + tailscale serve)
 - [x] uptime-kuma on **lighthouse** (separate t4g.micro, cloud-init only, tailscale serve) → discord webhook alerts
 - [x] suwayomi — manga sources, automatic CBZ downloads, web reader, AniList/MAL tracking
+- [x] seerr + Jellyfin Enhanced — discover and request missing media inside Jellyfin
 - [ ] what else :D
 
 ### fable's "you're missing these" pass (not from rice)

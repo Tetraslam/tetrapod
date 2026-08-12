@@ -43,6 +43,7 @@ HTTP_MONITORS = [
     ("searxng", f"http://{HOST}:8888/", None),
     ("steel", f"http://{HOST}:3003/v1/health", None),
     ("jellyfin", f"http://{HOST}:8096/health", None),
+    ("seerr", f"http://{HOST}:5055/api/v1/settings/public", None),
     ("qbittorrent", f"http://{HOST}:8081/", None),
     ("prowlarr", f"http://{HOST}:9696/ping", None),
     ("sonarr", f"http://{HOST}:8989/ping", None),

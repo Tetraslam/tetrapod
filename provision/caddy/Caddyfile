@@ -5,6 +5,7 @@
 }
 
 http://jellyfin.tetraslam.world,
+http://seerr.tetraslam.world,
 http://qbittorrent.tetraslam.world,
 http://prowlarr.tetraslam.world,
 http://sonarr.tetraslam.world,
@@ -43,6 +44,11 @@ http://i.tetraslam.world {
 jellyfin.tetraslam.world {
 	import security
 	reverse_proxy 127.0.0.1:8096
+}
+
+seerr.tetraslam.world {
+	import private
+	reverse_proxy 127.0.0.1:5055
 }
 
 qbittorrent.tetraslam.world {

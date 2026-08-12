@@ -33,6 +33,7 @@ export const URLS = {
   kuma: `https://${HOSTS.lighthouse.fqdn}`,
   repo: "https://github.com/tetraslam/tetrapod",
   jellyfin: "https://jellyfin.tetraslam.world",
+  seerr: "https://seerr.tetraslam.world",
   qbittorrent: "https://qbittorrent.tetraslam.world",
   prowlarr: "https://prowlarr.tetraslam.world",
   sonarr: "https://sonarr.tetraslam.world",
