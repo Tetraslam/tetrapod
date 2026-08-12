@@ -34,6 +34,7 @@ stable interfaces.
    See [`tetracorpus.md`](tetracorpus.md).
 3. **Curator:** Continuously discovers things that may matter, estimates whether
    they are unusually good matches, and acts when confidence and policy allow.
+   See [`curator.md`](curator.md).
 4. **Personal models:** An intentionally broad research area covering models
    trained, adapted, or evaluated for one person. We have not yet decided what
    model classes, objectives, or products deserve to exist.
@@ -99,22 +100,17 @@ remain rebuildable. The complete current design is in
 
 ## 3. Curator
 
-Curator watches selected parts of the world and proposes or performs useful
-actions. Candidate actions include saving a link, downloading media, conducting
-deeper research, notifying someone, publishing something, or making a small
-purchase under an explicit policy. Its defining problem is not retrieval alone:
-it must suppress mediocre output, calibrate confidence, explain why something
-earned attention, and learn from sparse feedback without becoming repetitive.
+Curator is a family of domain agents plus a general cross-domain agent. Each
+agent has its own prompt, tools, sources, and rules. Agents can use learned
+rankers when useful, but remain responsible for contextual judgment and action.
+The complete current design is in [`curator.md`](curator.md).
 
 ### Questions To Discuss
 
-- Which domains should Curator watch, and how are new domains added?
-- What does "high confidence" mean when false positives have different costs?
-- How should exploration work so strict filtering does not create a taste bubble?
-- Which actions can happen silently, which need approval, and which are forbidden?
-- How should it learn from acceptance, rejection, ignoring, and later regret?
-- Is Curator one persistent agent, a set of domain scouts, ranking models, or a
-  protocol connecting all three?
+- What tools and rules does each initial domain agent need?
+- Which candidate sources are technically available for each domain?
+- What common candidate and feedback records should agents share?
+- When is enough personal feedback available to train the first learned ranker?
 
 ## 4. Personal Models
 

@@ -190,6 +190,7 @@ investigating, not that every collector is equally feasible or urgent.
 ### Accounts And Communication
 
 - X/Twitter
+- Instagram
 - Discord
 - Reddit
 - sent Gmail
