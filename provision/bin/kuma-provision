@@ -38,6 +38,7 @@ STATUS_SLUG = "tetrapod"
 HOST = "tetrapod.tailc27667.ts.net"
 
 HTTP_MONITORS = [
+    ("authelia", "https://auth.tetraslam.world/api/health", None),
     ("searxng", f"http://{HOST}:8888/", None),
     ("steel", f"http://{HOST}:3003/v1/health", None),
     ("jellyfin", f"http://{HOST}:8096/health", None),
