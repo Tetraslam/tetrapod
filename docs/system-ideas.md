@@ -37,7 +37,8 @@ stable interfaces.
    See [`curator.md`](curator.md).
 4. **Personal models:** An intentionally broad research area covering models
    trained, adapted, or evaluated for one person. We have not yet decided what
-   model classes, objectives, or products deserve to exist.
+   model classes, objectives, or products deserve to exist. See
+   [`personal-models.md`](personal-models.md).
 5. **Public capabilities (shape TBD):** A possible path for turning selected
    outputs into useful APIs, services, datasets, tools, or other artifacts.
    This is not yet established as one coherent layer or system.
@@ -114,23 +115,20 @@ The complete current design is in [`curator.md`](curator.md).
 
 ## 4. Personal Models
 
-This is a research program rather than a single planned model. Tetracorpus may
-provide training and evaluation data, but collection should not be distorted
-around today's model ideas. Possibilities include retrieval and reranking,
-preference and value models, context selection, personal embeddings, behavior
-prediction, interfaces adapted to one user, generative models, and models of
-relationships or environments. Some may be fine-tunes of foundation models;
-others may be small models trained from scratch.
+Personal models are actual trained models owned by Shresht, not a synonym for
+agent memory or Tetracorpus. Promising areas include preference learning,
+longitudinal prediction, health and behavior forecasting, personal simulation,
+style and taste models, and generative models trained on personal data. The
+complete current map is in [`personal-models.md`](personal-models.md).
 
 ### Questions To Discuss
 
-- Which capabilities improve enough with personalization to justify training?
-- What can be learned from implicit behavior versus explicit labels?
-- How do we construct honest temporal evaluations instead of flattering demos?
-- Which models should run locally, on tetrapod, or through compute providers?
-- How do models represent uncertainty, changing preferences, contradictions,
-  private contexts, and multiple social roles?
-- What should never be inferred even if the data permits it?
+- Which proposed model families become compelling once Tetracorpus has enough
+  history?
+- Which explicit labels and self-reports are worth collecting?
+- Which models should be the first research pursuits?
+- What does direct action by a personal model mean, if anything, beyond serving
+  predictions or representations to agents?
 
 ## 5. Public Capabilities (Shape TBD)
 

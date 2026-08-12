@@ -93,6 +93,12 @@ A learned ranker is a model that scores or orders candidates using examples of
 what Shresht accepted, rejected, watched, read, bought, saved, skipped, or rated.
 It is a tool available to Curator agents, not a replacement for them.
 
+Learned rankers and contextual bandits are worthwhile research and engineering
+projects in their own right. Curator should pursue them even when a frontier
+agent already performs well from in-context examples. The intended system uses
+both: learned models provide cheap, measurable, continually improving personal
+signals, while agents provide immediate generalization and contextual judgment.
+
 A candidate ranker might receive:
 
 ```text
@@ -138,14 +144,15 @@ A practical progression is:
 3. A simple domain ranker learns from this history and becomes a curator tool.
 4. The agent uses the ranker to screen or order large candidate pools, while
    retaining final judgment.
-5. More advanced preference models or contextual bandits are added only when
-   measured evaluation shows that they improve decisions.
+5. More advanced preference models and contextual bandits are developed and
+   evaluated against both simpler rankers and agent-only baselines.
 
-A contextual bandit can eventually trade off familiar high-confidence items
+A contextual bandit can trade off familiar high-confidence items
 against deliberate exploration. It chooses an item under the current context,
 observes feedback, and updates its policy. This is useful for discovering new
-tastes, but premature bandit optimization would learn from too few, noisy
-interactions and may optimize notification behavior instead of actual value.
+tastes. Early experiments should use simulations, offline replay, and explicit
+feedback because a live bandit can otherwise learn from too few noisy
+interactions or optimize notification behavior instead of actual value.
 
 Rankers should be evaluated on future time periods, not random examples from the
 same history. Otherwise near-duplicates and temporal leakage can make a personal
@@ -207,5 +214,7 @@ surface implied by past behavior.
 - Design concise feedback interactions that produce useful labels without
   becoming homework.
 - Establish temporal evaluations before training learned rankers.
+- Treat learned rankers and contextual bandits as explicit Curator pursuits,
+  including agent-only baselines, rather than optional fallback work.
 - Decide which first actions can run unattended and how their outcomes are
   recorded.
