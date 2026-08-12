@@ -266,6 +266,19 @@ sudo chown 1000:1000 /opt/tetrapod/authelia/data
 sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
 sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi} /srv/media/library/manga
 sudo chown -R 1000:1000 /opt/tetrapod/media-reconcile
+# Jellyfin Enhanced 12.2.0.0, built against Jellyfin 12.
+JELLYFIN_ENHANCED_DIR="/opt/tetrapod/jellyfin/config/plugins/Jellyfin Enhanced_12.2.0.0"
+JELLYFIN_ENHANCED_DLL="$JELLYFIN_ENHANCED_DIR/Jellyfin.Plugin.JellyfinEnhanced.dll"
+if [ ! -f "$JELLYFIN_ENHANCED_DLL" ]; then
+  tmp="$(mktemp)"
+  curl -fsSL -o "$tmp" \
+    https://github.com/n00bcodr/Jellyfin-Enhanced/releases/download/12.2.0.0/Jellyfin.Plugin.JellyfinEnhanced_12.0.0.zip
+  echo "0a2e077aaf99d89b2975510eba3c65cc31484c8074df8bce269ea1f2699689b3  $tmp" | sha256sum -c -
+  sudo install -d -o 1000 -g 1000 "$JELLYFIN_ENHANCED_DIR"
+  sudo unzip -o "$tmp" -d "$JELLYFIN_ENHANCED_DIR"
+  sudo chown -R 1000:1000 "$JELLYFIN_ENHANCED_DIR"
+  rm -f "$tmp"
+fi
 # searxng secret: generate once, survives re-runs
 if [ ! -f /opt/tetrapod/searxng.env ]; then
   echo "SEARXNG_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/searxng.env >/dev/null
