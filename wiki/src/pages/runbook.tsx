@@ -30,7 +30,8 @@ git clone https://github.com/tetraslam/tetrapod && cd tetrapod
 
       <Doc title="break-glass (tailscale is down)">
         <P>
-          use the laptop&apos;s OpenSSH-over-SSM alias (AWS CLI and Session Manager plugin required):
+          use the laptop&apos;s OpenSSH-over-SSM alias (AWS CLI and Session Manager plugin
+          required):
         </P>
         <CodeBlock>{`ssh tetrapod-ssm`}</CodeBlock>
         <P>

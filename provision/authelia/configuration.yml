@@ -30,6 +30,7 @@ access_control:
         - sonarr.tetraslam.world
         - radarr.tetraslam.world
         - bazarr.tetraslam.world
+        - manga.tetraslam.world
         - pinchflat.tetraslam.world
         - searxng.tetraslam.world
         - shlink.tetraslam.world

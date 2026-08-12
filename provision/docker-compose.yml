@@ -123,7 +123,8 @@ services:
   # library + downloads live on the 4TB sc1 volume (/srv/media). everything
   # tailnet-only via the SG. flow: prowlarr feeds indexers to sonarr/radarr,
   # they grab via qbittorrent into downloads/, import into library/, bazarr
-  # adds subtitles, and jellyfin serves it. pinchflat archives youtube.
+  # adds subtitles, and jellyfin serves it. pinchflat archives youtube;
+  # suwayomi follows and downloads manga.
 
   jellyfin:
     image: jellyfin/jellyfin:2026072008
@@ -212,6 +213,33 @@ services:
       - /opt/tetrapod/deno/deno:/usr/local/bin/deno:ro
     user: "1000:1000"
     mem_limit: 1g
+
+  suwayomi:
+    image: ghcr.io/suwayomi/suwayomi-server@sha256:e59f212ccf91b26de8676a063a2db90256c148c6261535c7c477d47a43d9751b # v2.3.2243
+    restart: unless-stopped
+    depends_on: [flaresolverr]
+    environment:
+      TZ: America/Los_Angeles
+      DOWNLOAD_AS_CBZ: "true"
+      AUTO_DOWNLOAD_CHAPTERS: "true"
+      AUTO_DOWNLOAD_EXCLUDE_UNREAD: "false"
+      UPDATE_EXCLUDE_UNREAD: "false"
+      UPDATE_EXCLUDE_STARTED: "false"
+      UPDATE_EXCLUDE_COMPLETED: "false"
+      UPDATE_MANGA_INFO: "true"
+      WEB_UI_CHANNEL: bundled
+      WEB_UI_UPDATE_INTERVAL: "0"
+      EXTENSION_STORES: '["https://github.com/keiyoushi/extensions/raw/repo/index.pb"]'
+      FLARESOLVERR_ENABLED: "true"
+      FLARESOLVERR_URL: http://flaresolverr:8191
+      KCEF_ENABLED: "false"
+    ports:
+      - "4567:4567"
+    volumes:
+      # Order matters: the specific downloads mount must precede the state mount.
+      - /srv/media/library/manga:/home/suwayomi/.local/share/Tachidesk/downloads
+      - /opt/tetrapod/suwayomi:/home/suwayomi/.local/share/Tachidesk
+    mem_limit: 2g
 
   # ------------------------------------------------------------------- toys
 

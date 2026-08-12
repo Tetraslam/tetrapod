@@ -19,6 +19,7 @@ const quick = [
       ["shows", URLS.sonarr],
       ["movies", URLS.radarr],
       ["subtitles", URLS.bazarr],
+      ["manga", URLS.manga],
       ["youtube", URLS.pinchflat],
       ["downloads", URLS.qbittorrent],
       ["indexers", URLS.prowlarr],

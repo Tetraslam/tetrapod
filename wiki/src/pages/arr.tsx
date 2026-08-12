@@ -18,7 +18,7 @@ const PARTS = [
   { name: "radarr", port: 7878, role: "movies" },
   { name: "bazarr", port: 6767, role: "English subtitles + synchronization" },
   { name: "qbittorrent", port: 8081, role: "downloads (no login on tailnet)" },
-  { name: "flaresolverr", port: 8191, role: "cloudflare solver (loopback)" },
+  { name: "flaresolverr", port: 8191, role: "cloudflare solver (tailnet)" },
 ] as const;
 
 export function ArrPage() {

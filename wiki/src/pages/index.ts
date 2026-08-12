@@ -13,6 +13,7 @@ import {
   Link as LinkIcon,
   type LucideIcon,
   MonitorPlay,
+  PanelsTopLeft,
   PawPrint,
   Search,
   Server,
@@ -31,6 +32,7 @@ import { FactorioPage } from "./factorio";
 import { HomePage } from "./home";
 import { InfraPage } from "./infra";
 import { JellyfinPage } from "./jellyfin";
+import { MangaPage } from "./manga";
 import { MindustryPage } from "./mindustry";
 import { MonitoringPage } from "./monitoring";
 import { NullclawPage } from "./nullclaw";
@@ -70,6 +72,7 @@ export const groups: WikiGroup[] = [
     pages: [
       { slug: "jellyfin", title: "jellyfin", icon: Clapperboard, component: JellyfinPage },
       { slug: "arr", title: "arr pipeline", icon: Workflow, component: ArrPage },
+      { slug: "manga", title: "manga", icon: PanelsTopLeft, component: MangaPage },
       { slug: "pinchflat", title: "pinchflat", icon: MonitorPlay, component: PinchflatPage },
     ],
   },

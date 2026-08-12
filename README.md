@@ -210,6 +210,7 @@ where they live (repos? gists?):
 - [x] factorio — `factoriotools/factorio` on tetrapod, arm64 (box64 emulation; fine for normal factories, a megabase would want an amd64 resize), udp 34197 tailnet-only, 4G memory cap
 - [x] code-server on tetrapod (localhost + tailscale serve)
 - [x] uptime-kuma on **lighthouse** (separate t4g.micro, cloud-init only, tailscale serve) → discord webhook alerts
+- [x] suwayomi — manga sources, automatic CBZ downloads, web reader, AniList/MAL tracking
 - [ ] what else :D
 
 ### fable's "you're missing these" pass (not from rice)

@@ -10,6 +10,7 @@ http://prowlarr.tetraslam.world,
 http://sonarr.tetraslam.world,
 http://radarr.tetraslam.world,
 http://bazarr.tetraslam.world,
+http://manga.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
 http://shlink.tetraslam.world,
@@ -67,6 +68,11 @@ radarr.tetraslam.world {
 bazarr.tetraslam.world {
 	import private
 	reverse_proxy 127.0.0.1:6767
+}
+
+manga.tetraslam.world {
+	import private
+	reverse_proxy 127.0.0.1:4567
 }
 
 pinchflat.tetraslam.world {

@@ -78,6 +78,12 @@ const services = [
     purpose: "find and synchronize subtitles",
   },
   {
+    name: "suwayomi",
+    url: URLS.manga,
+    address: "manga.tetraslam.world",
+    purpose: "follow, download, and read manga",
+  },
+  {
     name: "pinchflat",
     url: URLS.pinchflat,
     address: "pinchflat.tetraslam.world",

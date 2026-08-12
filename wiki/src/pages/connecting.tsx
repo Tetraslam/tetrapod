@@ -35,8 +35,8 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
 
       <Doc title="if tailscale is down">
         <P>
-          there is no public ssh. the laptop&apos;s <InlineCode>tetrapod-ssm</InlineCode> alias tunnels
-          OpenSSH through SSM while retaining the known tetrapod host key:
+          there is no public ssh. the laptop&apos;s <InlineCode>tetrapod-ssm</InlineCode> alias
+          tunnels OpenSSH through SSM while retaining the known tetrapod host key:
         </P>
         <CodeBlock>{`ssh tetrapod-ssm`}</CodeBlock>
         <P>

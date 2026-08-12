@@ -10,7 +10,7 @@ import {
 import { Doc, Ext, P, Page, Reference, Steps, WikiLink } from "@/components/wiki";
 import { FACTORIO, HOSTS, KUMA_API_BASE, KUMA_STATUS_SLUG, URLS } from "@/config";
 
-// only the hand-made monitors are listed here; the 13 service monitors are
+// only the hand-made monitors are listed here; service monitors are
 // created by provision/bin/kuma-provision and visible on the status page
 const monitors = [
   { name: "tetrapod", type: "ping", target: "tetrapod" },
