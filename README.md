@@ -34,9 +34,14 @@ IAM, since claude models run from there.
 ```
 infra/       pulumi program (its own uv project)
 provision/   bootstrap.sh, docker-compose.yml, dotfiles, systemd units, agent context
+docs/        design context and archived development sessions
 wiki/        home dashboard — https://tetrapod.<tailnet>.ts.net/wiki
-             (vite + shadcn, live kuma status; knobs in src/config.ts)
+              (vite + shadcn, live kuma status; knobs in src/config.ts)
 ```
+
+Current system ideas and design questions: [`docs/system-ideas.md`](docs/system-ideas.md).
+The complete initial build and design session is archived at
+[`docs/session-1.md`](docs/session-1.md).
 
 The two persistent instances are Pulumi-protected and ignore changes to the
 moving Canonical `current` AMI and cloud-init. This prevents a routine
