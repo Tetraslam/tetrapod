@@ -10,6 +10,26 @@ This is an open research program rather than one planned model. The list below
 records plausible directions, not commitments to implement every model. No
 personal-model implementation work has started.
 
+## Immediately Compelling Directions
+
+The following directions currently stand out. This is a shortlist for future
+attention, not a claim that the remaining model ideas are rejected:
+
+- domain rankers
+- aesthetic reward models
+- contextual bandits
+- context-change detection
+- cash-flow forecasting
+- spending-regime modeling
+- relationship-maintenance modeling
+- writing-voice models
+- personal text detectors
+- multi-register writing models
+- personal rewrite models
+- autobiographical narrative models
+- diffusion adapters
+- personal voice models
+
 ## Principles
 
 - Prefer predictive quality over interpretability in general, while evaluating
@@ -498,12 +518,11 @@ Examples of sensitive predictions include:
 - identity attributes not explicitly provided
 - vulnerabilities that could be used for manipulation
 
-These are not categorically forbidden in a private system. The concrete risks
-are incorrect high-impact action, exposure to another person or public service,
-and manipulative optimization. Models may make such predictions for private use,
-but permissions and action policies should become stricter when predictions can
-move money, contact others, affect healthcare, reveal secrets, or influence a
-person without their knowledge.
+These inferences are acceptable for private use. The concrete risks are
+incorrect high-impact action, exposure to another person or public service, and
+manipulative optimization. Permissions and action policies should become
+stricter when predictions can move money, contact others, affect healthcare,
+reveal secrets, or influence a person without their knowledge.
 
 ## Direct Action
 

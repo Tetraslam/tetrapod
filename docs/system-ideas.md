@@ -39,9 +39,9 @@ stable interfaces.
    trained, adapted, or evaluated for one person. We have not yet decided what
    model classes, objectives, or products deserve to exist. See
    [`personal-models.md`](personal-models.md).
-5. **Public capabilities (shape TBD):** A possible path for turning selected
-   outputs into useful APIs, services, datasets, tools, or other artifacts.
-   This is not yet established as one coherent layer or system.
+5. **Public outputs:** A property of the other systems: publish useful packages,
+   models, datasets, APIs, services, recommendations, methods, and research when
+   appropriate. This is not a separate platform.
 6. **Private social coordination:** Creates useful opportunities between trusted
    people while minimizing disclosure, retention, setup burden, and unwanted
    inference.
@@ -130,23 +130,39 @@ complete current map is in [`personal-models.md`](personal-models.md).
 - What does direct action by a personal model mean, if anything, beyond serving
   predictions or representations to agents?
 
-## 5. Public Capabilities (Shape TBD)
+## 5. Public Outputs
 
-There is interest in making things that are genuinely usable rather than ending
-every project as a private demo or blog post. The unit might be an API, hosted
-tool, protocol, dataset, model, interactive artifact, public agent, or something
-else. It is not clear that these form one architectural layer, so this remains a
-question rather than a committed subsystem.
+Useful outputs should become public when appropriate. This is a property of
+Tetrarium, Curator, Tetracorpus, and personal-model work rather than a separate
+capability layer. Prefer durable outputs that do not demand constant maintenance,
+such as packages, models, datasets, methods, protocols, and reproducible research.
+Public APIs and services remain worthwhile when their value justifies operation.
+
+Public outputs may serve humans, agents, or both. Tetrarium may autonomously
+propose that an artifact be prepared and maintained for public use.
+
+Curator can produce both private recommendations and public recommendation feeds
+or channels, including domain-specific lists such as manga recommendations.
+Personalized public outputs are acceptable when they do not expose the private
+history that generated them.
+
+Examples include:
+
+- models that generalize beyond Shresht
+- tools or recipes that let others train their own personal models
+- packages that normalize data from many services
+- open-source kernels or algorithms that improve a measured result
+- public recommendation feeds
+- datasets, benchmarks, APIs, and hosted tools
+- research results and reproducible methods
 
 ### Questions To Discuss
 
-- What private work becomes more valuable when exposed publicly?
-- Who are the plausible users: friends, other agents, researchers, niche
-  communities, or strangers?
-- What should be promoted automatically versus deliberately productized?
-- Which capabilities can be public without leaking Tetracorpus or private model
-  information?
-- What would make an output a maintained service rather than abandoned residue?
+- What evidence should support Tetrarium's proposal to publish an artifact?
+- How should public recommendation channels separate private evidence from
+  shareable explanations?
+- Which outputs need continued ownership after publication, and which can be
+  complete releases?
 
 ## 6. Private Social Coordination
 
