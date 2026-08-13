@@ -42,9 +42,6 @@ stable interfaces.
 5. **Public outputs:** A property of the other systems: publish useful packages,
    models, datasets, APIs, services, recommendations, methods, and research when
    appropriate. This is not a separate platform.
-6. **Private social coordination:** Creates useful opportunities between trusted
-   people while minimizing disclosure, retention, setup burden, and unwanted
-   inference.
 
 The examples that motivated these ideas are evidence, not exhaustive product
 specifications. In particular, Curator is not merely a media recommender,
@@ -163,28 +160,6 @@ Examples include:
   shareable explanations?
 - Which outputs need continued ownership after publication, and which can be
   complete releases?
-
-## 6. Private Social Coordination
-
-This system seeks rare, useful opportunities between trusted people without
-requiring them to expose a continuous social or location feed. The motivating
-nearby-friend notification is one example, not the whole category. Other forms
-could coordinate shared interests, availability, mutual intentions, lending,
-events, introductions, purchases, travel, or collaborative projects.
-
-Its hardest constraint may be adoption rather than cryptography. A technically
-elegant protocol that asks every friend to install and maintain unfamiliar
-software will lose to a worse feature already present on their phones.
-
-### Questions To Discuss
-
-- Which coordination failures are common or valuable enough to solve?
-- What can work through links, messages, calendars, or existing apps rather than
-  requiring installation?
-- What information can be matched privately without either party disclosing it?
-- How do mutual consent, expiry, revocation, abuse prevention, and social
-  awkwardness work?
-- Could useful coordination occur with friends who never become system users?
 
 ## Initial Build Sequence
 
