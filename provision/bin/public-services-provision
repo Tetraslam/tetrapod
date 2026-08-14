@@ -36,6 +36,16 @@ sudo install -o root -g 1000 -m 440 "$authelia_dir/core" /opt/tetrapod/authelia/
 sudo install -o root -g 1000 -m 440 "$authelia_dir/redis.conf" /opt/tetrapod/authelia/secrets/redis.conf
 sudo install -o root -g 1000 -m 440 "$authelia_dir/users.yml" /opt/tetrapod/authelia/data/users.yml
 
+if docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" ps --status running --quiet ntfy | grep -q .; then
+  NTFY_PASSWORD="$password" docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
+    -e NTFY_PASSWORD ntfy ntfy user add --ignore-exists --role=admin tetraslam
+  NTFY_PASSWORD="$password" docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
+    -e NTFY_PASSWORD ntfy ntfy user change-pass tetraslam
+  docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
+    ntfy ntfy user change-role tetraslam admin
+  echo "public-services-provision: synchronized ntfy admin"
+fi
+
 for app in prowlarr sonarr radarr; do
   config="/opt/tetrapod/$app/config.xml"
   if [ -f "$config" ] && [ "$(sudo xmlstarlet sel -t -v /Config/AuthenticationMethod "$config")" != External ]; then

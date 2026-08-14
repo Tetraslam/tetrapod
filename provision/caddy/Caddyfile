@@ -14,6 +14,7 @@ http://bazarr.tetraslam.world,
 http://manga.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
+http://ntfy.tetraslam.world,
 http://shlink.tetraslam.world,
 http://auth.tetraslam.world,
 http://kuma-api.tetraslam.world,
@@ -89,6 +90,11 @@ pinchflat.tetraslam.world {
 searxng.tetraslam.world {
 	import private
 	reverse_proxy 127.0.0.1:8888
+}
+
+ntfy.tetraslam.world {
+	import security
+	reverse_proxy 127.0.0.1:2586
 }
 
 shlink.tetraslam.world {

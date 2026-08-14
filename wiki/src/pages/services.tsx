@@ -102,6 +102,12 @@ const services = [
     purpose: "private web search for people + agents",
   },
   {
+    name: "ntfy",
+    page: "ntfy",
+    address: "ntfy.tetraslam.world",
+    purpose: "push notifications to Android",
+  },
+  {
     name: "steel",
     url: URLS.steel,
     address: "tetrapod:3003",

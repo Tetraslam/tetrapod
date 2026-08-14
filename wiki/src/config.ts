@@ -42,6 +42,7 @@ export const URLS = {
   manga: "https://manga.tetraslam.world",
   pinchflat: "https://pinchflat.tetraslam.world",
   searxng: "https://searxng.tetraslam.world",
+  ntfy: "https://ntfy.tetraslam.world",
   steel: `http://${HOSTS.tetrapod.fqdn}:3003`,
   zipline: "https://i.tetraslam.world",
   shlink: "https://link.tetraslam.world",
@@ -87,7 +88,7 @@ export const OP_ITEMS = [
   { item: "GOG_KEYRING", use: "gog file-keyring password (gog-env)" },
   { item: "TETRAPOD_PULUMI", use: "pulumi state passphrase (laptop-side)" },
   { item: "TETRAPOD_TIGRIS", use: "tigris key for pulumi state bucket (laptop-side)" },
-  { item: "TETRAPOD_PUBLIC_SERVICES", use: "Authelia user + Factorio password" },
+  { item: "TETRAPOD_PUBLIC_SERVICES", use: "Authelia + ntfy user and Factorio password" },
   { item: "TETRAPOD_AUTHELIA", use: "Authelia session, storage, and Redis secrets" },
 ] as const;
 

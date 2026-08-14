@@ -41,6 +41,7 @@ HTTP_MONITORS = [
     ("authelia", "https://auth.tetraslam.world/api/health", None),
     ("flaresolverr", f"http://{HOST}:8191/", None),
     ("searxng", f"http://{HOST}:8888/", None),
+    ("ntfy", f"http://{HOST}:2586/v1/health", None),
     ("steel", f"http://{HOST}:3003/v1/health", None),
     ("jellyfin", f"http://{HOST}:8096/health", None),
     ("seerr", f"http://{HOST}:5055/api/v1/settings/public", None),

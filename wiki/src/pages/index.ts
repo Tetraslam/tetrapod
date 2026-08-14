@@ -1,5 +1,6 @@
 import {
   Activity,
+  BellRing,
   BookOpenText,
   Bot,
   Clapperboard,
@@ -35,6 +36,7 @@ import { JellyfinPage } from "./jellyfin";
 import { MangaPage } from "./manga";
 import { MindustryPage } from "./mindustry";
 import { MonitoringPage } from "./monitoring";
+import { NtfyPage } from "./ntfy";
 import { NullclawPage } from "./nullclaw";
 import { PinchflatPage } from "./pinchflat";
 import { RulesPage } from "./rules";
@@ -95,6 +97,7 @@ export const groups: WikiGroup[] = [
   {
     label: "sharing",
     pages: [
+      { slug: "ntfy", title: "ntfy", icon: BellRing, component: NtfyPage },
       { slug: "zipline", title: "zipline", icon: Upload, component: ZiplinePage },
       { slug: "shlink", title: "shlink", icon: LinkIcon, component: ShlinkPage },
     ],

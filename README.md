@@ -232,7 +232,7 @@ boring plumbing an always-on headless box wants:
 - [x] restic timer pings a kuma push monitor on lighthouse — backups that silently stop are worse than no backups
 - [x] external "is tetrapod up" monitor — solved by lighthouse
 - [x] ~~watchtower~~ no: pinned tags, deliberate updates
-- [x] ~~ntfy~~ discord webhook for kuma alerts
+- [x] ntfy — private Android push at ntfy.tetraslam.world; native auth, restic-backed
 
 ## still to decide
 

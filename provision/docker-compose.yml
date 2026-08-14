@@ -105,6 +105,30 @@ services:
     cap_add: [CHOWN, SETGID, SETUID]
     mem_limit: 512m
 
+  ntfy:
+    image: binwiederhier/ntfy@sha256:9dbcc3bf2d96889f2cf103b08ae7ea0a22e843c4bd54fd94c08c2e2e2364fb3c # v2.27.0, arm64
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "127.0.0.1:2586:80"
+    environment:
+      NTFY_BASE_URL: https://ntfy.tetraslam.world
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/lib/ntfy/auth.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_ENABLE_LOGIN: "true"
+      NTFY_ATTACHMENT_CACHE_DIR: /var/lib/ntfy/attachments
+    volumes:
+      - /opt/tetrapod/ntfy:/var/lib/ntfy
+    healthcheck:
+      test: wget -q --tries=1 http://localhost/v1/health -O - | grep -q '"healthy":true'
+      start_period: 10s
+      timeout: 3s
+      interval: 30s
+      retries: 3
+    mem_limit: 256m
+
   steel:
     # heavy fallback when lightpanda's engine trips on a js-heavy page.
     # only publishes :latest, so pinned by digest (update deliberately).
