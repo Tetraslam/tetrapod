@@ -36,13 +36,12 @@ sudo install -o root -g 1000 -m 440 "$authelia_dir/core" /opt/tetrapod/authelia/
 sudo install -o root -g 1000 -m 440 "$authelia_dir/redis.conf" /opt/tetrapod/authelia/secrets/redis.conf
 sudo install -o root -g 1000 -m 440 "$authelia_dir/users.yml" /opt/tetrapod/authelia/data/users.yml
 
-if docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" ps --status running --quiet ntfy | grep -q .; then
-  NTFY_PASSWORD="$password" docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
-    -e NTFY_PASSWORD ntfy ntfy user add --ignore-exists --role=admin tetraslam
-  NTFY_PASSWORD="$password" docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
-    -e NTFY_PASSWORD ntfy ntfy user change-pass tetraslam
-  docker compose -f "$HOME/tetrapod/provision/docker-compose.yml" exec -T \
-    ntfy ntfy user change-role tetraslam admin
+if [ "$(docker inspect -f '{{.State.Running}}' provision-ntfy-1 2>/dev/null)" = true ]; then
+  NTFY_PASSWORD="$password" docker exec -e NTFY_PASSWORD provision-ntfy-1 \
+    ntfy user add --ignore-exists --role=admin tetraslam
+  NTFY_PASSWORD="$password" docker exec -e NTFY_PASSWORD provision-ntfy-1 \
+    ntfy user change-pass tetraslam
+  docker exec provision-ntfy-1 ntfy user change-role tetraslam admin
   echo "public-services-provision: synchronized ntfy admin"
 fi
 
