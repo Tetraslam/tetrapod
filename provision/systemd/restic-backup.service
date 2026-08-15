@@ -6,6 +6,8 @@ After=network-online.target
 [Service]
 Type=oneshot
 Environment=OP_AGENTS_TOKEN_FILE=/home/tetraslam/.config/op/agents-token
+Environment=XDG_CACHE_HOME=/var/cache/restic
+CacheDirectory=restic
 ExecStart=/usr/local/bin/restic-backup
 Nice=10
 IOSchedulingClass=idle

@@ -58,8 +58,9 @@ export function MonitoringPage() {
 
       <Doc title="the backup dead-man switch">
         <P>
-          the <WikiLink to="backups">backup script</WikiLink> pings a push monitor on every success.
-          its 25-hour window means one missed night = one discord page. the push url lives in{" "}
+          the <WikiLink to="backups">backup script</WikiLink> reports failures immediately and pings
+          the push monitor on every success. its 25-hour window catches a run that never starts; the
+          push url lives in{" "}
           <InlineCode>op://Agents/RESTIC_BACKUP_TETRAPOD/kuma push url</InlineCode>.
         </P>
       </Doc>

@@ -7,7 +7,7 @@ export function BackupsPage() {
   return (
     <Page
       title="backups"
-      intro="restic to tigris, nightly. every successful run pings a kuma push monitor — a missed night pages discord."
+      intro="restic to tigris, nightly. failures page immediately; every success resets a Kuma dead-man timer for missed runs."
     >
       <Doc title="restore">
         <CodeBlock>{`sudo restic-backup snapshots                              # list
