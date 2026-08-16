@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+export PATH=/home/tetraslam/.local/share/mise/shims:/home/tetraslam/.local/bin:/usr/local/bin:/usr/bin:/bin
 export NTFY_BASE_URL=https://ntfy.tetraslam.world
 export NTFY_DEFAULT_TOPIC=agents
 NTFY_AUTH_TOKEN="$(opa read 'op://Agents/NTFY_AGENTS/tetrapod token')"
