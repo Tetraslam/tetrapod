@@ -54,6 +54,7 @@ cat >"$HOME/.config/notify/config.json" <<'EOF'
   "token_command": "opa"
 }
 EOF
+chmod 600 "$HOME/.config/notify/config.json"
 
 # one instructions file, symlinked into both agents (git pull updates it live)
 ln -sf "$REPO/provision/agent/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
