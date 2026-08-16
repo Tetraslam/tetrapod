@@ -39,7 +39,7 @@ export function NtfyPage() {
       <Doc title="agent cli">
         <CodeBlock>{`notify "plain notification"
 notify --title "deploy complete" --priority high \\
-  --tags white_check_mark --click https://example.com/run/123 \\
+  --click https://example.com/run/123 \\
   "production is healthy"
 notify --file report.pdf "report ready"
 notify --sequence job-42 "job started"`}</CodeBlock>
