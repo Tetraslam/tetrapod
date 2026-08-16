@@ -76,6 +76,11 @@
     "lightpanda": {
       "url": "http://127.0.0.1:9223/mcp",
       "timeout_ms": 60000
+    },
+    "ntfy": {
+      "command": "/usr/local/bin/ntfy-mcp",
+      "args": [],
+      "timeout_ms": 120000
     }
   }
 }

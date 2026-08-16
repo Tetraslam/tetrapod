@@ -156,6 +156,7 @@ sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-relea
 sudo install -m755 "$HERE/bin/viki-subtitles" /usr/local/bin/viki-subtitles
 sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-console
 sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
+sudo install -m755 "$HERE/bin/ntfy-mcp" /usr/local/bin/ntfy-mcp
 
 # ------------------------------------------------------------------ runtimes
 

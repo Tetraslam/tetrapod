@@ -16,11 +16,11 @@
 
 ## Phone notifications
 
-- `notify` sends rich notifications to Shresht's Android phone. Its server,
-  topic, and scoped 1Password token reference are already configured.
-- Read `~/.agents/skills/notify/SKILL.md` before shaping a notification. Use it
-  when Shresht asks to be notified, when long autonomous work finishes or
-  fails, or when you are blocked awaiting input while he is away.
+- The `ntfy_publish_message` MCP tool sends rich notifications to Shresht's
+  Android phone. Its server, topic, and scoped token are already configured.
+- Read `skills/notify/SKILL.md` before shaping a notification. Use it when
+  Shresht asks to be notified, when long autonomous work finishes or fails, or
+  when you are blocked awaiting input while he is away.
 - Do not spam routine progress. Never use emoji or `--tags` in notifications.
   Prefer one useful notification with priority and a direct `--click` target.
   Run `notify --help` for all fields.

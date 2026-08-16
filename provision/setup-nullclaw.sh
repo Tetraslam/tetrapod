@@ -28,11 +28,15 @@ WS="$HOME/.nullclaw/workspace"
 mkdir -p "$WS/context"
 cp "$HERE/nullclaw/workspace/"*.md "$WS/"
 cp "$HERE/nullclaw/workspace/context/"*.md "$WS/context/"
+if [ -f "$HOME/notify/skill/notify/SKILL.md" ]; then
+  mkdir -p "$WS/skills/notify"
+  cp "$HOME/notify/skill/notify/SKILL.md" "$WS/skills/notify/SKILL.md"
+else
+  echo "setup-nullclaw: WARN notify skill missing (run setup-agents.sh first)"
+fi
 MEM="$HOME/.claude/projects/-home-tetraslam/memory"
 if [ -d "$MEM" ]; then
-  for f in reference_homelab; do
-    [ -f "$MEM/$f.md" ] && cp "$MEM/$f.md" "$WS/context/"
-  done
+  [ -f "$MEM/reference_homelab.md" ] && cp "$MEM/reference_homelab.md" "$WS/context/"
 else
   echo "setup-nullclaw: WARN no memory dir (run setup-agents.sh first); persona ships without context/"
 fi

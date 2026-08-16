@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+export NTFY_BASE_URL=https://ntfy.tetraslam.world
+export NTFY_DEFAULT_TOPIC=agents
+NTFY_AUTH_TOKEN="$(opa read 'op://Agents/NTFY_AGENTS/tetrapod token')"
+export NTFY_AUTH_TOKEN
+export MCP_TRANSPORT_TYPE=stdio
+export MCP_LOG_LEVEL=warn
+
+exec bunx ntfy-mcp-server@2.3.0
