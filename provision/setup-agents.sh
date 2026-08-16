@@ -37,6 +37,24 @@ for s in session-export tigris; do
   [ -d "$HOME/rice/claude/skills/$s" ] && cp -r "$HOME/rice/claude/skills/$s" "$HOME/.claude/skills/"
 done
 
+# Rich phone notifications for shell-capable agents. The config stores only
+# an op:// reference; the scoped token is resolved into memory per request.
+if [ -d "$HOME/notify/.git" ]; then
+  git -C "$HOME/notify" pull -q
+else
+  gh repo clone tetraslam/notify "$HOME/notify" -- -q
+fi
+"$HOME/notify/install.sh"
+mkdir -p "$HOME/.config/notify"
+cat >"$HOME/.config/notify/config.json" <<'EOF'
+{
+  "base_url": "https://ntfy.tetraslam.world",
+  "topic": "agents",
+  "token_ref": "op://Agents/NTFY_AGENTS/tetrapod token",
+  "token_command": "opa"
+}
+EOF
+
 # one instructions file, symlinked into both agents (git pull updates it live)
 ln -sf "$REPO/provision/agent/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
 ln -sf "$REPO/provision/agent/AGENTS.md" "$HOME/.claude/CLAUDE.md"

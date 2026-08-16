@@ -13,3 +13,13 @@
   or manually add a 720p release.
 - Do not report that media is downloading until it appears in Sonarr/Radarr's
   queue or qBittorrent. If no acceptable release is found, say that explicitly.
+
+## Phone notifications
+
+- `notify` sends rich notifications to Shresht's Android phone. Its server,
+  topic, and scoped 1Password token reference are already configured.
+- Read `~/.agents/skills/notify/SKILL.md` before shaping a notification. Use it
+  when Shresht asks to be notified, when long autonomous work finishes or
+  fails, or when you are blocked awaiting input while he is away.
+- Do not spam routine progress. Prefer one useful notification with priority,
+  tags, and a direct `--click` target. Run `notify --help` for all fields.

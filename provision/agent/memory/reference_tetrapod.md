@@ -37,6 +37,7 @@ IaC'd in `~/tetrapod` (public repo, github.com/tetraslam/tetrapod).
 | kuma-proxy | serve path `/kuma-api` → nginx (docker) → lighthouse | same-origin kuma status api for the wiki (kuma has no CORS) |
 | restic backups | `restic-backup` (system timer, 10:00 UTC nightly) | → tigris, pings kuma push monitor on success |
 | uptime-kuma | NOT here — on sibling box `lighthouse` (t4g.micro, cloud-init only) | `https://lighthouse.tailc27667.ts.net` |
+| ntfy | docker `provision-ntfy-1`, public at `https://ntfy.tetraslam.world` | private Android push; agents publish to scoped `agents` topic with `notify` |
 
 ## Paths & tools
 
@@ -46,6 +47,8 @@ IaC'd in `~/tetrapod` (public repo, github.com/tetraslam/tetrapod).
 - `/usr/local/bin` — github-release binaries (eza, jj, lazygit, difft, hx/helix, ...)
 - runtimes via mise (node/bun/zig/zls/go), python via uv, rust via rustup
 - `restic-backup snapshots` / `restic-backup restore <snap> --target <dir>` (root)
+- `notify [options] MESSAGE` sends rich phone notifications; composition and
+  usage policy live in `~/.agents/skills/notify/SKILL.md`
 - gog (google workspace cli): two accounts — work = default client, personal =
   `--client personal`. Run `gog-env` first (file keyring, password via opa).
 - aws cli uses the instance role: SSM-only permissions. Real AWS changes happen

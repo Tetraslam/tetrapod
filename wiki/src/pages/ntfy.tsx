@@ -36,6 +36,20 @@ export function NtfyPage() {
         </P>
       </Doc>
 
+      <Doc title="agent cli">
+        <CodeBlock>{`notify "plain notification"
+notify --title "deploy complete" --priority high \\
+  --tags white_check_mark --click https://example.com/run/123 \\
+  "production is healthy"
+notify --file report.pdf "report ready"
+notify --sequence job-42 "job started"`}</CodeBlock>
+        <P>
+          the <InlineCode>notify</InlineCode> CLI resolves a topic-scoped token from 1Password at
+          runtime. its bundled agent skill covers Markdown, actions, attachments, delayed delivery,
+          sequence updates, webhook templates, and notification etiquette.
+        </P>
+      </Doc>
+
       <Doc title="admin">
         <CodeBlock>{`docker compose -f ~/tetrapod/provision/docker-compose.yml exec ntfy ntfy user list
 public-services-provision        # sync password from 1Password
