@@ -9,4 +9,4 @@ export NTFY_AUTH_TOKEN
 export MCP_TRANSPORT_TYPE=stdio
 export MCP_LOG_LEVEL=warn
 
-exec bunx ntfy-mcp-server@2.3.0
+exec /opt/tetrapod/mcp/node_modules/.bin/ntfy-mcp-server

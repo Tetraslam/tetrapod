@@ -65,8 +65,8 @@
       "timeout_ms": 120000
     },
     "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "command": "/opt/tetrapod/mcp/node_modules/.bin/context7-mcp",
+      "args": [],
       "timeout_ms": 30000
     },
     "searxng": {

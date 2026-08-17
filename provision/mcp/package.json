@@ -1,0 +1,8 @@
+{
+  "name": "tetrapod-mcp-servers",
+  "private": true,
+  "dependencies": {
+    "@upstash/context7-mcp": "4.0.2",
+    "ntfy-mcp-server": "2.3.0"
+  }
+}

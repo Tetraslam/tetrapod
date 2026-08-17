@@ -168,6 +168,11 @@ log "npm globals + uv tools"
 pnpm add -g tree-sitter-cli vercel
 uv tool install modal || true
 
+log "pinned MCP servers"
+sudo install -d -o "$USER" -g "$USER" /opt/tetrapod/mcp
+install -m644 "$HERE/mcp/package.json" "$HERE/mcp/bun.lock" /opt/tetrapod/mcp/
+(cd /opt/tetrapod/mcp && bun install --frozen-lockfile --production)
+
 # --------------------------------------------------------------- system tuning
 
 log "zram (8G), journald cap, docker log rotation, unattended-upgrades"
