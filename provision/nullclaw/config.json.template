@@ -65,8 +65,8 @@
       "timeout_ms": 120000
     },
     "context7": {
-      "command": "/opt/tetrapod/mcp/node_modules/.bin/context7-mcp",
-      "args": [],
+      "command": "/home/tetraslam/.local/share/mise/shims/node",
+      "args": ["/opt/tetrapod/mcp/node_modules/@upstash/context7-mcp/dist/index.js"],
       "timeout_ms": 30000
     },
     "searxng": {
