@@ -42,6 +42,10 @@ stable interfaces.
 5. **Public outputs:** A property of the other systems: publish useful packages,
    models, datasets, APIs, services, recommendations, methods, and research when
    appropriate. This is not a separate platform.
+6. **Persistent world:** A repository-authored, continuously running multiplayer
+   world with a modern web client, durable simulation state, and humans and
+   agents participating through the same rules. This is a deferred, large
+   creative project rather than part of the initial build sequence.
 
 The examples that motivated these ideas are evidence, not exhaustive product
 specifications. In particular, Curator is not merely a media recommender,
@@ -160,6 +164,51 @@ Examples include:
   shareable explanations?
 - Which outputs need continued ownership after publication, and which can be
   complete releases?
+
+## 6. Persistent World
+
+Build a modern persistent-world system for settings such as Pocket Realms. The
+default experience is not a terminal MUD: a custom web client presents an
+illustrated map, current location, nearby characters and objects, contextual
+actions, ongoing events, and a world chronicle. Players move and inspect by
+clicking, while a freeform action box supports dialogue and actions specific to
+the world's rules.
+
+The authored world remains repository-backed and agent-editable:
+
+```text
+world/
+  places/
+  characters/
+  factions/
+  languages/
+  magic/
+  events/
+```
+
+The server materializes those definitions into durable runtime state. Time,
+travel, factions, rituals, and other processes may continue while players are
+offline. Every attempted action passes through the simulation rules and emits a
+structured event; prose, maps, animation, and audio are presentations of that
+event rather than the source of truth.
+
+Humans share the world in real time. Discord can provide a lightweight window
+for dialogue, inspection, and event delivery. Agents inhabit bounded characters:
+they perceive only what the character can perceive and submit actions through
+the same interfaces and constraints as humans rather than directly rewriting
+world state.
+
+Evennia is a plausible backend when the world is primarily social, symbolic,
+and prose-driven. It supplies accounts, persistent objects, concurrent sessions,
+permissions, WebSockets, REST, Discord bots, and scheduled scripts, but its
+rooms/exits/commands ontology and default MUD client should be treated as backend
+plumbing. A rich client, repository synchronization, simulation rules, and the
+agent-character boundary would still be custom work. If the project becomes
+spatial, visual, or physics-heavy, Nakama plus a custom world engine is likely a
+better foundation.
+
+This is intentionally deferred. It is a massive but appealing undertaking, not
+an incremental tetrapod service to start now.
 
 ## Initial Build Sequence
 
