@@ -174,6 +174,26 @@ configure_download_cleanup() {
 configure_download_cleanup sonarr 8989
 configure_download_cleanup radarr 7878
 
+configure_jellyfin_audio_selection() {
+  local token user id configuration
+
+  token="$(sqlite3 /opt/tetrapod/jellyfin/config/data/jellyfin.db \
+    'SELECT AccessToken FROM ApiKeys ORDER BY Id LIMIT 1;')"
+  user="$(curl -fsS http://127.0.0.1:8096/Users \
+    -H "Authorization: MediaBrowser Token=\"$token\"" |
+    jq -cer '.[] | select(.Name == "tetraslam")')"
+  [ "$(jq -r '.Configuration.RememberAudioSelections' <<<"$user")" = false ] && return
+
+  id="$(jq -r '.Id' <<<"$user")"
+  configuration="$(jq '.Configuration.RememberAudioSelections = false | .Configuration' <<<"$user")"
+  curl -fsS -X POST -H "Authorization: MediaBrowser Token=\"$token\"" \
+    -H 'Content-Type: application/json' --data-binary "$configuration" \
+    "http://127.0.0.1:8096/Users/Configuration?userId=$id" >/dev/null
+  echo "media-provision: disabled remembered audio tracks for tetraslam"
+}
+
+configure_jellyfin_audio_selection
+
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 sonarr=http://127.0.0.1:8989/api/v3
 media_management="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/config/mediamanagement")"
