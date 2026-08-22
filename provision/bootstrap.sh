@@ -41,7 +41,7 @@ sudo apt-get install -y \
   fd-find ripgrep bat fzf zoxide btop jq tldr chafa \
   git git-lfs just build-essential clang llvm \
   mosh socat netcat-openbsd nmap tcpdump \
-  imagemagick ffmpeg \
+  imagemagick ffmpeg mkvtoolnix \
   smartmontools nvme-cli unattended-upgrades zram-tools \
   restic rsync sqlite3 dnsutils tree \
   gh gum glow 1password-cli \
@@ -150,6 +150,7 @@ sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
 sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
+sudo install -m755 "$HERE/bin/media-prefer-english" /usr/local/bin/media-prefer-english
 sudo install -m755 "$HERE/bin/bazarr-provision" /usr/local/bin/bazarr-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
 sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-release-fallback
@@ -368,7 +369,7 @@ export PATH="$HOME/.local/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/bi
 EXPECTED=(
   # apt
   unzip less man whois xmlstarlet locate fd rg bat fzf zoxide btop jq tldr chafa
-  git git-lfs just gcc clang mosh socat nc nmap tcpdump convert ffmpeg
+  git git-lfs just gcc clang mosh socat nc nmap tcpdump convert ffmpeg mkvpropedit
   smartctl nvme restic rsync sqlite3 dig tree gh gum glow op
   # github releases
   eza dust croc bore bandwhich yazi jj lazygit lazydocker difft typst zellij gog fastfetch hx

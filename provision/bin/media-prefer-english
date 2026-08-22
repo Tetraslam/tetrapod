@@ -1,0 +1,74 @@
+#!/bin/bash
+set -euo pipefail
+
+event="${radarr_eventtype:-}"
+if [ "${event,,}" = test ]; then
+  echo "media-prefer-english: ready"
+  exit 0
+fi
+
+path="${radarr_moviefile_path:-${1:-}}"
+if [ -z "$path" ]; then
+  echo "media-prefer-english: no movie path supplied" >&2
+  exit 1
+fi
+if [ ! -f "$path" ]; then
+  echo "media-prefer-english: file does not exist: $path" >&2
+  exit 1
+fi
+if [[ "${path,,}" != *.mkv ]]; then
+  echo "media-prefer-english: skipping non-MKV file: $path"
+  exit 0
+fi
+
+probe="$(ffprobe -v error \
+  -show_entries stream=codec_type,channels,bit_rate:stream_tags=language,title:stream_disposition=default \
+  -of json "$path")"
+
+target="$(jq -r '
+  [.streams | map(select(.codec_type == "audio")) | to_entries[] |
+    .key as $key | .value as $stream |
+    (($stream.tags.language // "") | ascii_downcase) as $language |
+    ($stream.tags.title // "") as $title |
+    select(
+      ($language | test("^(eng|en)([-_].*)?$|^english$")) or
+      ($title | test("(^|[^a-z])english([^a-z]|$)"; "i"))
+    ) |
+    select(($title | test("commentary|audio description|descriptive audio|visually impaired"; "i")) | not) |
+    {
+      ordinal: ($key + 1),
+      channels: ($stream.channels // 0),
+      bitrate: (($stream.bit_rate // "0") | tonumber? // 0)
+    }
+  ] |
+  sort_by([.channels, .bitrate, (-.ordinal)]) |
+  last |
+  .ordinal // empty
+' <<<"$probe")"
+
+if [ -z "$target" ]; then
+  echo "media-prefer-english: no non-commentary English audio: $path"
+  exit 0
+fi
+
+audio_count="$(jq '[.streams[] | select(.codec_type == "audio")] | length' <<<"$probe")"
+defaults="$(jq -r '
+  [.streams | map(select(.codec_type == "audio")) | to_entries[] |
+    select(.value.disposition.default == 1) | .key + 1] |
+  join(" ")
+' <<<"$probe")"
+
+if [ "$defaults" = "$target" ]; then
+  echo "media-prefer-english: already correct: $path"
+  exit 0
+fi
+
+edits=()
+for ((ordinal = 1; ordinal <= audio_count; ordinal++)); do
+  value=0
+  [ "$ordinal" -eq "$target" ] && value=1
+  edits+=(--edit "track:a$ordinal" --set "flag-default=$value")
+done
+
+mkvpropedit "$path" "${edits[@]}"
+echo "media-prefer-english: set audio track $target as default: $path"

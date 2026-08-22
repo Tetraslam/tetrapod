@@ -230,11 +230,11 @@ done < <(radarr_api "$radarr/movie" | jq -r '.[] | [
   .isAvailable
 ] | @tsv')
 
-file_count="$(jq -n \
-  --argjson sonarr "$(sonarr_api "$sonarr/series")" \
-  --argjson radarr "$(radarr_api "$radarr/movie")" \
-  '[($sonarr | map(.statistics.episodeFileCount) | add // 0),
-    ($radarr | map(.statistics.movieFileCount) | add // 0)] | add')"
+sonarr_file_count="$(sonarr_api "$sonarr/series" |
+  jq 'map(.statistics.episodeFileCount) | add // 0')"
+radarr_file_count="$(radarr_api "$radarr/movie" |
+  jq 'map(.statistics.movieFileCount) | add // 0')"
+file_count=$((sonarr_file_count + radarr_file_count))
 previous_file_count="$(jq -r '.jellyfin.fileCount // -1' "$state")"
 
 if [ "$file_count" != "$previous_file_count" ]; then
