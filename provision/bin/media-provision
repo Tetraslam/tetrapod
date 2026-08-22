@@ -174,54 +174,6 @@ configure_download_cleanup() {
 configure_download_cleanup sonarr 8989
 configure_download_cleanup radarr 7878
 
-configure_radarr_audio_defaults() {
-  local app_key base name path notifications id current desired signature expected
-
-  app_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
-  base=http://127.0.0.1:7878/api/v3
-  name='Prefer English movie audio'
-  path=/usr/local/bin/media-prefer-english
-  notifications="$(curl -fsS -H "X-Api-Key: $app_key" "$base/notification")"
-  expected="$(jq -cn --arg name "$name" --arg path "$path" \
-    '{name:$name,onDownload:true,onUpgrade:true,path:$path,arguments:""}')"
-
-  if id="$(jq -er --arg name "$name" '.[] | select(.name == $name) | .id' <<<"$notifications" 2>/dev/null)"; then
-    current="$(curl -fsS -H "X-Api-Key: $app_key" "$base/notification/$id")"
-    signature="$(jq -c '{
-      name,
-      onDownload,
-      onUpgrade,
-      path: (.fields[] | select(.name == "path") | .value),
-      arguments: ((.fields[] | select(.name == "arguments") | .value) // "")
-    }' <<<"$current")"
-    [ "$signature" = "$expected" ] && return
-    desired="$(jq --arg path "$path" '
-      .onDownload = true |
-      .onUpgrade = true |
-      (.fields[] | select(.name == "path")).value = $path |
-      (.fields[] | select(.name == "arguments")).value = ""
-    ' <<<"$current")"
-    curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
-      --data-binary "$desired" "$base/notification/$id" >/dev/null
-    echo "media-provision: updated Radarr English-audio hook"
-    return
-  fi
-
-  desired="$(curl -fsS -H "X-Api-Key: $app_key" "$base/notification/schema" |
-    jq --arg name "$name" --arg path "$path" '.[] | select(.implementation == "CustomScript") |
-      .name = $name |
-      .onDownload = true |
-      .onUpgrade = true |
-      (.fields[] | select(.name == "path")).value = $path |
-      (.fields[] | select(.name == "arguments")).value = ""
-    ')"
-  curl -fsS -X POST -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
-    --data-binary "$desired" "$base/notification" >/dev/null
-  echo "media-provision: added Radarr English-audio hook"
-}
-
-configure_radarr_audio_defaults
-
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 sonarr=http://127.0.0.1:8989/api/v3
 media_management="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/config/mediamanagement")"

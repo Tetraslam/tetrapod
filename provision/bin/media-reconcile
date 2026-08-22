@@ -32,6 +32,17 @@ mark_fallback() {
   mv "$tmp" "$state"
 }
 
+audio_defaults_processed() {
+  jq -e --arg id "$1" '.audioDefaults[$id] == true' "$state" >/dev/null
+}
+
+mark_audio_defaults_processed() {
+  local tmp
+  tmp="$(mktemp "$state_dir/state.XXXXXX")"
+  jq --arg id "$1" '.audioDefaults[$id] = true' "$state" >"$tmp"
+  mv "$tmp" "$state"
+}
+
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 sonarr=http://127.0.0.1:8989/api/v3
 sonarr_api() {
@@ -195,6 +206,10 @@ done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
 
 radarr_quality_profile="$(ensure_quality_profile "$radarr" "$radarr_key")"
 
+radarr_movies="$(mktemp "$state_dir/radarr-movies.XXXXXX")"
+trap 'rm -f "$radarr_movies"' EXIT
+radarr_api "$radarr/movie" >"$radarr_movies"
+
 radarr_search_active="$(radarr_api "$radarr/command" | jq 'any(.[]; .name == "MoviesSearch" and (.status == "queued" or .status == "started"))')"
 radarr_downloading_movies="$(radarr_api "$radarr/queue?page=1&pageSize=1000&includeUnknownMovieItems=true" |
   jq '[.records[] | select(.status == "downloading" or .status == "queued") | .movieId | select(. != null)] | unique')"
@@ -221,19 +236,33 @@ while IFS=$'\t' read -r id title quality_profile monitored has_file available; d
     radarr_search_started=true
     echo "media-reconcile: searching releases for $title"
   fi
-done < <(radarr_api "$radarr/movie" | jq -r '.[] | [
+done < <(jq -r '.[] | [
   .id,
   .title,
   .qualityProfileId,
   .monitored,
   .hasFile,
   .isAvailable
-] | @tsv')
+] | @tsv' "$radarr_movies")
+
+processed=0
+while IFS=$'\t' read -r file_id path; do
+  audio_defaults_processed "$file_id" && continue
+  if /usr/local/bin/media-prefer-english "$path"; then
+    mark_audio_defaults_processed "$file_id"
+    processed=$((processed + 1))
+  fi
+  [ "$processed" -ge 20 ] && break
+done < <(jq -r '.[] | select(
+  .hasFile and
+  .originalLanguage.name == "English" and
+  .movieFile.id != null and
+  .movieFile.path != null
+) | [.movieFile.id, .movieFile.path] | @tsv' "$radarr_movies")
 
 sonarr_file_count="$(sonarr_api "$sonarr/series" |
   jq 'map(.statistics.episodeFileCount) | add // 0')"
-radarr_file_count="$(radarr_api "$radarr/movie" |
-  jq 'map(.statistics.movieFileCount) | add // 0')"
+radarr_file_count="$(jq 'map(.statistics.movieFileCount) | add // 0' "$radarr_movies")"
 file_count=$((sonarr_file_count + radarr_file_count))
 previous_file_count="$(jq -r '.jellyfin.fileCount // -1' "$state")"
 
