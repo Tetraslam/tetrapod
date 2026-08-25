@@ -61,7 +61,10 @@
   },
   "mcp_servers": {
     "firecrawl": {
-      "url": "https://mcp.firecrawl.dev/__FIRECRAWL_API_KEY__/v2/mcp",
+      "url": "https://mcp.firecrawl.dev/v2/mcp",
+      "headers": {
+        "Authorization": "Bearer __FIRECRAWL_API_KEY__"
+      },
       "timeout_ms": 120000
     },
     "context7": {
