@@ -222,7 +222,7 @@ migrate_quality_profiles() {
       curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
         --data-binary @- "$app_base/$resource/$id" >/dev/null
     echo "media-provision: migrated $app $title quality profile"
-  done < <(jq -r '.[] | [.id, .title, .qualityProfileId] | @tsv' <<<"$objects")
+  done < <(jq -r '.[] | [.id, (.title // .name), .qualityProfileId] | @tsv' <<<"$objects")
 }
 
 configure_seerr_profiles() {
@@ -284,6 +284,7 @@ configure_arr_storage sonarr 8989 /srv/media/recycle/sonarr
 configure_arr_storage radarr 7878 /srv/media/recycle/radarr
 migrate_quality_profiles sonarr 8989 series
 migrate_quality_profiles radarr 7878 movie
+migrate_quality_profiles radarr 7878 collection
 configure_seerr_profiles
 remove_legacy_profiles sonarr 8989
 remove_legacy_profiles radarr 7878
