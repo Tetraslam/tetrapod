@@ -227,7 +227,7 @@ migrate_quality_profiles() {
 
 configure_seerr_profiles() {
   local config=/opt/tetrapod/seerr/settings.json
-  local seerr_key app port app_key profiles standard cinema settings id updated
+  local seerr_key app port app_key profiles standard cinema settings id current updated
   local seerr_ready=false
 
   for _ in {1..30}; do
@@ -260,9 +260,12 @@ configure_seerr_profiles() {
           .activeAnimeProfileName = (if .is4k then "Cinema" else "Standard" end)
         else . end
       ' <<<"$settings")"
-      curl -fsS -X PUT -H "X-Api-Key: $seerr_key" -H 'Content-Type: application/json' \
-        --data-binary "$updated" "http://127.0.0.1:5055/api/v1/settings/$app/$id" >/dev/null
-      echo "media-provision: set Seerr $app profile for server $id"
+      current="$(jq -c --argjson id "$id" '.[] | select(.id == $id) | del(.id)' <<<"$settings")"
+      if [ "$updated" != "$current" ]; then
+        curl -fsS -X PUT -H "X-Api-Key: $seerr_key" -H 'Content-Type: application/json' \
+          --data-binary "$updated" "http://127.0.0.1:5055/api/v1/settings/$app/$id" >/dev/null
+        echo "media-provision: set Seerr $app profile for server $id"
+      fi
     done < <(jq -r '.[].id' <<<"$settings")
   done
 }
