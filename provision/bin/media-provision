@@ -252,7 +252,7 @@ configure_seerr_profiles() {
 
     while IFS= read -r id; do
       updated="$(jq -c --argjson id "$id" --argjson standard "$standard" --argjson cinema "$cinema" '
-        .[] | select(.id == $id) |
+        .[] | select(.id == $id) | del(.id) |
         .activeProfileId = (if .is4k then $cinema else $standard end) |
         .activeProfileName = (if .is4k then "Cinema" else "Standard" end) |
         if has("activeAnimeProfileId") then
