@@ -56,6 +56,9 @@ export const KUMA_STATUS_SLUG = "tetrapod";
 export const KUMA_API_BASE = "/kuma-api";
 export const KUMA_REFRESH_MS = 60_000;
 
+export const STORAGE_API_URL = "/storage-api/v1/storage";
+export const STORAGE_REFRESH_MS = 60_000;
+
 export const FACTORIO = {
   connectAddress: "factorio.tetraslam.world:34197",
   connectAddressIp: `${HOSTS.tetrapod.publicIp}:34197`,

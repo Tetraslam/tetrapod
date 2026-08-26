@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+
+secrets=/run/recyclarr
+install -d -m700 "$secrets"
+for _ in {1..60}; do
+  if [ -r /opt/tetrapod/sonarr/config.xml ] &&
+     [ -r /opt/tetrapod/radarr/config.xml ] &&
+     curl -fsS http://127.0.0.1:8989/ping >/dev/null &&
+     curl -fsS http://127.0.0.1:7878/ping >/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+[ "${ready:-false}" = true ] || { echo "recyclarr-sync: Sonarr or Radarr is not ready" >&2; exit 1; }
+
+for app in sonarr radarr; do
+  config="/opt/tetrapod/$app/config.xml"
+  umask 077
+  xmlstarlet sel -t -v /Config/ApiKey "$config" >"$secrets/${app}_api_key"
+done
+
+exec docker compose -f /opt/tetrapod/docker-compose.yml run --rm recyclarr sync

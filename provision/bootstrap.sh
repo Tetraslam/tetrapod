@@ -154,6 +154,9 @@ sudo install -m755 "$HERE/bin/media-prefer-english" /usr/local/bin/media-prefer-
 sudo install -m755 "$HERE/bin/bazarr-provision" /usr/local/bin/bazarr-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
 sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-release-fallback
+sudo install -m755 "$HERE/bin/media-warden" /usr/local/bin/media-warden
+sudo install -m755 "$HERE/bin/recyclarr-sync" /usr/local/bin/recyclarr-sync
+sudo install -m755 "$HERE/bin/storage-telemetry" /usr/local/bin/storage-telemetry
 sudo install -m755 "$HERE/bin/viki-subtitles" /usr/local/bin/viki-subtitles
 sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-console
 sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
@@ -208,7 +211,7 @@ if [ -b /dev/nvme1n1 ]; then
   sudo systemctl daemon-reload
   mountpoint -q /srv/media || sudo mount /srv/media
   sudo chown tetraslam:tetraslam /srv/media
-  mkdir -p /srv/media/{library/{shows,movies,youtube},downloads/{complete,incomplete}}
+  mkdir -p /srv/media/{library/{shows,movies,youtube},downloads/{complete,incomplete},recycle/{sonarr,radarr}}
 else
   log "no /dev/nvme1n1 — media volume not attached, skipping"
 fi
@@ -267,12 +270,14 @@ sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
 sudo mkdir -p /opt/tetrapod/searxng
 sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
 # media stack state dirs (uid 1000 across the board)
-sudo mkdir -p /opt/tetrapod/{authelia/{data,redis,secrets},caddy/{data,config},jellyfin/config,jellyfin/cache,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile}
+sudo mkdir -p /opt/tetrapod/{authelia/{data,redis,secrets},caddy/{data,config},jellyfin/config,jellyfin/cache,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile,recyclarr}
 sudo mkdir -p /srv/media/library/manga
 sudo chown 1000:1000 /opt/tetrapod/authelia/data
 sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
-sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy} /srv/media/library/manga
+sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy,recyclarr} /srv/media/library/manga /srv/media/recycle
 sudo chown -R 1000:1000 /opt/tetrapod/media-reconcile
+sudo install -m644 "$HERE/recyclarr/recyclarr.yml" /opt/tetrapod/recyclarr/recyclarr.yml
+sudo install -m644 "$HERE/docker-compose.yml" /opt/tetrapod/docker-compose.yml
 # Jellyfin Enhanced 12.2.0.0, built against Jellyfin 12.
 JELLYFIN_ENHANCED_DIR="/opt/tetrapod/jellyfin/config/plugins/Jellyfin Enhanced_12.2.0.0"
 JELLYFIN_ENHANCED_DLL="$JELLYFIN_ENHANCED_DIR/Jellyfin.Plugin.JellyfinEnhanced.dll"
@@ -321,7 +326,14 @@ if opa read 'op://Agents/TETRAPOD_PUBLIC_SERVICES/password' >/dev/null 2>&1; the
 else
   echo "WARN: public services need opa access to TETRAPOD_PUBLIC_SERVICES"
 fi
-media-provision || echo "WARN: media indexer provisioning failed"
+sudo cp "$HERE/systemd/recyclarr-sync.service" "$HERE/systemd/recyclarr-sync.timer" /etc/systemd/system/
+sudo cp "$HERE/systemd/media-warden.service" "$HERE/systemd/media-warden.timer" /etc/systemd/system/
+sudo cp "$HERE/systemd/storage-telemetry.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now recyclarr-sync.timer media-warden.timer storage-telemetry.service
+# Recyclarr owns profiles. Its first sync must finish before profile migration.
+sudo systemctl start recyclarr-sync.service
+media-provision
 bazarr-provision || echo "WARN: Bazarr provisioning failed"
 shlink-provision || echo "WARN: service short-link provisioning failed"
 sudo cp "$HERE/systemd/media-reconcile.service" "$HERE/systemd/media-reconcile.timer" /etc/systemd/system/
@@ -334,6 +346,7 @@ sudo tailscale serve --bg 8443 || true
 
 # kuma status api, same-origin for the wiki dashboard (kuma has no CORS)
 sudo tailscale serve --bg --set-path /kuma-api http://127.0.0.1:3002 || true
+sudo tailscale serve --bg --set-path /storage-api http://127.0.0.1:3005 || true
 
 # wiki / home dashboard at https://tetrapod.<tailnet>.ts.net/wiki
 REPO="$(cd "$HERE/.." && pwd)"
@@ -345,6 +358,7 @@ if [ -d "$REPO/wiki" ]; then
   # none) lives there and would become a public root shell.
   sudo tailscale funnel --bg --https=8443 --set-path /wiki "$REPO/wiki/dist" || true
   sudo tailscale funnel --bg --https=8443 --set-path /kuma-api http://127.0.0.1:3002 || true
+  sudo tailscale funnel --bg --https=8443 --set-path /storage-api http://127.0.0.1:3005 || true
   # zipline + shlink behind i./link.tetraslam.world: vercel host-rewrites to
   # :10000, share-proxy nginx routes by x-forwarded-host
   sudo tailscale funnel --bg --https=10000 http://127.0.0.1:3004 || true
@@ -403,6 +417,12 @@ check() { # <label> <command...>
 check "docker: factorio running" sh -c 'sudo docker ps --filter name=factorio --filter status=running -q | grep -q .'
 check "docker: code-server running" sh -c 'sudo docker ps --filter name=code-server --filter status=running -q | grep -q .'
 check "systemd: restic-backup.timer enabled" systemctl is-enabled restic-backup.timer
+check "systemd: recyclarr-sync.timer enabled" systemctl is-enabled recyclarr-sync.timer
+check "systemd: media-warden.timer enabled" systemctl is-enabled media-warden.timer
+check "systemd: storage-telemetry running" systemctl is-active storage-telemetry.service
+check "storage telemetry healthy" curl -fsS http://127.0.0.1:3005/v1/storage
+check "docker: Sonarr healthy" curl -fsS http://127.0.0.1:8989/ping
+check "docker: Radarr healthy" curl -fsS http://127.0.0.1:7878/ping
 check "tailscale: serve active" sh -c 'sudo tailscale serve status | grep -q .'
 check "zram active" sh -c 'swapon --show | grep -q zram'
 check "dotfiles: starship.toml" test -f "$HOME/.config/starship.toml"

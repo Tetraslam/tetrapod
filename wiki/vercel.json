@@ -27,6 +27,10 @@
       "src": "/kuma-api/(.*)",
       "dest": "https://kuma-api.tetraslam.world/$1"
     },
+    {
+      "src": "/storage-api/v1/storage",
+      "dest": "https://kuma-api.tetraslam.world/storage-api/v1/storage"
+    },
     { "handle": "filesystem" }
   ]
 }

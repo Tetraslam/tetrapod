@@ -1,5 +1,6 @@
 import { KumaStatus } from "@/components/kuma-status";
 import { Neofetch } from "@/components/neofetch";
+import { StorageTelemetry } from "@/components/storage-telemetry";
 import { Ext, P, WikiLink } from "@/components/wiki";
 import { URLS } from "@/config";
 
@@ -59,6 +60,11 @@ export function HomePage() {
       <section className="space-y-3">
         <h2 className="font-semibold text-lg tracking-tight">specs</h2>
         <Neofetch />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg tracking-tight">storage</h2>
+        <StorageTelemetry />
       </section>
 
       <section className="space-y-3">

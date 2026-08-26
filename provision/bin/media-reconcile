@@ -110,63 +110,17 @@ fail_stalled_downloads() {
 
 fail_stalled_downloads
 
-ensure_quality_profile() {
-  local base="$1"
-  local key="$2"
-  local name='HD/UHD - 1080p/2160p'
-  local profiles id template
-
-  profiles="$(curl -fsS -H "X-Api-Key: $key" "$base/qualityprofile")"
-  if id="$(jq -er --arg name "$name" '.[] | select(.name == $name) | .id' <<<"$profiles" 2>/dev/null)"; then
-    printf '%s\n' "$id"
-    return
-  fi
-
-  template="$(curl -fsS -H "X-Api-Key: $key" "$base/qualityprofile/4")"
-  id="$(jq --arg name "$name" '
-    del(.id) |
-    .name = $name |
-    .upgradeAllowed = true |
-    .cutoff = 19 |
-    (.items[] | select(.quality != null)) |= (
-      .allowed = (.quality.resolution >= 1080 and
-        ((.quality.name | test("Remux|Raw-HD|BR-DISK"; "i")) | not))
-    ) |
-    (.items[] | select(.items != null and (.items | length > 0))) |= (
-      .items |= map(.allowed = (.quality.resolution >= 1080)) |
-      .allowed = any(.items[]; .allowed)
-    )
-  ' <<<"$template" |
-    curl -fsS -X POST -H "X-Api-Key: $key" -H 'Content-Type: application/json' \
-      --data-binary @- "$base/qualityprofile" | jq -r '.id')"
-  if [[ ! "$id" =~ ^[0-9]+$ ]]; then
-    echo "media-reconcile: failed to create $name quality profile" >&2
-    return 1
-  fi
-  echo "media-reconcile: created $name quality profile" >&2
-  printf '%s\n' "$id"
-}
-
-sonarr_quality_profile="$(ensure_quality_profile "$sonarr" "$sonarr_key")"
-
 sonarr_search_active="$(sonarr_api "$sonarr/command" | jq 'any(.[]; (.name == "SeriesSearch" or .name == "MissingEpisodeSearch") and (.status == "queued" or .status == "started"))')"
 sonarr_downloading_series="$(sonarr_api "$sonarr/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true" |
   jq '[.records[] | select(.status == "downloading" or .status == "queued") | .seriesId | select(. != null)] | unique')"
 sonarr_search_started=false
 
-while IFS=$'\t' read -r id title series_type quality_profile monitored is_anime aired files; do
+while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
   if [ "$is_anime" = true ] && [ "$series_type" != anime ]; then
     sonarr_api "$sonarr/series/$id" |
       jq '.seriesType = "anime"' |
       sonarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$sonarr/series/$id" >/dev/null
     echo "media-reconcile: classified $title as anime"
-  fi
-
-  if [ "$quality_profile" = 1 ]; then
-    sonarr_api "$sonarr/series/$id" |
-      jq --argjson profile "$sonarr_quality_profile" '.qualityProfileId = $profile' |
-      sonarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$sonarr/series/$id" >/dev/null
-    echo "media-reconcile: set $title to 1080p/2160p"
   fi
 
   previous="$(last_search sonarr "$id")"
@@ -196,15 +150,12 @@ done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
   .id,
   .title,
   .seriesType,
-  .qualityProfileId,
   .monitored,
   ((.genres | index("Anime") != null) or
     (.originalLanguage.name == "Japanese" and (.genres | index("Animation") != null))),
   .statistics.episodeCount,
   .statistics.episodeFileCount
 ] | @tsv')
-
-radarr_quality_profile="$(ensure_quality_profile "$radarr" "$radarr_key")"
 
 radarr_movies="$(mktemp "$state_dir/radarr-movies.XXXXXX")"
 trap 'rm -f "$radarr_movies"' EXIT
@@ -215,14 +166,7 @@ radarr_downloading_movies="$(radarr_api "$radarr/queue?page=1&pageSize=1000&incl
   jq '[.records[] | select(.status == "downloading" or .status == "queued") | .movieId | select(. != null)] | unique')"
 radarr_search_started=false
 
-while IFS=$'\t' read -r id title quality_profile monitored has_file available; do
-  if [ "$quality_profile" = 1 ]; then
-    radarr_api "$radarr/movie/$id" |
-      jq --argjson profile "$radarr_quality_profile" '.qualityProfileId = $profile' |
-      radarr_api -X PUT -H 'Content-Type: application/json' --data-binary @- "$radarr/movie/$id" >/dev/null
-    echo "media-reconcile: set $title to 1080p/2160p"
-  fi
-
+while IFS=$'\t' read -r id title monitored has_file available; do
   previous="$(last_search radarr "$id")"
   has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$radarr_downloading_movies")"
   if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
@@ -239,7 +183,6 @@ while IFS=$'\t' read -r id title quality_profile monitored has_file available; d
 done < <(jq -r '.[] | [
   .id,
   .title,
-  .qualityProfileId,
   .monitored,
   .hasFile,
   .isAvailable

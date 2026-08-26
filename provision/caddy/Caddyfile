@@ -115,6 +115,11 @@ kuma-api.tetraslam.world {
 		reverse_proxy 127.0.0.1:3002
 	}
 
+	@storage path /storage-api/v1/storage
+	handle @storage {
+		reverse_proxy 127.0.0.1:3005
+	}
+
 	respond 404
 }
 

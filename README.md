@@ -27,6 +27,12 @@ IAM, since claude models run from there.
 - **hermes agent:** on the host, not docker (it wants the filesystem)
 - **backups:** restic → tigris nightly (ported from rice) with healthcheck ping, plus EBS snapshots
 - **no watchtower:** pinned image tags, deliberate updates
+- **media storage:** Recyclarr v8 owns exact `Standard` (1080p) and `Cinema`
+  (1080p/2160p) profiles. A nightly sync keeps bad-release rejection current.
+  The daily storage warden preserves `keep` media, expires explicitly tagged
+  `temp` files only above 80% use, manages torrent pressure, and safely queues
+  smaller replacements for oversized files below 65%. Run
+  `media-warden --dry-run` to audit.
 - **rice subset:** bashrc/starship/helix/git config + the cli suite (eza, fd, rg, bat, fzf, zoxide, btop, jj, just, lazygit, restic, mosh, croc, gum, ...)
 
 ## layout

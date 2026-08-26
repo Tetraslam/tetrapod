@@ -1,0 +1,11 @@
+[Unit]
+Description=enforce media storage policy
+After=network-online.target docker.service srv-media.mount
+Wants=network-online.target
+ConditionPathIsMountPoint=/srv/media
+
+[Service]
+Type=oneshot
+User=tetraslam
+StateDirectory=media-warden
+ExecStart=/usr/local/bin/media-warden

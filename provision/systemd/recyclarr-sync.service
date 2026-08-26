@@ -1,0 +1,11 @@
+[Unit]
+Description=sync Recyclarr profiles to Sonarr and Radarr
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tetraslam
+RuntimeDirectory=recyclarr
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/bin/recyclarr-sync

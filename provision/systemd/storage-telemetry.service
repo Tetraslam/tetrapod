@@ -1,0 +1,41 @@
+[Unit]
+Description=read-only storage telemetry API
+After=network-online.target docker.service srv-media.mount
+Wants=network-online.target
+ConditionPathIsMountPoint=/srv/media
+
+[Service]
+Type=simple
+User=tetraslam
+Group=tetraslam
+ExecStart=/usr/local/bin/storage-telemetry --host 127.0.0.1 --port 3005
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+ProtectProc=invisible
+ProcSubset=pid
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

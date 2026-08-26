@@ -162,17 +162,130 @@ configure_download_cleanup() {
   app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
   client="$(curl -fsS -H "X-Api-Key: $app_key" "http://127.0.0.1:$port/api/v3/downloadclient" |
     jq -cer '.[] | select(.implementation == "QBittorrent")')"
-  if [ "$(jq -r '.removeCompletedDownloads' <<<"$client")" != true ] ||
+  if [ "$(jq -r '.removeCompletedDownloads' <<<"$client")" != false ] ||
      [ "$(jq -r '.removeFailedDownloads' <<<"$client")" != true ]; then
-    jq '.removeCompletedDownloads = true | .removeFailedDownloads = true' <<<"$client" |
+    jq '.removeCompletedDownloads = false | .removeFailedDownloads = true' <<<"$client" |
       curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
         --data-binary @- "http://127.0.0.1:$port/api/v3/downloadclient/$(jq -r '.id' <<<"$client")" >/dev/null
-    echo "media-provision: enabled $app completed-download cleanup"
+    echo "media-provision: delegated $app completed-download cleanup to media-warden"
   fi
 }
 
 configure_download_cleanup sonarr 8989
 configure_download_cleanup radarr 7878
+
+configure_arr_storage() {
+  local app="$1" port="$2" recycle="$3"
+  local app_key app_base settings tag_name tags
+
+  app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
+  app_base="http://127.0.0.1:$port/api/v3"
+  tags="$(curl -fsS -H "X-Api-Key: $app_key" "$app_base/tag")"
+  for tag_name in keep temp; do
+    if ! jq -e --arg name "$tag_name" 'any(.[]; .label == $name)' <<<"$tags" >/dev/null; then
+      curl -fsS -X POST -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
+        --data-binary "$(jq -cn --arg label "$tag_name" '{label:$label}')" "$app_base/tag" >/dev/null
+      echo "media-provision: created $app $tag_name tag"
+    fi
+  done
+
+  settings="$(curl -fsS -H "X-Api-Key: $app_key" "$app_base/config/mediamanagement")"
+  if [ "$(jq -r '.recycleBin' <<<"$settings")" != "$recycle" ] ||
+     [ "$(jq -r '.recycleBinCleanupDays' <<<"$settings")" != 7 ]; then
+    jq --arg path "$recycle" '.recycleBin = $path | .recycleBinCleanupDays = 7' <<<"$settings" |
+      curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
+        --data-binary @- "$app_base/config/mediamanagement" >/dev/null
+    echo "media-provision: configured $app recycle bin"
+  fi
+}
+
+migrate_quality_profiles() {
+  local app="$1" port="$2" resource="$3"
+  local app_key app_base profiles standard cinema objects id title old target
+
+  app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
+  app_base="http://127.0.0.1:$port/api/v3"
+  profiles="$(curl -fsS -H "X-Api-Key: $app_key" "$app_base/qualityprofile")"
+  standard="$(jq -er 'map(select(.name == "Standard")) | if length == 1 then .[0].id else error("Standard profile is missing or duplicated") end' <<<"$profiles")"
+  cinema="$(jq -er 'map(select(.name == "Cinema")) | if length == 1 then .[0].id else error("Cinema profile is missing or duplicated") end' <<<"$profiles")"
+  objects="$(curl -fsS -H "X-Api-Key: $app_key" "$app_base/$resource")"
+
+  while IFS=$'\t' read -r id title old; do
+    case "$(jq -r --argjson id "$old" '.[] | select(.id == $id) | .name' <<<"$profiles")" in
+      Standard|Cinema) continue ;;
+      'HD/UHD - 1080p/2160p') target="$cinema" ;;
+      *) target="$standard" ;;
+    esac
+    jq -c --argjson id "$id" --argjson profile "$target" \
+      '.[] | select(.id == $id) | .qualityProfileId = $profile' <<<"$objects" |
+      curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
+        --data-binary @- "$app_base/$resource/$id" >/dev/null
+    echo "media-provision: migrated $app $title quality profile"
+  done < <(jq -r '.[] | [.id, .title, .qualityProfileId] | @tsv' <<<"$objects")
+}
+
+configure_seerr_profiles() {
+  local config=/opt/tetrapod/seerr/settings.json
+  local seerr_key app port app_key profiles standard cinema settings id updated
+  local seerr_ready=false
+
+  for _ in {1..30}; do
+    if [ -r "$config" ]; then
+      seerr_key="$(jq -er '.main.apiKey' "$config")"
+      if curl -fsS -H "X-Api-Key: $seerr_key" http://127.0.0.1:5055/api/v1/settings/main >/dev/null; then
+        seerr_ready=true
+        break
+      fi
+    fi
+    sleep 2
+  done
+  [ "$seerr_ready" = true ] || { echo "media-provision: Seerr is not ready" >&2; return 1; }
+
+  for app in sonarr radarr; do
+    if [ "$app" = sonarr ]; then port=8989; else port=7878; fi
+    app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
+    profiles="$(curl -fsS -H "X-Api-Key: $app_key" "http://127.0.0.1:$port/api/v3/qualityprofile")"
+    standard="$(jq -er '.[] | select(.name == "Standard") | .id' <<<"$profiles")"
+    cinema="$(jq -er '.[] | select(.name == "Cinema") | .id' <<<"$profiles")"
+    settings="$(curl -fsS -H "X-Api-Key: $seerr_key" "http://127.0.0.1:5055/api/v1/settings/$app")"
+
+    while IFS= read -r id; do
+      updated="$(jq -c --argjson id "$id" --argjson standard "$standard" --argjson cinema "$cinema" '
+        .[] | select(.id == $id) |
+        .activeProfileId = (if .is4k then $cinema else $standard end) |
+        .activeProfileName = (if .is4k then "Cinema" else "Standard" end) |
+        if has("activeAnimeProfileId") then
+          .activeAnimeProfileId = (if .is4k then $cinema else $standard end) |
+          .activeAnimeProfileName = (if .is4k then "Cinema" else "Standard" end)
+        else . end
+      ' <<<"$settings")"
+      curl -fsS -X PUT -H "X-Api-Key: $seerr_key" -H 'Content-Type: application/json' \
+        --data-binary "$updated" "http://127.0.0.1:5055/api/v1/settings/$app/$id" >/dev/null
+      echo "media-provision: set Seerr $app profile for server $id"
+    done < <(jq -r '.[].id' <<<"$settings")
+  done
+}
+
+remove_legacy_profiles() {
+  local app="$1" port="$2"
+  local app_key app_base profile_id profile_name
+
+  app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
+  app_base="http://127.0.0.1:$port/api/v3"
+  while IFS=$'\t' read -r profile_id profile_name; do
+    curl -fsS -X DELETE -H "X-Api-Key: $app_key" "$app_base/qualityprofile/$profile_id" >/dev/null
+    echo "media-provision: removed legacy $app profile $profile_name"
+  done < <(curl -fsS -H "X-Api-Key: $app_key" "$app_base/qualityprofile" |
+    jq -r '.[] | select(.name != "Standard" and .name != "Cinema") | [.id, .name] | @tsv')
+}
+
+configure_arr_storage sonarr 8989 /srv/media/recycle/sonarr
+configure_arr_storage radarr 7878 /srv/media/recycle/radarr
+migrate_quality_profiles sonarr 8989 series
+migrate_quality_profiles radarr 7878 movie
+configure_seerr_profiles
+remove_legacy_profiles sonarr 8989
+remove_legacy_profiles radarr 7878
 
 configure_jellyfin_audio_selection() {
   local token user id configuration

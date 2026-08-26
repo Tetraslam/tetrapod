@@ -230,6 +230,21 @@ services:
       - /srv/media:/srv/media
     mem_limit: 1g
 
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:8@sha256:73303ba5ee647b6492fee917d3a781c6e59b6cab08f9dfce9482a950846f564f
+    network_mode: host
+    user: "1000:1000"
+    environment:
+      TZ: America/Los_Angeles
+      RECYCLARR_CONFIG_DIR: /config
+      RECYCLARR_DATA_DIR: /data
+    volumes:
+      - /opt/tetrapod/recyclarr/recyclarr.yml:/config/recyclarr.yml:ro
+      - /opt/tetrapod/recyclarr:/data
+      - /run/recyclarr:/run/secrets:ro
+    mem_limit: 512m
+    profiles: [maintenance]
+
   bazarr:
     image: linuxserver/bazarr:v1.6.0-ls356
     restart: unless-stopped

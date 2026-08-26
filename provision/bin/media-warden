@@ -1,0 +1,414 @@
+#!/usr/bin/python3
+"""Conservative storage policy for the tetrapod media volume."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
+
+MEDIA = Path("/srv/media")
+STATE_DIR = Path("/var/lib/media-warden")
+HIGH_WATER = 80.0
+LOW_WATER = 65.0
+SEVEN_DAYS = 7 * 86400
+GIB = 1024**3
+ACTIVE_DOWNLOAD_STATES = {
+    "allocating",
+    "checkingDL",
+    "checkingResumeData",
+    "downloading",
+    "forcedDL",
+    "metaDL",
+    "moving",
+    "queuedDL",
+    "stalledDL",
+}
+LIMITS = {
+    ("Standard", "movie", 1080): 15 * GIB,
+    ("Standard", "episode", 1080): 4 * GIB,
+    ("Cinema", "movie", 1080): 15 * GIB,
+    ("Cinema", "movie", 2160): 40 * GIB,
+    ("Cinema", "episode", 1080): 4 * GIB,
+    ("Cinema", "episode", 2160): 12 * GIB,
+}
+
+
+def storage_action(used_percent: float) -> str:
+    if used_percent >= HIGH_WATER:
+        return "pressure"
+    if used_percent < LOW_WATER:
+        return "relaxed"
+    return "hold"
+
+
+def size_limit(profile: str, media_type: str, resolution: int) -> int | None:
+    bucket = 2160 if resolution >= 2160 else 1080 if resolution >= 1080 else 0
+    return LIMITS.get((profile, media_type, bucket))
+
+
+def torrent_seed_satisfied(torrent: dict[str, Any], now: int) -> bool:
+    completed = int(torrent.get("completion_on") or 0)
+    return float(torrent.get("ratio") or 0) >= 1 or (
+        completed > 0 and now - completed >= SEVEN_DAYS
+    )
+
+
+def torrent_is_incomplete(torrent: dict[str, Any]) -> bool:
+    return float(torrent.get("progress") or 0) < 1
+
+
+def torrent_is_active_download(torrent: dict[str, Any]) -> bool:
+    return torrent_is_incomplete(torrent) and torrent.get("state") in ACTIVE_DOWNLOAD_STATES
+
+
+def queue_download_ids(records: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(record.get("downloadId") or "").lower()
+        for record in records
+        if record.get("downloadId")
+    }
+
+
+def release_resolution(release: dict[str, Any]) -> int:
+    quality = release.get("quality") or {}
+    inner = quality.get("quality") or quality
+    return int(inner.get("resolution") or 0)
+
+
+def release_is_safe(release: dict[str, Any], limit: int) -> bool:
+    rejections = release.get("rejections") or []
+    approved = release.get("approved")
+    rejected = release.get("rejected", False)
+    return (
+        release_resolution(release) >= 1080
+        and int(release.get("seeders") or 0) >= 3
+        and 0 < int(release.get("size") or 0) <= limit
+        and approved is not False
+        and rejected is not True
+        and not rejections
+    )
+
+
+def choose_release(releases: list[dict[str, Any]], limit: int) -> dict[str, Any] | None:
+    safe = [release for release in releases if release_is_safe(release, limit)]
+    return min(safe, key=lambda release: (-int(release.get("seeders") or 0), int(release["size"])), default=None)
+
+
+def path_within(path: Path, root: Path) -> bool:
+    return path.is_absolute() and path.resolve(strict=False).is_relative_to(root.resolve(strict=False))
+
+
+class Api:
+    def __init__(self, root: str, key: str | None = None):
+        self.root = root.rstrip("/")
+        self.key = key
+
+    def request(self, path: str, method: str = "GET", data: Any = None) -> Any:
+        body = None
+        headers: dict[str, str] = {}
+        if self.key:
+            headers["X-Api-Key"] = self.key
+        if data is not None:
+            body = json.dumps(data).encode()
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(self.root + path, body, headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"API preflight failed for {self.root}{path}: {error}") from error
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw.decode().strip()
+
+    def form(self, path: str, data: dict[str, str]) -> Any:
+        body = urllib.parse.urlencode(data).encode()
+        request = urllib.request.Request(self.root + path, body, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"API request failed for {self.root}{path}: {error}") from error
+        return json.loads(raw) if raw else None
+
+
+def api_key(app: str) -> str:
+    root = ET.parse(f"/opt/tetrapod/{app}/config.xml").getroot()
+    key = root.findtext("ApiKey")
+    if not key:
+        raise RuntimeError(f"missing {app} API key")
+    return key
+
+
+class Warden:
+    def __init__(self, dry_run: bool, state_dir: Path = STATE_DIR):
+        self.dry_run = dry_run
+        self.state_dir = state_dir
+        self.state_path = state_dir / "state.json"
+        self.journal_path = state_dir / "journal.jsonl"
+        self.state: dict[str, Any] = {"paused": [], "replacements": {}}
+        self.sonarr: Api
+        self.radarr: Api
+        self.qbit = Api("http://127.0.0.1:8081/api/v2")
+
+    def preflight(self) -> float:
+        if not MEDIA.is_mount():
+            raise RuntimeError(f"{MEDIA} is not a mount point")
+        required = [MEDIA / "library", MEDIA / "downloads", MEDIA / "recycle"]
+        device = MEDIA.stat().st_dev
+        if any(not path.is_dir() or path.stat().st_dev != device for path in required):
+            raise RuntimeError("library, downloads, and recycle must exist on the media filesystem")
+        self.sonarr = Api("http://127.0.0.1:8989/api/v3", api_key("sonarr"))
+        self.radarr = Api("http://127.0.0.1:7878/api/v3", api_key("radarr"))
+        self.sonarr.request("/system/status")
+        self.radarr.request("/system/status")
+        self.qbit.request("/app/version")
+        return shutil.disk_usage(MEDIA).used / shutil.disk_usage(MEDIA).total * 100
+
+    def load(self) -> None:
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        if self.state_path.exists():
+            loaded = json.loads(self.state_path.read_text())
+            self.state.update(loaded)
+
+    def save(self) -> None:
+        if self.dry_run:
+            return
+        temporary = self.state_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.state, sort_keys=True, indent=2) + "\n")
+        os.replace(temporary, self.state_path)
+
+    def log(self, action: str, **fields: Any) -> None:
+        record = {"time": int(time.time()), "dry_run": self.dry_run, "action": action, **fields}
+        print(json.dumps(record, sort_keys=True))
+        if not self.dry_run:
+            with self.journal_path.open("a") as journal:
+                journal.write(json.dumps(record, sort_keys=True) + "\n")
+
+    @staticmethod
+    def names_by_id(items: list[dict[str, Any]], label: str = "name") -> dict[int, str]:
+        return {int(item["id"]): str(item[label]) for item in items}
+
+    def app_context(self, api: Api, resource: str) -> tuple[list[dict[str, Any]], dict[int, str], dict[int, str]]:
+        entities = api.request(f"/{resource}")
+        profiles = self.names_by_id(api.request("/qualityprofile"))
+        tags = self.names_by_id(api.request("/tag"), "label")
+        return entities, profiles, tags
+
+    @staticmethod
+    def tagged(entity: dict[str, Any], tags: dict[int, str], name: str) -> bool:
+        return any(tags.get(int(tag)) == name for tag in entity.get("tags") or [])
+
+    def delete_temp_files(self) -> None:
+        for app, api, resource, file_resource in (
+            ("radarr", self.radarr, "movie", "moviefile"),
+            ("sonarr", self.sonarr, "series", "episodefile"),
+        ):
+            entities, _, tags = self.app_context(api, resource)
+            for entity in entities:
+                if self.tagged(entity, tags, "keep") or not self.tagged(entity, tags, "temp"):
+                    continue
+                if app == "radarr":
+                    files = [entity.get("movieFile")] if entity.get("hasFile") else []
+                else:
+                    files = api.request(f"/episodefile?seriesId={entity['id']}")
+                for media_file in filter(None, files):
+                    path = Path(str(media_file.get("path") or ""))
+                    entity_root = Path(str(entity.get("path") or ""))
+                    if not path_within(entity_root, MEDIA / "library") or not path_within(path, entity_root):
+                        self.log("refuse_temp_path", app=app, path=str(path))
+                        continue
+                    self.log("delete_temp_file", app=app, title=entity.get("title"), path=str(path))
+                    if not self.dry_run:
+                        api.request(f"/{file_resource}/{media_file['id']}", "DELETE")
+
+    def imported_torrents(self) -> tuple[set[str], set[str]]:
+        imported: set[str] = set()
+        kept: set[str] = set()
+        for api, resource, entity_key in (
+            (self.sonarr, "series", "seriesId"),
+            (self.radarr, "movie", "movieId"),
+        ):
+            entities, _, tags = self.app_context(api, resource)
+            keep_ids = {int(e["id"]) for e in entities if self.tagged(e, tags, "keep")}
+            history = api.request("/history?page=1&pageSize=1000&sortDirection=descending")
+            for record in history.get("records") or []:
+                if record.get("eventType") != "downloadFolderImported":
+                    continue
+                download_id = str(record.get("downloadId") or "").lower()
+                if not download_id:
+                    continue
+                imported.add(download_id)
+                if int(record.get(entity_key) or 0) in keep_ids:
+                    kept.add(download_id)
+        return imported, kept
+
+    def manage_torrents(self, pressure: bool, relaxed: bool) -> None:
+        torrents = self.qbit.request("/torrents/info")
+        current = {str(t["hash"]).lower(): t for t in torrents}
+        paused = set(self.state.get("paused") or [])
+
+        imported, kept = self.imported_torrents()
+        queued = set()
+        for api, include_unknown in (
+            (self.sonarr, "includeUnknownSeriesItems"),
+            (self.radarr, "includeUnknownMovieItems"),
+        ):
+            queue = api.request(f"/queue?page=1&pageSize=1000&{include_unknown}=true")
+            queued.update(queue_download_ids(queue.get("records") or []))
+
+        if pressure:
+            for torrent in torrents:
+                torrent_hash = str(torrent["hash"]).lower()
+                if torrent_is_active_download(torrent):
+                    newly_owned = torrent_hash not in paused
+                    self.log(
+                        "pause_incomplete" if newly_owned else "reassert_pause",
+                        hash=torrent_hash,
+                        name=torrent.get("name"),
+                    )
+                    if not self.dry_run and newly_owned:
+                        paused.add(torrent_hash)
+                        self.state["paused"] = sorted(paused)
+                        self.save()
+                    if not self.dry_run:
+                        try:
+                            self.qbit.form("/torrents/stop", {"hashes": torrent_hash})
+                        except RuntimeError:
+                            if newly_owned:
+                                paused.discard(torrent_hash)
+                                self.state["paused"] = sorted(paused)
+                                self.save()
+                            raise
+        elif relaxed:
+            for torrent_hash in sorted(paused):
+                torrent = current.get(torrent_hash)
+                if torrent and torrent_is_incomplete(torrent):
+                    self.log("resume_warden_paused", hash=torrent_hash, name=torrent.get("name"))
+                    if not self.dry_run:
+                        self.qbit.form("/torrents/start", {"hashes": torrent_hash})
+                if not self.dry_run:
+                    paused.discard(torrent_hash)
+                    self.state["paused"] = sorted(paused)
+                    self.save()
+        now = int(time.time())
+        for torrent in torrents:
+            torrent_hash = str(torrent["hash"]).lower()
+            if (
+                torrent_hash in kept
+                or torrent_hash in queued
+                or torrent_hash not in imported
+                or torrent_is_incomplete(torrent)
+            ):
+                continue
+            if torrent_seed_satisfied(torrent, now):
+                self.log("remove_imported_torrent", hash=torrent_hash, name=torrent.get("name"))
+                if not self.dry_run:
+                    self.qbit.form("/torrents/delete", {"hashes": torrent_hash, "deleteFiles": "true"})
+                    paused.discard(torrent_hash)
+        self.state["paused"] = sorted(paused)
+
+    def queue_replacement(self) -> None:
+        now = int(time.time())
+        previous = self.state.get("replacements") or {}
+        sonarr_entities, sonarr_profiles, sonarr_tags = self.app_context(self.sonarr, "series")
+        series = {int(item["id"]): item for item in sonarr_entities}
+        queues = {
+            "radarr": self.radarr.request("/queue?page=1&pageSize=1000").get("records") or [],
+            "sonarr": self.sonarr.request("/queue?page=1&pageSize=1000").get("records") or [],
+        }
+        candidates: list[tuple[str, Api, dict[str, Any], str, int, int]] = []
+
+        movies, radarr_profiles, radarr_tags = self.app_context(self.radarr, "movie")
+        for movie in movies:
+            media_file = movie.get("movieFile") if movie.get("hasFile") else None
+            if not media_file or self.tagged(movie, radarr_tags, "keep"):
+                continue
+            resolution = release_resolution(media_file)
+            profile = radarr_profiles.get(int(movie.get("qualityProfileId") or 0), "")
+            limit = size_limit(profile, "movie", resolution)
+            key = f"radarr:{movie['id']}"
+            if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and now - int(previous.get(key, 0)) >= SEVEN_DAYS:
+                if not any(q.get("movieId") == movie["id"] for q in queues["radarr"]):
+                    candidates.append((key, self.radarr, movie, "movieId", int(movie["id"]), limit))
+
+        for series_id, show in series.items():
+            if self.tagged(show, sonarr_tags, "keep"):
+                continue
+            profile = sonarr_profiles.get(int(show.get("qualityProfileId") or 0), "")
+            for media_file in self.sonarr.request(f"/episodefile?seriesId={series_id}"):
+                resolution = release_resolution(media_file)
+                limit = size_limit(profile, "episode", resolution)
+                episode_ids = media_file.get("episodeIds") or [media_file.get("episodeId")]
+                episode_ids = [int(episode_id) for episode_id in episode_ids if episode_id]
+                if len(episode_ids) != 1:
+                    continue
+                episode_id = episode_ids[0]
+                key = f"sonarr:{episode_id}"
+                if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and now - int(previous.get(key, 0)) >= SEVEN_DAYS:
+                    if not any(q.get("episodeId") == episode_id for q in queues["sonarr"]):
+                        candidates.append((key, self.sonarr, media_file, "episodeId", episode_id, limit))
+
+        for key, api, item, id_name, item_id, limit in candidates:
+            query = urllib.parse.urlencode({id_name: item_id})
+            releases = api.request(f"/release?{query}")
+            release = choose_release(releases, limit)
+            if not release:
+                self.log("replacement_unavailable", item=key, limit=limit)
+                continue
+            self.log("queue_replacement", item=key, title=release.get("title"), size=release.get("size"))
+            if not self.dry_run:
+                api.request("/release", "POST", release)
+                previous[key] = now
+            break
+        self.state["replacements"] = previous
+
+    def run(self) -> None:
+        self.load()
+        used = self.preflight()
+        action = storage_action(used)
+        self.log("preflight", used_percent=round(used, 2), mode=action)
+        self.manage_torrents(action == "pressure", action == "relaxed")
+        if action == "pressure":
+            self.delete_temp_files()
+        elif action == "relaxed":
+            self.queue_replacement()
+        self.save()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--state-dir", type=Path, default=STATE_DIR, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    args.state_dir.mkdir(parents=True, exist_ok=True)
+    lock = (args.state_dir / "lock").open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("media-warden: another instance is running", file=sys.stderr)
+        return 0
+    try:
+        Warden(args.dry_run, args.state_dir).run()
+    except (RuntimeError, OSError, ValueError, ET.ParseError, json.JSONDecodeError) as error:
+        print(f"media-warden: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
