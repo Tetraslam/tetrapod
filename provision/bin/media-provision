@@ -176,7 +176,7 @@ configure_download_cleanup radarr 7878
 
 configure_arr_storage() {
   local app="$1" port="$2" recycle="$3"
-  local app_key app_base settings tag_name tags
+  local app_key app_base settings settings_id tag_name tags
 
   app_key="$(xmlstarlet sel -t -v /Config/ApiKey "/opt/tetrapod/$app/config.xml")"
   app_base="http://127.0.0.1:$port/api/v3"
@@ -190,11 +190,12 @@ configure_arr_storage() {
   done
 
   settings="$(curl -fsS -H "X-Api-Key: $app_key" "$app_base/config/mediamanagement")"
+  settings_id="$(jq -er '.id' <<<"$settings")"
   if [ "$(jq -r '.recycleBin' <<<"$settings")" != "$recycle" ] ||
      [ "$(jq -r '.recycleBinCleanupDays' <<<"$settings")" != 7 ]; then
     jq --arg path "$recycle" '.recycleBin = $path | .recycleBinCleanupDays = 7' <<<"$settings" |
       curl -fsS -X PUT -H "X-Api-Key: $app_key" -H 'Content-Type: application/json' \
-        --data-binary @- "$app_base/config/mediamanagement" >/dev/null
+        --data-binary @- "$app_base/config/mediamanagement/$settings_id" >/dev/null
     echo "media-provision: configured $app recycle bin"
   fi
 }
@@ -313,6 +314,6 @@ media_management="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/config/mediam
 if [ "$(jq -r '.importExtraFiles' <<<"$media_management")" != true ]; then
   jq '.importExtraFiles = true | .extraFileExtensions = "srt"' <<<"$media_management" |
     curl -fsS -X PUT -H "X-Api-Key: $sonarr_key" -H 'Content-Type: application/json' \
-      --data-binary @- "$sonarr/config/mediamanagement" >/dev/null
+      --data-binary @- "$sonarr/config/mediamanagement/$(jq -er '.id' <<<"$media_management")" >/dev/null
   echo "media-provision: enabled Sonarr subtitle imports"
 fi
