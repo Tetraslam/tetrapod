@@ -21,4 +21,4 @@ for app in sonarr radarr; do
   xmlstarlet sel -t -v /Config/ApiKey "$config" >"$secrets/${app}_api_key"
 done
 
-exec docker compose -f /opt/tetrapod/docker-compose.yml run --rm recyclarr sync
+exec docker compose -f /opt/tetrapod/docker-compose.yml run --rm recyclarr sync "$@"
