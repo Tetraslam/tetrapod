@@ -103,11 +103,11 @@ for row in "${files[@]}"; do
     echo "media-archive-import: cannot parse episode filename: $filename" >&2
     exit 1
   }
+  season="${BASH_REMATCH[1]}"
   [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ ]] || {
     echo "media-archive-import: missing source checksum: $filename" >&2
     exit 1
   }
-  season="${BASH_REMATCH[1]}"
   season_dir="$series_path/Season $season"
   destination="$season_dir/$filename"
   partial="$staging/$filename.part"
