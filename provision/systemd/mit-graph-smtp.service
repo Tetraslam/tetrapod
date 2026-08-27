@@ -1,0 +1,39 @@
+[Unit]
+Description=MIT SMTP submission bridge to Microsoft Graph
+After=network-online.target tailscaled.service email-oauth2-proxy-cert.service
+Wants=network-online.target
+Requires=email-oauth2-proxy-cert.service
+
+[Service]
+Type=simple
+User=tetraslam
+Group=tetraslam
+UMask=0077
+StateDirectory=mit-graph-smtp
+StateDirectoryMode=0700
+CacheDirectory=mit-graph-smtp-uv
+CacheDirectoryMode=0700
+Environment=UV_CACHE_DIR=/var/cache/mit-graph-smtp-uv
+ExecStart=/usr/local/bin/mit-graph-smtp serve
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mit-graph-smtp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

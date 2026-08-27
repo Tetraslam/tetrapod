@@ -163,6 +163,7 @@ sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-consol
 sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
 sudo install -m755 "$HERE/bin/ntfy-mcp" /usr/local/bin/ntfy-mcp
 sudo install -m755 "$HERE/bin/email-oauth2-proxy-cert" /usr/local/bin/email-oauth2-proxy-cert
+sudo install -m755 "$HERE/bin/mit-graph-smtp" /usr/local/bin/mit-graph-smtp
 
 # ------------------------------------------------------------------ runtimes
 
@@ -272,10 +273,13 @@ sudo install -dm755 /etc/email-oauth2-proxy
 sudo install -m644 "$HERE/email-oauth2-proxy/emailproxy.config" /etc/email-oauth2-proxy/emailproxy.config
 sudo cp "$HERE/systemd/email-oauth2-proxy.service" /etc/systemd/system/
 sudo cp "$HERE/systemd/email-oauth2-proxy-cert.service" "$HERE/systemd/email-oauth2-proxy-cert.timer" /etc/systemd/system/
+sudo cp "$HERE/systemd/mit-graph-smtp.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now email-oauth2-proxy-cert.timer
 sudo systemctl enable email-oauth2-proxy.service
 sudo systemctl restart email-oauth2-proxy.service
+sudo systemctl enable mit-graph-smtp.service
+sudo systemctl restart mit-graph-smtp.service
 
 # ------------------------------------------------------------------ services
 
@@ -437,6 +441,7 @@ check "systemd: recyclarr-sync.timer enabled" systemctl is-enabled recyclarr-syn
 check "systemd: media-warden.timer enabled" systemctl is-enabled media-warden.timer
 check "systemd: storage-telemetry running" systemctl is-active storage-telemetry.service
 check "systemd: email proxy running" systemctl is-active email-oauth2-proxy.service
+check "systemd: Graph SMTP bridge running" systemctl is-active mit-graph-smtp.service
 check "systemd: email certificate timer enabled" systemctl is-enabled email-oauth2-proxy-cert.timer
 check "storage telemetry healthy" curl -fsS http://127.0.0.1:3005/v1/storage
 check "docker: Sonarr healthy" curl -fsS http://127.0.0.1:8989/ping

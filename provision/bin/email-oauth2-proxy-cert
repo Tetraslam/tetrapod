@@ -26,3 +26,6 @@ install -m 0600 -o tetraslam -g tetraslam "$tmp_dir/key.pem" "$key"
 if [[ "$(systemctl is-active email-oauth2-proxy.service 2>/dev/null || true)" == "active" ]]; then
   systemctl --no-block restart email-oauth2-proxy.service
 fi
+if [[ "$(systemctl is-active mit-graph-smtp.service 2>/dev/null || true)" == "active" ]]; then
+  systemctl --no-block restart mit-graph-smtp.service
+fi

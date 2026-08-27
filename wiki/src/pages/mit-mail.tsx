@@ -51,15 +51,16 @@ export function MitMailPage() {
 
       <Doc title="authorize Microsoft 365">
         <P>
-          the first login starts Microsoft device authorization. Follow the URL and code printed in
-          the service journal, then complete Touchstone and Duo. Later logins use the cached refresh
-          token.
+          IMAP authorization starts on the first login. Follow the URL and code printed in the
+          service journal, then complete Touchstone and Duo. SMTP uses a separate delegated Graph
+          token because MIT disables SMTP AUTH tenant-wide.
         </P>
-        <CodeBlock>{`sudo journalctl -fu email-oauth2-proxy.service`}</CodeBlock>
+        <CodeBlock>{`sudo journalctl -fu email-oauth2-proxy.service
+sudo -u tetraslam -H mit-graph-smtp authorize`}</CodeBlock>
       </Doc>
 
       <Doc title="operate">
-        <CodeBlock>{`sudo systemctl status email-oauth2-proxy.service
+        <CodeBlock>{`sudo systemctl status email-oauth2-proxy.service mit-graph-smtp.service
 sudo systemctl start email-oauth2-proxy-cert.service
 sudo journalctl -u email-oauth2-proxy.service -n 100
 openssl s_client -connect ${MIT_MAIL.host}:${MIT_MAIL.imapPort} -servername ${MIT_MAIL.host}`}</CodeBlock>
@@ -79,7 +80,7 @@ openssl s_client -connect ${MIT_MAIL.host}:${MIT_MAIL.imapPort} -servername ${MI
             <TableRow>
               <TableCell className="text-muted-foreground">upstream</TableCell>
               <TableCell className="font-mono text-xs">
-                outlook.office365.com:993 / smtp.office365.com:587 STARTTLS
+                outlook.office365.com:993 / Graph POST /me/sendMail
               </TableCell>
             </TableRow>
             <TableRow>
