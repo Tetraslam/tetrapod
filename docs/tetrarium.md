@@ -184,27 +184,6 @@ Stoneforge remains useful prior art for worktrees, live observability, and
 recovery behavior, but Tetrarium does not need its all-in-one issue tracker,
 documents, messages, task ontology, or fixed agent roles.
 
-### Planned remote agent runtime
-
-Tetrapod should run its own Herdr default session as the machine-scoped runtime
-for persistent agents. Repositories remain Herdr workspaces and durable roles
-remain single-pane tabs; named sessions are reserved for genuinely separate
-runtime or security boundaries. Local and remote agents can therefore use the
-same model without sharing PTYs, sockets, or process state.
-
-The planned `opencodr remote <profile> [role]` flow should `exec ssh -tt` into a
-versioned profile's host and checkout, then execute the tracked remote
-`opencodr`. A Ghostty tab displays only the remote OpenCode terminal while the
-remote Herdr server preserves the process across disconnects. Tetrapod
-provisioning should install the ARM64 Herdr build, clone and directly link
-`dotagents`, install the OpenCode integration, restore authentication, and run
-Herdr as a user service.
-
-Add an SSH-backed bridge that folds remote `herdr agent list` state into the
-local Omarchy widget. This makes local processes, remote persistent agents, and
-later VM-backed agent runtimes observable through one lightweight control
-surface without moving their execution into one central process manager.
-
 ## Open Questions
 
 - What other repository creation details belong between local initialization

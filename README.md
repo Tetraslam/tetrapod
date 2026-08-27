@@ -46,6 +46,8 @@ wiki/        home dashboard — https://tetrapod.<tailnet>.ts.net/wiki
 ```
 
 Current system ideas and design questions: [`docs/system-ideas.md`](docs/system-ideas.md).
+The planned remote-local agent runtime is documented separately at
+[`docs/remote-agent-runtime.md`](docs/remote-agent-runtime.md).
 The complete initial build and design session is archived at
 [`docs/session-1.md`](docs/session-1.md).
 
