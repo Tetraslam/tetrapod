@@ -1,0 +1,193 @@
+#!/bin/bash
+set -euo pipefail
+
+spec="${1:?usage: media-archive-import <archive-identifier> <sonarr-series-id>}"
+if [ "$#" -ge 2 ]; then
+  identifier="$spec"
+  series_id="$2"
+else
+  identifier="${spec%:*}"
+  series_id="${spec##*:}"
+fi
+
+[[ "$identifier" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "media-archive-import: invalid identifier" >&2; exit 1; }
+[[ "$series_id" =~ ^[0-9]+$ ]] || { echo "media-archive-import: invalid series ID" >&2; exit 1; }
+
+config=/opt/tetrapod/sonarr/config.xml
+key="$(xmlstarlet sel -t -v /Config/ApiKey "$config")"
+base=http://127.0.0.1:8989/api/v3
+metadata=
+monitoring_changed=false
+api() {
+  curl -fsS -H "X-Api-Key: $key" "$@"
+}
+
+cleanup() {
+  status=$?
+  trap - EXIT
+  [ -z "$metadata" ] || rm -f "$metadata"
+  if [ "$monitoring_changed" = true ]; then
+    if ! api "$base/series/$series_id" |
+      jq --argjson monitored "$original_monitored" '.monitored = $monitored' |
+      api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/series/$series_id" >/dev/null; then
+      echo "media-archive-import: failed to restore monitoring" >&2
+      [ "$status" -ne 0 ] || status=1
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+series="$(api "$base/series/$series_id")"
+series_path="$(realpath -m "$(jq -er '.path' <<<"$series")")"
+profile_id="$(jq -er '.qualityProfileId' <<<"$series")"
+profile_name="$(api "$base/qualityprofile/$profile_id" | jq -er '.name')"
+[[ "$series_path" == /srv/media/library/* ]] && [ ! -L "$series_path" ] || {
+  echo "media-archive-import: unsafe series path" >&2
+  exit 1
+}
+[[ "$profile_name" == Standard || "$profile_name" == Cinema ]] || {
+  echo "media-archive-import: series must use a managed 1080p+ profile" >&2
+  exit 1
+}
+
+staging_root=/srv/media/downloads/archive-import
+staging="$staging_root/$series_id"
+[ ! -L "$staging_root" ] && [ ! -L "$staging" ] || {
+  echo "media-archive-import: unsafe staging path" >&2
+  exit 1
+}
+install -d -m755 "$staging"
+exec 9>"$staging/lock"
+flock -n 9 || { echo "media-archive-import: series $series_id is already importing" >&2; exit 1; }
+
+original_monitored="$(jq -er '.monitored' <<<"$series")"
+if [ "$original_monitored" = true ]; then
+  jq '.monitored = false' <<<"$series" |
+    api -X PUT -H 'Content-Type: application/json' --data-binary @- "$base/series/$series_id" >/dev/null
+  monitoring_changed=true
+fi
+
+# Let any search that read the previous monitored state become visible.
+sleep 2
+queue="$(api "$base/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true")"
+jq -e --argjson id "$series_id" 'any(.records[]; .seriesId == $id)' <<<"$queue" >/dev/null && {
+  echo "media-archive-import: series has an active queue item" >&2
+  exit 1
+}
+commands="$(api "$base/command")"
+jq -e --argjson id "$series_id" '
+  any(.[]; ((.body.seriesId // .seriesId) == $id) and (.status == "queued" or .status == "started"))
+' <<<"$commands" >/dev/null && {
+  echo "media-archive-import: series has an active command" >&2
+  exit 1
+}
+
+metadata="$(mktemp)"
+curl -fsSL --retry 5 --retry-all-errors \
+  "https://archive.org/metadata/$identifier" -o "$metadata"
+
+mapfile -t files < <(jq -r '
+  .files[] |
+  select(.source == "original") |
+  select(.name | test("S[0-9]{2}E[0-9]{2}\\.1080p.*\\.mkv$"; "i")) |
+  [.name, .size, .md5] | @tsv
+' "$metadata")
+[ "${#files[@]}" -gt 0 ] || { echo "media-archive-import: no original 1080p MKVs found" >&2; exit 1; }
+
+destinations=()
+for row in "${files[@]}"; do
+  IFS=$'\t' read -r name expected_size expected_md5 <<<"$row"
+  filename="${name##*/}"
+  [[ "$filename" =~ [Ss]([0-9]{2})[Ee][0-9]{2} ]] || {
+    echo "media-archive-import: cannot parse episode filename: $filename" >&2
+    exit 1
+  }
+  [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ ]] || {
+    echo "media-archive-import: missing source checksum: $filename" >&2
+    exit 1
+  }
+  season="${BASH_REMATCH[1]}"
+  season_dir="$series_path/Season $season"
+  destination="$season_dir/$filename"
+  partial="$staging/$filename.part"
+  destinations+=("$destination")
+
+  [ ! -L "$season_dir" ] && [ ! -L "$destination" ] && [ ! -L "$partial" ] || {
+    echo "media-archive-import: refusing symlinked path: $filename" >&2
+    exit 1
+  }
+  install -d -m755 "$season_dir"
+  if [ -e "$destination" ]; then
+    [ -f "$destination" ] && [ "$(stat -c %s "$destination")" = "$expected_size" ] || {
+      echo "media-archive-import: refusing to replace existing file: $filename" >&2
+      exit 1
+    }
+    actual_md5="$(md5sum "$destination" | cut -d' ' -f1)"
+    [ "${actual_md5,,}" = "${expected_md5,,}" ] || {
+      echo "media-archive-import: existing checksum mismatch: $filename" >&2
+      exit 1
+    }
+    probe="$destination"
+  else
+    encoded_name="$(jq -rn --arg path "$name" '$path | split("/") | map(@uri) | join("/")')"
+    echo "media-archive-import: downloading $filename"
+    curl -fL --retry 8 --retry-all-errors --continue-at - \
+      "https://archive.org/download/$identifier/$encoded_name" -o "$partial"
+
+    actual_size="$(stat -c %s "$partial")"
+    [ "$actual_size" = "$expected_size" ] || {
+      echo "media-archive-import: size mismatch for $filename" >&2
+      exit 1
+    }
+    actual_md5="$(md5sum "$partial" | cut -d' ' -f1)"
+    [ "${actual_md5,,}" = "${expected_md5,,}" ] || {
+      echo "media-archive-import: checksum mismatch for $filename" >&2
+      exit 1
+    }
+    probe="$partial"
+  fi
+
+  height="$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$probe")"
+  [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -ge 1080 ] || {
+    echo "media-archive-import: refusing sub-1080p file: $filename" >&2
+    exit 1
+  }
+  if [ "$probe" = "$partial" ]; then
+    mv "$partial" "$destination"
+  else
+    echo "media-archive-import: already complete: $filename"
+  fi
+done
+
+command_id="$(jq -cn --argjson id "$series_id" '{name:"RescanSeries",seriesId:$id}' |
+  api -X POST -H 'Content-Type: application/json' --data-binary @- "$base/command" | jq -er '.id')"
+for _ in {1..120}; do
+  command="$(api "$base/command/$command_id")"
+  case "$(jq -r '.status' <<<"$command")" in
+    completed) break ;;
+    failed)
+      jq -r '.message // "Sonarr rescan failed"' <<<"$command" >&2
+      exit 1
+      ;;
+  esac
+  sleep 5
+done
+[ "$(jq -r '.status' <<<"$command")" = completed ] || {
+  echo "media-archive-import: timed out waiting for Sonarr rescan" >&2
+  exit 1
+}
+
+episode_files="$(api "$base/episodefile?seriesId=$series_id")"
+for destination in "${destinations[@]}"; do
+  jq -e --arg path "$destination" 'any(.[]; .path == $path)' <<<"$episode_files" >/dev/null || {
+    echo "media-archive-import: Sonarr did not map ${destination##*/}" >&2
+    exit 1
+  }
+done
+
+jellyfin_token="$(sqlite3 /opt/tetrapod/jellyfin/config/data/jellyfin.db \
+  'SELECT AccessToken FROM ApiKeys ORDER BY Id LIMIT 1;')"
+curl -fsS -X POST http://127.0.0.1:8096/Library/Refresh \
+  -H "Authorization: MediaBrowser Token=\"$jellyfin_token\""
+echo "media-archive-import: imported ${#files[@]} episodes"

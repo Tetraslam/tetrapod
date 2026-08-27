@@ -116,6 +116,16 @@ sonarr_downloading_series="$(sonarr_api "$sonarr/queue?page=1&pageSize=1000&incl
 sonarr_search_started=false
 
 while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
+  archive_importing=false
+  archive_lock="/srv/media/downloads/archive-import/$id/lock"
+  archive_lock_fd=
+  install -d -m755 "${archive_lock%/*}"
+  exec {archive_lock_fd}>"$archive_lock"
+  if ! flock -n "$archive_lock_fd"; then
+    archive_importing=true
+    exec {archive_lock_fd}>&-
+    archive_lock_fd=
+  fi
   if [ "$is_anime" = true ] && [ "$series_type" != anime ]; then
     sonarr_api "$sonarr/series/$id" |
       jq '.seriesType = "anime"' |
@@ -126,7 +136,8 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
   previous="$(last_search sonarr "$id")"
   fallback_previous="$(last_fallback "$id")"
   has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$sonarr_downloading_series")"
-  if [ "$monitored" = true ] && [ "$files" -eq 0 ] && [ "$previous" -gt 0 ] &&
+  if [ "$archive_importing" = false ] &&
+     [ "$monitored" = true ] && [ "$files" -eq 0 ] && [ "$previous" -gt 0 ] &&
      [ "$has_active_download" = false ] &&
      [ "$fallback_previous" -lt "$previous" ] &&
      [ $((now - previous)) -ge "$fallback_seconds" ] &&
@@ -135,7 +146,8 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
     mark_fallback "$id"
   fi
 
-  if [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
+  if [ "$archive_importing" = false ] &&
+     [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
      [ "$has_active_download" = false ] &&
      [ "$sonarr_search_active" = false ] && [ "$sonarr_search_started" = false ] &&
      [ $((now - previous)) -ge "$retry_seconds" ]; then
@@ -145,6 +157,10 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
     mark_searched sonarr "$id"
     sonarr_search_started=true
     echo "media-reconcile: searching missing episodes for $title"
+  fi
+  if [ -n "$archive_lock_fd" ]; then
+    flock -u "$archive_lock_fd"
+    exec {archive_lock_fd}>&-
   fi
 done < <(sonarr_api "$sonarr/series" | jq -r '.[] | [
   .id,

@@ -33,6 +33,8 @@ IAM, since claude models run from there.
   `temp` files only above 80% use, manages torrent pressure, and safely queues
   smaller replacements for oversized files below 65%. Run
   `media-warden --dry-run` to audit.
+  Start resumable archive imports with
+  `sudo systemctl start "$(systemd-escape --template=media-archive-import@.service 'identifier:sonarr-id')"`.
 - **rice subset:** bashrc/starship/helix/git config + the cli suite (eza, fd, rg, bat, fzf, zoxide, btop, jj, just, lazygit, restic, mosh, croc, gum, ...)
 
 ## layout

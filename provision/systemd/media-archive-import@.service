@@ -1,0 +1,13 @@
+[Unit]
+Description=import 1080p archive media for %I
+After=network-online.target docker.service srv-media.mount
+Wants=network-online.target
+ConditionPathIsMountPoint=/srv/media
+
+[Service]
+Type=oneshot
+User=tetraslam
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=infinity
+ExecStart=/usr/local/bin/media-archive-import %I

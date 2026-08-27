@@ -154,6 +154,7 @@ sudo install -m755 "$HERE/bin/media-prefer-english" /usr/local/bin/media-prefer-
 sudo install -m755 "$HERE/bin/bazarr-provision" /usr/local/bin/bazarr-provision
 sudo install -m755 "$HERE/bin/media-reconcile" /usr/local/bin/media-reconcile
 sudo install -m755 "$HERE/bin/media-release-fallback" /usr/local/bin/media-release-fallback
+sudo install -m755 "$HERE/bin/media-archive-import" /usr/local/bin/media-archive-import
 sudo install -m755 "$HERE/bin/media-warden" /usr/local/bin/media-warden
 sudo install -m755 "$HERE/bin/recyclarr-sync" /usr/local/bin/recyclarr-sync
 sudo install -m755 "$HERE/bin/storage-telemetry" /usr/local/bin/storage-telemetry
@@ -328,6 +329,7 @@ else
 fi
 sudo cp "$HERE/systemd/recyclarr-sync.service" "$HERE/systemd/recyclarr-sync.timer" /etc/systemd/system/
 sudo cp "$HERE/systemd/media-warden.service" "$HERE/systemd/media-warden.timer" /etc/systemd/system/
+sudo cp "$HERE/systemd/media-archive-import@.service" /etc/systemd/system/
 sudo cp "$HERE/systemd/storage-telemetry.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now recyclarr-sync.timer media-warden.timer storage-telemetry.service
