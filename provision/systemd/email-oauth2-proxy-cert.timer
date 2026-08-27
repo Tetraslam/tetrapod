@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew the email proxy TLS certificate
+
+[Timer]
+OnBootSec=5m
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

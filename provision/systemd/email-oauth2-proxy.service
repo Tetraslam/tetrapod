@@ -1,0 +1,36 @@
+[Unit]
+Description=OAuth2 IMAP and SMTP proxy
+After=network-online.target tailscaled.service email-oauth2-proxy-cert.service
+Wants=network-online.target
+Requires=email-oauth2-proxy-cert.service
+
+[Service]
+Type=simple
+User=tetraslam
+Group=tetraslam
+UMask=0077
+StateDirectory=email-oauth2-proxy
+StateDirectoryMode=0700
+ExecStart=/home/tetraslam/.local/bin/emailproxy --no-gui --local-server-auth --config-file /etc/email-oauth2-proxy/emailproxy.config --cache-store /var/lib/email-oauth2-proxy/emailproxy.cache
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+ReadWritePaths=/var/lib/email-oauth2-proxy
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

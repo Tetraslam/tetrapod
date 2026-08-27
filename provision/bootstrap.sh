@@ -162,6 +162,7 @@ sudo install -m755 "$HERE/bin/viki-subtitles" /usr/local/bin/viki-subtitles
 sudo install -m755 "$HERE/bin/mindustry-console" /usr/local/bin/mindustry-console
 sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-services-provision
 sudo install -m755 "$HERE/bin/ntfy-mcp" /usr/local/bin/ntfy-mcp
+sudo install -m755 "$HERE/bin/email-oauth2-proxy-cert" /usr/local/bin/email-oauth2-proxy-cert
 
 # ------------------------------------------------------------------ runtimes
 
@@ -172,6 +173,7 @@ eval "$(~/.local/bin/mise activate bash --shims)"
 log "npm globals + uv tools"
 pnpm add -g tree-sitter-cli vercel
 uv tool install modal || true
+uv tool install --force emailproxy==2026.7.3
 
 log "pinned MCP servers"
 sudo install -d -o "$USER" -g "$USER" /opt/tetrapod/mcp
@@ -262,6 +264,18 @@ log "restic timer"
 sudo cp "$HERE/systemd/restic-backup.service" "$HERE/systemd/restic-backup.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now restic-backup.timer
+
+# ------------------------------------------------------------- MIT mail proxy
+
+log "OAuth2 IMAP/SMTP proxy"
+sudo install -dm755 /etc/email-oauth2-proxy
+sudo install -m644 "$HERE/email-oauth2-proxy/emailproxy.config" /etc/email-oauth2-proxy/emailproxy.config
+sudo cp "$HERE/systemd/email-oauth2-proxy.service" /etc/systemd/system/
+sudo cp "$HERE/systemd/email-oauth2-proxy-cert.service" "$HERE/systemd/email-oauth2-proxy-cert.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now email-oauth2-proxy-cert.timer
+sudo systemctl enable email-oauth2-proxy.service
+sudo systemctl restart email-oauth2-proxy.service
 
 # ------------------------------------------------------------------ services
 
@@ -422,6 +436,8 @@ check "systemd: restic-backup.timer enabled" systemctl is-enabled restic-backup.
 check "systemd: recyclarr-sync.timer enabled" systemctl is-enabled recyclarr-sync.timer
 check "systemd: media-warden.timer enabled" systemctl is-enabled media-warden.timer
 check "systemd: storage-telemetry running" systemctl is-active storage-telemetry.service
+check "systemd: email proxy running" systemctl is-active email-oauth2-proxy.service
+check "systemd: email certificate timer enabled" systemctl is-enabled email-oauth2-proxy-cert.timer
 check "storage telemetry healthy" curl -fsS http://127.0.0.1:3005/v1/storage
 check "docker: Sonarr healthy" curl -fsS http://127.0.0.1:8989/ping
 check "docker: Radarr healthy" curl -fsS http://127.0.0.1:7878/ping

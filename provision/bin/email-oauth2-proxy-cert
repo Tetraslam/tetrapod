@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+hostname="tetrapod.tailc27667.ts.net"
+state_dir="/var/lib/email-oauth2-proxy/tls"
+cert="$state_dir/cert.pem"
+key="$state_dir/key.pem"
+
+install -d -m 0700 -o tetraslam -g tetraslam "$state_dir"
+
+if [[ -s "$cert" && -s "$key" ]] && openssl x509 -checkend $((30 * 86400)) -noout -in "$cert"; then
+  exit 0
+fi
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+tailscale cert \
+  --cert-file="$tmp_dir/cert.pem" \
+  --key-file="$tmp_dir/key.pem" \
+  "$hostname"
+
+install -m 0644 -o tetraslam -g tetraslam "$tmp_dir/cert.pem" "$cert"
+install -m 0600 -o tetraslam -g tetraslam "$tmp_dir/key.pem" "$key"
+
+if [[ "$(systemctl is-active email-oauth2-proxy.service 2>/dev/null || true)" == "active" ]]; then
+  systemctl --no-block restart email-oauth2-proxy.service
+fi

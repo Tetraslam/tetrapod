@@ -13,6 +13,7 @@ import {
   KeyRound,
   Link as LinkIcon,
   type LucideIcon,
+  Mail,
   MonitorPlay,
   PanelsTopLeft,
   PawPrint,
@@ -35,6 +36,7 @@ import { InfraPage } from "./infra";
 import { JellyfinPage } from "./jellyfin";
 import { MangaPage } from "./manga";
 import { MindustryPage } from "./mindustry";
+import { MitMailPage } from "./mit-mail";
 import { MonitoringPage } from "./monitoring";
 import { NtfyPage } from "./ntfy";
 import { NullclawPage } from "./nullclaw";
@@ -100,6 +102,7 @@ export const groups: WikiGroup[] = [
       { slug: "ntfy", title: "ntfy", icon: BellRing, component: NtfyPage },
       { slug: "zipline", title: "zipline", icon: Upload, component: ZiplinePage },
       { slug: "shlink", title: "shlink", icon: LinkIcon, component: ShlinkPage },
+      { slug: "mit-mail", title: "MIT mail", icon: Mail, component: MitMailPage },
     ],
   },
   {

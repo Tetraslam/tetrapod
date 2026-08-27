@@ -8,7 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Doc, Ext, P, Page, Reference, WikiLink } from "@/components/wiki";
-import { FACTORIO, HOSTS, URLS } from "@/config";
+import { FACTORIO, HOSTS, MIT_MAIL, URLS } from "@/config";
 
 const services = [
   {
@@ -141,6 +141,12 @@ const services = [
     page: "nullclaw",
     address: "Discord",
     purpose: "tetrapod's social agent",
+  },
+  {
+    name: "MIT mail proxy",
+    page: "mit-mail",
+    address: `${MIT_MAIL.host}:${MIT_MAIL.imapPort}/${MIT_MAIL.smtpPort}`,
+    purpose: "OAuth2 bridge for IMAP and SMTP clients",
   },
 ] as const;
 

@@ -56,7 +56,11 @@ HTTP_MONITORS = [
     ("shlink", f"http://{HOST}:8085/rest/health", None),
     ("lightpanda", f"http://{HOST}:9222/json/version", None),
 ]
-TCP_MONITORS = [("mindustry", HOST, 6567)]
+TCP_MONITORS = [
+    ("mindustry", HOST, 6567),
+    ("MIT Mail IMAP", HOST, 1993),
+    ("MIT Mail SMTP", HOST, 1465),
+]
 PUSH_MONITORS = ["nullclaw"]
 
 
@@ -91,7 +95,7 @@ def main() -> None:
             kwargs["accepted_statuscodes"] = codes
         ensure(name, **kwargs)
     for name, host, port in TCP_MONITORS:
-        ensure(name, type=MonitorType.PORT, hostname=host, port=port, interval=60, maxretries=2)
+        ensure(name, type=MonitorType.PORT, hostname=host, port=port, interval=300, maxretries=2)
     for name in PUSH_MONITORS:
         # push interval 120s; the timer pings every minute, so one missed beat tolerated
         ensure(name, type=MonitorType.PUSH, interval=120, maxretries=1)

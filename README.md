@@ -24,6 +24,7 @@ IAM, since claude models run from there.
   tcp+udp 6881 for BitTorrent peers (ssh 22 is behind a Pulumi flag, default
   off; break-glass via SSM/serial console)
 - **services:** docker compose — factorio (`factoriotools/factorio`, arm64 via box64, tailnet-only, pinned tag), code-server (localhost + `tailscale serve`)
+- **MIT mail:** tailnet-only, implicit-TLS IMAP/SMTP proxy translates local LOGIN authentication to Microsoft 365 OAuth2; Tailscale certificates renew automatically
 - **hermes agent:** on the host, not docker (it wants the filesystem)
 - **backups:** restic → tigris nightly (ported from rice) with healthcheck ping, plus EBS snapshots
 - **no watchtower:** pinned image tags, deliberate updates

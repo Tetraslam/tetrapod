@@ -25,6 +25,14 @@ export const HOSTS = {
   },
 } as const;
 
+export const MIT_MAIL = {
+  address: "shresht@mit.edu",
+  host: "tetrapod.tailc27667.ts.net",
+  imapPort: 1993,
+  smtpPort: 1465,
+  passwordRef: "op://Agents/MIT Mail Proxy/password",
+} as const;
+
 export const URLS = {
   codeServer: `https://${HOSTS.tetrapod.fqdn}`,
   wiki: `https://${HOSTS.tetrapod.fqdn}/wiki`,
@@ -93,6 +101,7 @@ export const OP_ITEMS = [
   { item: "TETRAPOD_TIGRIS", use: "tigris key for pulumi state bucket (laptop-side)" },
   { item: "TETRAPOD_PUBLIC_SERVICES", use: "Authelia + ntfy user and Factorio password" },
   { item: "TETRAPOD_AUTHELIA", use: "Authelia session, storage, and Redis secrets" },
+  { item: "MIT Mail Proxy", use: "local IMAP/SMTP proxy password" },
 ] as const;
 
 export const GOG_ACCOUNTS = [
