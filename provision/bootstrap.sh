@@ -237,15 +237,23 @@ sudo systemctl enable --now lightpanda lightpanda-mcp searxng-mcp
 
 # ------------------------------------------------------------------ nullclaw
 
-# pinned release; bump deliberately. config is rendered from the vault by
-# setup-nullclaw.sh (needs opa), so the unit is installed but only started
-# once a config exists.
+# Pinned customized fork; bump deliberately. Build in a temporary checkout so
+# bootstrap never mutates the operator's working clone.
 log "nullclaw"
-NULLCLAW_VERSION=v2026.5.29
-if [ ! -x /usr/local/bin/nullclaw ]; then
-  curl -fsSL -o /tmp/nullclaw \
-    "https://github.com/nullclaw/nullclaw/releases/download/$NULLCLAW_VERSION/nullclaw-linux-aarch64.bin"
-  sudo install -m755 /tmp/nullclaw /usr/local/bin/nullclaw && rm /tmp/nullclaw
+NULLCLAW_REPO=https://github.com/Tetraslam/nullclaw.git
+NULLCLAW_COMMIT=a0d8c038a0403b58160d5e1053873a2d466bd489
+NULLCLAW_PIN_FILE=/usr/local/share/nullclaw-commit
+installed_nullclaw_commit="$(cat "$NULLCLAW_PIN_FILE" 2>/dev/null || true)"
+if [ ! -x /usr/local/bin/nullclaw ] || [ "$installed_nullclaw_commit" != "$NULLCLAW_COMMIT" ]; then
+  tmp="$(mktemp -d)"
+  git clone --filter=blob:none --no-checkout "$NULLCLAW_REPO" "$tmp/nullclaw"
+  git -C "$tmp/nullclaw" fetch --depth=1 origin "$NULLCLAW_COMMIT"
+  git -C "$tmp/nullclaw" checkout --detach "$NULLCLAW_COMMIT"
+  "$HOME/.local/bin/mise" exec -C "$tmp/nullclaw" -- zig build -Doptimize=ReleaseSmall
+  sudo install -m755 "$tmp/nullclaw/zig-out/bin/nullclaw" /usr/local/bin/nullclaw
+  printf '%s\n' "$NULLCLAW_COMMIT" > "$tmp/nullclaw-commit"
+  sudo install -m644 "$tmp/nullclaw-commit" "$NULLCLAW_PIN_FILE"
+  rm -rf "$tmp"
 fi
 sudo cp "$HERE/systemd/nullclaw.service" /etc/systemd/system/
 sudo cp "$HERE/systemd/nullclaw-kuma-push.service" "$HERE/systemd/nullclaw-kuma-push.timer" /etc/systemd/system/
