@@ -14,10 +14,11 @@ season="$(curl -fsS -H "X-Api-Key: $sonarr_key" "$sonarr/episode?seriesId=$serie
   jq '[.[] | select(.seasonNumber > 0 and .monitored and (.hasFile | not)) | .seasonNumber] | min // 1')"
 
 if curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
-   jq -e --arg title "$title" '
+   jq -e --arg title "$title" --arg season "$season" '
      def normalized: ascii_downcase | gsub("[^a-z0-9]+"; " ") | gsub("^ | $"; "");
+     def matches_season: test("(^|[^a-z0-9])s0*" + $season + "([^0-9]|$)|(^|[^a-z0-9])season[ ._-]*0*" + $season + "([^0-9]|$)"; "i");
      ($title | normalized) as $wanted |
-     any(.[]; .name | normalized | contains($wanted))
+     any(.[]; (.name | normalized | contains($wanted)) and (.name | matches_season))
    ' >/dev/null; then
   exit 1
 fi
@@ -28,11 +29,12 @@ results="$(curl -fsS -G -H "X-Api-Key: $prowlarr_key" \
   --data-urlencode 'categories=5000' \
   "$prowlarr/search")"
 
-release="$(jq -cer --arg title "$title" '
+release="$(jq -cer --arg title "$title" --arg season "$season" '
   map(select(
     .protocol == "torrent" and
     (.seeders // 0) >= 3 and
     (.title | ascii_downcase | contains($title | ascii_downcase)) and
+    (.title | test("(^|[^a-z0-9])s0*" + $season + "([^0-9]|$)|(^|[^a-z0-9])season[ ._-]*0*" + $season + "([^0-9]|$)"; "i")) and
     (.title | test("(^|[^0-9])(1080p|2160p|4k)([^0-9]|$)"; "i")) and
     (((.infoHash // "") | test("^[0-9a-f]{40}$"; "i")) or
      ((.downloadUrl // .magnetUrl // "") | startswith("http://127.0.0.1:9696/")))
@@ -83,10 +85,11 @@ fi
 
 sleep 2
 if ! curl -fsS "$qbittorrent/torrents/info?filter=all&category=tv-sonarr" |
-     jq -e --arg title "$title" '
+     jq -e --arg title "$title" --arg season "$season" '
        def normalized: ascii_downcase | gsub("[^a-z0-9]+"; " ") | gsub("^ | $"; "");
+       def matches_season: test("(^|[^a-z0-9])s0*" + $season + "([^0-9]|$)|(^|[^a-z0-9])season[ ._-]*0*" + $season + "([^0-9]|$)"; "i");
        ($title | normalized) as $wanted |
-       any(.[]; .name | normalized | contains($wanted))
+       any(.[]; (.name | normalized | contains($wanted)) and (.name | matches_season))
      ' >/dev/null; then
   echo "media-release-fallback: qBittorrent rejected the selected release for $title" >&2
   exit 1
