@@ -265,3 +265,21 @@ Their operative language was:
   A was active.
 - Outbound responses remained ordered: `SERIAL-A-1A615EA7` followed by
   `SERIAL-B-1A615EA7`. The A shell call took 1006 ms; no errors occurred.
+
+### 2026-09-01 12:10 PDT, magic-byte fallback and ingress redaction
+
+- Discord rejected a 51 MiB test file client-side because this account has a
+  20 MiB upload ceiling. Consequently the live `DeclaredSizeExceedsLimit` and
+  25–50 MiB image boundaries remain unproven; their synthetic tests pass.
+- A 1 MiB zero-filled file named `.jpg` arrived with declared MIME `image/jpeg`.
+  Magic sniffing correctly withheld `actual_mime`, stored it as `host_path`, and
+  prepared zero provider images.
+- Its Luhn-valid message directory was nevertheless redacted before the earlier
+  structured-history helper ran, making a follow-up `od` read target `[CARD_4]`
+  and fail. Root cause was a separate whole-message redaction at turn ingress.
+- Fork `54a66e2bdf2ad89148fe009e48a1c08cd51a98e5` applies structured path
+  preservation at turn ingress as well as history/provider handoff. An end-to-end
+  agent test verifies the exact generated path reaches the provider while nearby
+  email PII remains redacted.
+- Portable suite: 7,436 passed, 14 skipped; ReleaseSmall build 9/9; formatting
+  and diff checks passed.
