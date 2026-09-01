@@ -176,3 +176,24 @@ Their operative language was:
   receive a false provider-image marker.
 - Post-fix verification: 7,432 passed, 14 skipped on x86_64-musl; ReleaseSmall
   build 9/9; formatting and diff checks passed.
+
+### 2026-09-01 02:35 PDT, provider image lost after tool call
+
+- Fork `e5d34b37e8837c6fd6d546040d31ab049f4e43f2` received a real Discord message
+  with the 7,756,289-byte JPEG and 222-byte JSON attachment. Both were stored;
+  receipts reported `provider_image_and_host_path` and `host_path` respectively.
+- Nullclaw logged provider preparation as `mime=image/jpeg raw_bytes=7756289
+  encoded_bytes=10341720`. Terra read the JSON nonce through a host tool but then
+  said it could not access the photo pixels.
+- Root cause: multimodal preprocessing selected only the last user-role message.
+  After a tool call, Nullclaw appends its synthetic tool result as a user-role
+  message, so subsequent provider requests omitted the original image parts.
+- Fork `d33c267d1e19a56bfe21e00395a5e3cc2c7e9a27` carries the current turn's owned
+  user-message identity through every provider retry and tool iteration. It does
+  not select older image turns and preserves the image-bearing message after
+  synthetic tool results are appended.
+- Regression coverage checks both multimodal selection and the agent-level
+  provider message builder after assistant/tool-result messages. Portable suite:
+  7,433 passed, 14 skipped; ReleaseSmall build 9/9; formatting and diff checks
+  passed. Git-fixture tests require commit signing disabled because the machine's
+  global 1Password signer is unavailable in their temporary repositories.
