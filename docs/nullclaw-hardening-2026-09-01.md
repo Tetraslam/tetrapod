@@ -138,3 +138,22 @@ Their operative language was:
   `.published` rename leaves complete `.ready` files. They are preserved and
   recommitted on Discord replay, but crash durability of directory entries is
   not proven because Zig exposes no directory fsync in this compatibility layer.
+
+### 2026-09-01 01:50 PDT, first live Discord finding
+
+- The first deployment used fork commit `e4885c9d819bf271b36f3d63d267d21d254cc9b6`.
+  Terra returned the exact text nonce `terra-text-e4885c9d` through Discord.
+- A mixed live message carried a 7,756,289-byte JPEG and a 222-byte JSON file.
+  The JPEG downloaded byte-for-byte to deterministic published storage, proving
+  the old 4 MiB transport cap was removed. The JSON exposed a payload variant
+  absent from fixtures: Discord gateway ID `[CARD_1]`, while Discord REST
+  canonicalized the same attachment to snowflake `1544267611678974062`.
+- Discord also supplied the standard parameterized MIME value
+  `application/json; charset=utf-8`; the initial parser rejected its semicolon
+  because receipt delimiters and metadata validation were coupled.
+- Fork commit `73bfd77069a5a37d4233180078053c6b8d4d212d` derives only synthetic gateway
+  IDs from validated Discord CDN paths, requiring numeric channel/attachment
+  segments and a filename. It accepts control-free MIME parameters while
+  escaping receipt delimiters before model exposure.
+- Post-fix verification: 7,430 passed, 14 skipped on x86_64-musl; ReleaseSmall
+  build 9/9; formatting and diff checks passed.
