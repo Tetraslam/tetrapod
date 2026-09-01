@@ -283,3 +283,26 @@ Their operative language was:
   email PII remains redacted.
 - Portable suite: 7,436 passed, 14 skipped; ReleaseSmall build 9/9; formatting
   and diff checks passed.
+
+### 2026-09-01 12:24 PDT, host fallback passed
+
+- Deployed `54a66e2bdf2ad89148fe009e48a1c08cd51a98e5` and repeated the 1 MiB
+  zero-filled fake JPEG. Receipt fields remained `declared_mime=image/jpeg`,
+  `delivery=host_path`, and `status=stored`; no provider image was prepared.
+- Terra passed the exact unredacted durable path to `shell`. Raw `od` output was
+  privacy-redacted as card-like digits, so a follow-up host predicate emitted
+  `EIGHT_ZERO_BYTES_NO_JPEG_MAGIC` after checking all eight NUL bytes and absent
+  `ff d8 ff` magic.
+
+### 2026-09-01 12:27 PDT, restarted host path passed
+
+- Restarted the exact deployed binary and health passed. Discord hydration seeded
+  55 messages plus its transcript block.
+- Terra recovered the fake JPEG's exact numeric durable path from hydrated
+  context, then a successful shell predicate returned
+  `RESTART_PATH_EXECUTABLE_ZERO_NONJPEG`.
+- Live evidence now covers real mixed attachments with provider vision and host
+  tools, tool-loop retention, magic-byte fallback, serial ordering, and restart
+  hydration. The 25–50 MiB image and over-50 MiB failure boundaries remain
+  explicitly unproven live because Discord rejects files above 20 MiB on this
+  account; portable boundary tests cover both.
