@@ -197,3 +197,19 @@ Their operative language was:
   7,433 passed, 14 skipped; ReleaseSmall build 9/9; formatting and diff checks
   passed. Git-fixture tests require commit signing disabled because the machine's
   global 1Password signer is unavailable in their temporary repositories.
+
+### 2026-09-01 11:29 PDT, redaction corrupted a generated image path
+
+- The `d33c267d1e19a56bfe21e00395a5e3cc2c7e9a27` live retry stored both files,
+  but its JPEG attachment snowflake passed the Luhn check used by PII redaction.
+  The generated path segment `1544413731352617010` became `[CARD_1]` before
+  multimodal parsing, so every provider iteration logged `PathNotFound` and no
+  provider image was prepared.
+- The file on disk retained its correct numeric path. This isolated the failure
+  to agent-history redaction rather than Discord parsing or durable storage.
+- Fork `2f69e013f5e22b9a8d3a3994f47c421291f450f8` preserves only trusted generated
+  Discord `path=` values and `[IMAGE:...]` markers while continuing to redact
+  surrounding user text, filenames, and receipt metadata.
+- Regression coverage uses the exact Luhn-valid live attachment ID and verifies
+  that emails elsewhere are still redacted. Portable suite: 7,434 passed, 14
+  skipped; ReleaseSmall build 9/9; formatting and diff checks passed.
