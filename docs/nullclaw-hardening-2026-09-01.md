@@ -213,3 +213,20 @@ Their operative language was:
 - Regression coverage uses the exact Luhn-valid live attachment ID and verifies
   that emails elsewhere are still redacted. Portable suite: 7,434 passed, 14
   skipped; ReleaseSmall build 9/9; formatting and diff checks passed.
+
+### 2026-09-01 11:41 PDT, base64 transport exhausted output budget
+
+- The `2f69e013f5e22b9a8d3a3994f47c421291f450f8` retry preserved the numeric path
+  and prepared the 7,756,289-byte JPEG on both the initial request and the
+  empty-response retry. OpenRouter usage recorded roughly 95–99k prompt tokens
+  but exactly 16 completion tokens on each call, followed by `NoResponseContent`.
+- Root cause: Nullclaw treated unknown GPT models as 128k-context and estimated
+  base64 transport characters at one token per four characters. The 10,341,720
+  encoded bytes alone therefore appeared to require about 2.58m prompt tokens,
+  reducing requested output to the minimum despite Terra's 1.05m context.
+- Fork `1a615ea7325d11cf487891b6b7f020379cdc9b79` registers Terra's 1.05m context
+  and 128k output contract, and estimates provider-side image tokens with a
+  conservative image-byte proxy rather than text-tokenizing base64 transport.
+- A regression using the exact live encoded size proves more than 100k output
+  tokens remain available. Portable suite: 7,435 passed, 14 skipped; ReleaseSmall
+  build 9/9; formatting and diff checks passed.

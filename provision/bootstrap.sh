@@ -241,7 +241,7 @@ sudo systemctl enable --now lightpanda lightpanda-mcp searxng-mcp
 # bootstrap never mutates the operator's working clone.
 log "nullclaw"
 NULLCLAW_REPO=https://github.com/Tetraslam/nullclaw.git
-NULLCLAW_COMMIT=2f69e013f5e22b9a8d3a3994f47c421291f450f8
+NULLCLAW_COMMIT=1a615ea7325d11cf487891b6b7f020379cdc9b79
 NULLCLAW_PIN_FILE=/usr/local/share/nullclaw-commit
 installed_nullclaw_commit="$(cat "$NULLCLAW_PIN_FILE" 2>/dev/null || true)"
 if [ ! -x /usr/local/bin/nullclaw ] || [ "$installed_nullclaw_commit" != "$NULLCLAW_COMMIT" ]; then
