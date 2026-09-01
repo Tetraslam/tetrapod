@@ -230,3 +230,38 @@ Their operative language was:
 - A regression using the exact live encoded size proves more than 100k output
   tokens remain available. Portable suite: 7,435 passed, 14 skipped; ReleaseSmall
   build 9/9; formatting and diff checks passed.
+
+### 2026-09-01 11:52 PDT, complete mixed attachment turn passed
+
+- Deployed fork `1a615ea7325d11cf487891b6b7f020379cdc9b79` received the same
+  7,756,289-byte JPEG and 222-byte JSON through the real Discord desktop client.
+- Receipts reported the JPEG as `provider_image_and_host_path` and JSON as
+  `host_path`; both were stored under the deterministic published message store.
+- Provider-image preparation occurred three times in order: before Terra's
+  `message` tool call, before its `file_read` call, and after `file_read` before
+  the final response. This proves the original image survived the complete tool
+  loop without persisting base64 in history.
+- Terra returned nonce `terra-attachment-e4885c9d` from the durable JSON path and
+  described the actual pixels: a large group outdoors beneath leafy trees near
+  picnic tables, smiling and cheering with raised arms, several caught mid-jump.
+- No warnings or errors occurred in the completed turn.
+
+### 2026-09-01 12:02 PDT, restart hydration passed
+
+- Restarted the exact `1a615ea7325d11cf487891b6b7f020379cdc9b79` binary; service returned
+  active and `/health` returned `{"status":"ok"}`.
+- A new text-only turn asked Terra to locate the preceding JSON attachment from
+  hydrated context and read its durable path. Hydration seeded 58 Discord
+  messages, then Terra called `message` followed by `file_read` successfully and
+  returned nonce `terra-attachment-e4885c9d`.
+- The response rendered the Luhn-valid numeric basename segment as `[CARD_3]`
+  under configured PII redaction. The host read itself succeeded against the
+  preserved generated receipt path.
+
+### 2026-09-01 12:05 PDT, serial queue ordering passed
+
+- Published two real Discord messages back-to-back while the first requested a
+  one-second host wait. Gateway receipt order was A then B, with B arriving while
+  A was active.
+- Outbound responses remained ordered: `SERIAL-A-1A615EA7` followed by
+  `SERIAL-B-1A615EA7`. The A shell call took 1006 ms; no errors occurred.
