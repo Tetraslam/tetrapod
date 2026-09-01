@@ -157,3 +157,22 @@ Their operative language was:
   escaping receipt delimiters before model exposure.
 - Post-fix verification: 7,430 passed, 14 skipped on x86_64-musl; ReleaseSmall
   build 9/9; formatting and diff checks passed.
+
+### 2026-09-01 02:05 PDT, second live Discord finding
+
+- Fork `73bfd77069a5a37d4233180078053c6b8d4d212d` stored both retry attachments:
+  JPEG 7,756,289 bytes and JSON 222 bytes. Terra used the exact durable JSON
+  path through the host shell and returned nonce `terra-attachment-e4885c9d`.
+- The same JPEG sent directly to OpenRouter model `openai/gpt-5.6-terra` returned
+  HTTP 200 and correctly described people jumping beneath leafy trees. Provider
+  vision at this size is therefore proven independently of Nullclaw.
+- Under Nullclaw's tool-heavy prompt, Terra chose `image_info`. That metadata
+  tool had a stale 5 MiB cap and advertised `include_base64` despite ignoring it,
+  causing a misleading no-pixels response after provider image preparation.
+- Fork `e5d34b37e8837c6fd6d546040d31ab049f4e43f2` labels receipts explicitly as
+  `provider_image_and_host_path` or `host_path`, logs raw/encoded provider image
+  sizes, aligns metadata inspection to 25 MiB, and removes the unused base64
+  claim. Images from 25 to 50 MiB remain durable host attachments and no longer
+  receive a false provider-image marker.
+- Post-fix verification: 7,432 passed, 14 skipped on x86_64-musl; ReleaseSmall
+  build 9/9; formatting and diff checks passed.
