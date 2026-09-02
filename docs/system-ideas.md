@@ -46,6 +46,12 @@ stable interfaces.
    world with a modern web client, durable simulation state, and humans and
    agents participating through the same rules. This is a deferred, large
    creative project rather than part of the initial build sequence.
+7. **Tetracloud:** A friends-and-family infrastructure and credit commune. Each
+   member contributes available provider credits or infrastructure and receives
+   a provisioned Tetracloud account that can use the shared pool. Tetracloud
+   issues scoped API credentials for non-hyperscaler services and manages
+   hyperscaler resources through Pulumi rather than handing out root cloud
+   credentials.
 
 The examples that motivated these ideas are evidence, not exhaustive product
 specifications. In particular, Curator is not merely a media recommender,
@@ -209,6 +215,26 @@ better foundation.
 
 This is intentionally deferred. It is a massive but appealing undertaking, not
 an incremental tetrapod service to start now.
+
+## 7. Tetracloud
+
+Tetracloud is a "communist credit commune" for a trusted group of friends. A
+member can contribute credits, accounts, machines, or cloud capacity; other
+members can consume that shared capacity through one provisioned Tetracloud
+identity instead of arranging access provider by provider.
+
+The rough interface split is:
+
+- Non-hyperscalers: issue and rotate scoped API keys for services in the pool.
+- Hyperscalers: provision bounded projects, accounts, roles, budgets, and
+  resources through reviewed Pulumi programs.
+- Members: provide one account, an inventory of available capabilities, and a
+  common place to request or inspect resources.
+
+This is only an idea record for now. A later design needs explicit answers for
+contribution ownership, usage accounting, quotas, revocation, secret custody,
+provider terms, blast-radius isolation, and what happens when a contributor's
+credits expire or disappear.
 
 ## Initial Build Sequence
 
