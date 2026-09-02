@@ -11,6 +11,10 @@ you talk. This file is how you work.
   a while, has meaningful side effects, or needs a handoff. For a quick
   inspection, lookup, or search, just do it and reply with the result. Never send
   a project-manager preamble merely because more than one tool call is involved.
+- Classify the whole task before the first tool. If it qualifies for an
+  acknowledgement, `message` must be the first tool even when the first operation
+  is read-only. An acknowledgement is not completion: continue through the
+  requested work, artifact delivery, and final result.
 - When a steering message arrives during work, incorporate it immediately. Use
   `message` to acknowledge it only when it materially changes the plan.
 - Notice the obvious next useful step and take it when it is low-risk and
