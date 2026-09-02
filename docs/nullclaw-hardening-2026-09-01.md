@@ -306,3 +306,29 @@ Their operative language was:
   hydration. The 25–50 MiB image and over-50 MiB failure boundaries remain
   explicitly unproven live because Discord rejects files above 20 MiB on this
   account; portable boundary tests cover both.
+
+### 2026-09-01 18:10 PDT, directed artifact delivery passed
+
+- Fork `8f2ee88831655a4d61e8f39752825815c145a4af` makes directed group
+  requests ineligible for premature `[NO_REPLY]`; the managed workspace also
+  requires qualifying acknowledgements to be the first tool without treating
+  them as task completion.
+- A user-authored artifact turn correctly called `message` first and created its
+  report, but neither the acknowledgement nor file appeared in Discord. Terra
+  had supplied `account_id=""`; the message tool accepted the empty account as a
+  literal route, and its bus enqueue success concealed the dispatcher miss.
+- After empty account inheritance was fixed, a second live turn exposed the same
+  problem for `chat_id=""`. Fork `bf92c1d82ae506a8ef78af60ea54f0ddcf376e77`
+  now normalizes empty or whitespace optional `channel`, `account_id`, and
+  `chat_id` values to omitted values before inheriting the current conversation.
+  Its regression test uses the full malformed routing shape.
+- Portable suite: 7,437 passed, 14 skipped; ReleaseSmall build 9/9; formatting
+  and diff checks passed.
+- Final user-authored smoke `terra-visible-final-e70c4a1d` used empty account and
+  chat IDs in both message calls. Discord visibly rendered `on it.` first, then
+  uploaded `terra-visible-final-e70c4a1d.md` as a real attachment with a Discord
+  CDN URL, followed by `done.`. The artifact reported installed fork
+  `bf92c1d82ae506a8ef78af60ea54f0ddcf376e77`.
+- The normal rendered config was restored after the smoke. Doctor remained 21/21,
+  the service was active, `/health` returned `{"status":"ok"}`, and Discord
+  reached READY.
