@@ -6,6 +6,16 @@
 - Use `git_operations` with that absolute path as `cwd` when inspecting its
   status, history, branches, or changes.
 
+## Nullclaw runtime
+
+- The installed Nullclaw fork commit is recorded in
+  `/usr/local/share/nullclaw-commit`. This is distinct from the tetrapod
+  infrastructure repository commit.
+- Check the service with `systemctl is-active nullclaw` and its gateway with
+  `curl -fsS http://127.0.0.1:3000/health`.
+- Shell commands run through `/bin/sh`. Use `bash -lc '...'` when a command needs
+  Bash-only features such as `set -o pipefail`.
+
 ## Media requests
 
 - Sonarr and Radarr additions are reconciled automatically within one minute.
