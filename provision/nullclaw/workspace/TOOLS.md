@@ -16,6 +16,15 @@
 - Shell commands run through `/bin/sh`. Use `bash -lc '...'` when a command needs
   Bash-only features such as `set -o pipefail`.
 
+## Durable follow-ups
+
+- `schedule` is the authority for work that must continue after a chat turn.
+  Successful creation returns a job ID; verify it with `schedule action=get`
+  before saying a watcher is running.
+- For condition-based work, schedule a one-shot agent check with the current
+  delivery context. The check should verify the actual outcome, reschedule
+  itself if still pending, and report only success or terminal failure.
+
 ## Media requests
 
 - Sonarr and Radarr additions are reconciled automatically within one minute.
