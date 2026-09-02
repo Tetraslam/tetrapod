@@ -332,3 +332,50 @@ Their operative language was:
 - The normal rendered config was restored after the smoke. Doctor remained 21/21,
   the service was active, `/health` returned `{"status":"ok"}`, and Discord
   reached READY.
+
+### 2026-09-02 21:20 UTC, durable scheduler follow-through passed
+
+- Scheduler mutation boundary: one job mutation plus its `cron.json` save. The
+  daemon scheduler is authoritative while running; its mutex owns live mutation
+  and lifecycle. Scheduler-spawned agent children use an explicit local-store
+  path because their parent holds that mutex during execution; the parent's
+  post-tick merge preserves child-created jobs. The configured maximum is 64
+  jobs, and persisted Discord routing remains attached to each continuation.
+- Fork `f412499201d69726715eb49704a1fcd755df83d0` moved internal `schedule`
+  operations onto the daemon-owned live scheduler, retained authenticated HTTP
+  access for external callers, made successful creation contingent on durable
+  save, normalized whitespace-only optional fields, and preserved complete
+  Discord delivery context through scheduler-child agent invocations. Prompt and
+  managed workspace rules now forbid claiming a watcher before create returns a
+  job ID and `get` confirms it.
+- Live testing exposed that scheduler instances retained the default restrictive
+  shell policy instead of the configured autonomy policy. Fork
+  `48755fba3a7b2f984c205f175a0438964d35b6f2` applies the configured policy to
+  daemon, scheduler-child, and manual-run schedulers. A script-based watcher can
+  therefore run under this deployment's intentional unsandboxed `yolo` policy.
+- Failure-boundary proof used one-shot shell job `once-1`, exact command
+  `printf 'SCHEDULER_SHELL_RESTART_48755fba'`, account `default`, and Discord
+  channel `1475401568173162578`. Creation succeeded, `get` confirmed the job,
+  and disk inspection confirmed its one-shot type plus complete inherited
+  delivery routing. The daemon was restarted before its due time; the job was
+  still present immediately after restart.
+- After the due time, `once-1` was absent from `cron.json` and Discord message
+  `1544819036049899531` contained exactly
+  `SCHEDULER_SHELL_RESTART_48755fba`. This proves persisted reload, post-restart
+  execution, one-shot removal, and exact Discord delivery through the real
+  deployed topology.
+- Earlier agent-job probes also delivered after restart: main-session message
+  `1544810877721649333` contextualized the proof, and isolated message
+  `1544813693798318222` delivered Terra's output. Those probes demonstrated
+  transport but were not accepted as exact-content proof because model output is
+  nondeterministic.
+- Final portable validation: 7,443 passed, 14 skipped on x86_64-musl;
+  `ReleaseSmall`, formatting, and diff checks passed. Installed pin is
+  `48755fba3a7b2f984c205f175a0438964d35b6f2`; Doctor is 21/21, service is
+  active, health is `{"status":"ok"}`, and Discord reached READY.
+- Unproven: `cron.json` replacement and its parent directory are not explicitly
+  fsynced, so power-loss durability is not established. Failed remove/update
+  saves can briefly diverge in memory until the next disk reload, though the
+  operation reports failure and disk remains authoritative. Concurrent local
+  fallback writers across separate processes are not serialized when the
+  gateway is unavailable.
