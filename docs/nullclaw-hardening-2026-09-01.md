@@ -399,3 +399,28 @@ Their operative language was:
   `zig build -Doptimize=ReleaseSmall --summary all` passed: 7,467 tests passed,
   14 skipped, and the release build completed 9/9 steps. Native debug tests
   remain blocked by the host GCC 16 `.sframe`/`R_X86_64_PC64` linker issue.
+
+### 2026-09-02 23:02 PDT, watcher tool-evidence live proof passed
+
+- Tetrapod deployed exact pin `06975d8dcab06c9d179bc08fc30617e32eee5fe8`.
+  The full idempotent bootstrap stopped before Nullclaw on a transient
+  `repo.charm.sh` TLS failure, so the deployment used bootstrap's same isolated
+  clone, detached checkout, `ReleaseSmall` build, install, pin, and restart
+  steps directly.
+- A scheduler-disabled child given the adversarial terminal prompt emitted
+  `UNVERIFIED_TERMINAL_06975D8D`, `WATCHER_FAILURE`, and trusted receipt
+  `successful_tool_calls=0`. The live watcher using that prompt remained present
+  with `last_status="pending"`, advanced its next run by exactly 600 seconds,
+  and left Discord's latest message unchanged at `1544940256707612772`.
+- The first positive watcher prompt was safely re-armed because Terra chose not
+  to call the requested tool. A stronger prompt called `shell`; direct child
+  diagnostics recorded `success=true`, exact output
+  `VERIFIED_TERMINAL_06975D8D`, and receipt `successful_tool_calls=1`.
+- Live watcher `agent-once-3` used that exact shell predicate. It removed itself
+  after one run, left `cron.json` empty, and delivered exactly
+  `VERIFIED_TERMINAL_06975D8D` as Discord message `1544950445125009488`.
+- Gateway pairing was disabled only for the loopback-bound test window because
+  no reusable plaintext operator token existed after restart. The original
+  config was restored byte-for-byte afterward: pairing is required, bind is
+  `127.0.0.1`, the service is active, health is `{"status":"ok"}`, Terra remains
+  selected, Discord reached READY, and the durable scheduler store is empty.
