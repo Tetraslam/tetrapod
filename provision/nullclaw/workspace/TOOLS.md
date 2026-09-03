@@ -21,9 +21,11 @@
 - `schedule` is the authority for work that must continue after a chat turn.
   Successful creation returns a job ID; verify it with `schedule action=get`
   before saying a watcher is running.
-- For condition-based work, schedule a one-shot agent check with the current
-  delivery context. The check should verify the actual outcome, reschedule
-  itself if still pending, and report only success or terminal failure.
+- For condition-based work, use `schedule action=once` with an agent `prompt`,
+  initial `delay`, and `repeat_delay`. The scheduler re-arms pending, incomplete,
+  empty, or failed runs automatically. The watcher must not create another job;
+  it reports the scheduler's terminal marker only after verified success or
+  terminal failure.
 
 ## Media requests
 
