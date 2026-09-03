@@ -379,3 +379,23 @@ Their operative language was:
   operation reports failure and disk remains authoritative. Concurrent local
   fallback writers across separate processes are not serialized when the
   gateway is unavailable.
+
+### 2026-09-02 22:38 PDT, watcher terminal evidence hardened
+
+- Fork `06975d8dcab06c9d179bc08fc30617e32eee5fe8` counts attempted and
+  successful tool calls within each agent turn. Scheduler-disabled watcher
+  children emit the successful count as a strict machine-readable stderr
+  receipt; the parent rejects missing, malformed, duplicate, or overflowing
+  receipts.
+- A watcher terminal marker with no successful tool call now remains silent and
+  re-arms as pending. This closes the observed failure where Terra performed no
+  check, claimed the filesystem was inaccessible, and emitted a terminal
+  failure that the scheduler accepted.
+- The receipt proves only that some tool succeeded. The model still chooses the
+  verification tool, so an irrelevant successful call can satisfy the threshold;
+  this is an explicit residual risk rather than independent attestation.
+- Focused review found no code defects. `zig fmt --check`, `git diff --check`,
+  `zig build test -Dtarget=x86_64-linux-musl --summary all`, and
+  `zig build -Doptimize=ReleaseSmall --summary all` passed: 7,467 tests passed,
+  14 skipped, and the release build completed 9/9 steps. Native debug tests
+  remain blocked by the host GCC 16 `.sframe`/`R_X86_64_PC64` linker issue.
