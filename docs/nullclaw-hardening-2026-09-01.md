@@ -473,3 +473,12 @@ Their operative language was:
   x86_64-musl validation passed 7,470 tests with 14 skipped, and the
   `ReleaseSmall` build passed 9/9 steps. Native debug linking remains blocked by
   the host GCC 16 `.sframe`/`R_X86_64_PC64` issue.
+- Live Terra acceptance passed in one turn against the deployed binary. Job
+  `agent-1` was created, read, paused, read as `paused=true`, updated from
+  `CRUD_ORIGINAL_BDD4B42D` to `CRUD_UPDATED_BDD4B42D`, read with the new prompt,
+  resumed, read as `paused=false`, removed, and absent from the final list.
+  `cron.json` persisted as `[]` and the test session was terminated.
+- The original config was restored byte-for-byte after testing. Final state:
+  installed pin `bdd4b42d163d0240d9ef520313504fd28d7c7747`, pairing required,
+  loopback bind, unauthenticated `/cron` returns 401, health is
+  `{"status":"ok"}`, the service is active, and Discord reached READY.
