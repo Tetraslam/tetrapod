@@ -424,3 +424,36 @@ Their operative language was:
   config was restored byte-for-byte afterward: pairing is required, bind is
   `127.0.0.1`, the service is active, health is `{"status":"ok"}`, Terra remains
   selected, Discord reached READY, and the durable scheduler store is empty.
+
+### 2026-09-04 15:01 PDT, scheduler CRUD and duplicate delivery fixed
+
+- Three completed media watchers remained live: `agent-once-1` for Nekopara,
+  `agent-once-2` for Vincenzo, and `agent-once-3` for Evangelion. Their prompts
+  instructed the child agents to send Discord messages themselves before
+  returning a terminal marker. The children repeatedly sent completion messages
+  while the scheduler classified their runs as pending and re-armed them.
+- The live `schedule` calls intended to pause or remove them all failed before
+  dispatch. Terra populated every optional string field with `""`; the tool
+  treated the empty `repeat_delay` as malformed even for unrelated actions.
+  With the service stopped, the three known-complete jobs were removed from the
+  persisted store atomically. The service restarted healthy with an empty store.
+- Fork `8983b6ca7b8029d87b4d3feeb9ad1aed534ff63a` treats blank optional strings as
+  omitted, adds `schedule action=update`, supports watcher cadence updates, and
+  covers create/get/list/update/pause/resume/remove against the daemon-owned
+  scheduler. Updates preallocate with the scheduler allocator, mutate atomically,
+  and reload persisted state if saving fails. Gateway update rejects malformed
+  field types and no-op patches.
+- A responding gateway is now authoritative even when it rejects CLI mutation;
+  authorization and other HTTP failures no longer fall through to a competing
+  local `cron.json` edit. Existing pairing authorization remains unchanged.
+- Scheduler-owned child agents now receive the restricted subagent tool set,
+  without direct scheduling, delegation, spawning, or delivery tools. Runtime
+  and managed prompts require isolated watchers and forbid child-side messages;
+  only the scheduler delivers verified terminal output.
+- Final local validation: focused review found no deploy blockers; 7,470 tests
+  passed and 14 skipped on x86_64-musl; formatting, `git diff --check`, and the
+  9/9-step `ReleaseSmall` build passed. Native debug linking remains blocked by
+  the host GCC 16 `.sframe`/`R_X86_64_PC64` issue.
+- Residual boundaries: permissive shell access can still invoke external APIs,
+  and terminal bus enqueue plus persisted job removal are not one transaction.
+  A crash in that interval can still duplicate a terminal notification.

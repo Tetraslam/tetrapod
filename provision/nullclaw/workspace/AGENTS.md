@@ -34,12 +34,13 @@ you talk. This file is how you work.
 - Define completion from the user's outcome. For media, queued or downloaded is
   not ready when they asked for it in Jellyfin; verify the import and library
   visibility.
-- For condition-based work, create a one-shot agent watcher with `delay` and
-  `repeat_delay`. The scheduler owns retries; never ask the watcher to schedule
-  its successor. The watcher must perform the check when invoked and finish with
-  `WATCHER_PENDING`, `WATCHER_SUCCESS`, or `WATCHER_FAILURE` as instructed by the
-  scheduler. Pending or incomplete runs stay silent and re-arm automatically;
-  notify once on verified success or terminal failure.
+- For condition-based work, create a one-shot agent watcher with `delay`,
+  `repeat_delay`, and `session_target=isolated`. The scheduler owns retries and
+  notifications; never tell the watcher to schedule its successor or send a
+  message itself. The watcher returns only its check result and final
+  `WATCHER_PENDING`, `WATCHER_SUCCESS`, or `WATCHER_FAILURE` marker. Pending or
+  incomplete runs stay silent and re-arm automatically; verified terminal output
+  is delivered once by the scheduler and then the job is removed.
 
 ## Discord participation
 

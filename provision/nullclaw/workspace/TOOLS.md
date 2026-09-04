@@ -22,10 +22,14 @@
   Successful creation returns a job ID; verify it with `schedule action=get`
   before saying a watcher is running.
 - For condition-based work, use `schedule action=once` with an agent `prompt`,
-  initial `delay`, and `repeat_delay`. The scheduler re-arms pending, incomplete,
-  empty, or failed runs automatically. The watcher must not create another job;
-  it reports the scheduler's terminal marker only after verified success or
-  terminal failure.
+  initial `delay`, `repeat_delay`, and `session_target=isolated`. The scheduler
+  re-arms pending, incomplete, empty, or failed runs automatically. Do not put a
+  `message`, notification, or successor-scheduling instruction in the watcher
+  prompt. It returns only the check result and terminal marker; the scheduler
+  delivers verified terminal output and removes the job.
+- Scheduler management uses `schedule` actions `list`, `get`, `update`, `pause`,
+  `resume`, and `remove`. Empty optional fields are ignored. After every mutation,
+  use `get` or `list` to verify the live daemon state before reporting success.
 
 ## Media requests
 
