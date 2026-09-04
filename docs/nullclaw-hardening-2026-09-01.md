@@ -457,3 +457,19 @@ Their operative language was:
 - Residual boundaries: permissive shell access can still invoke external APIs,
   and terminal bus enqueue plus persisted job removal are not one transaction.
   A crash in that interval can still duplicate a terminal notification.
+
+### 2026-09-04 15:39 PDT, repeated scheduler reads refreshed
+
+- Live Terra CRUD testing exposed an agent-runtime cache bug after the scheduler
+  work itself passed deterministic HTTP CRUD. Repeated signature-only
+  `schedule get` calls in later model iterations reused the first result from the
+  turn, so a successful pause or update appeared stale to the agent.
+- Fork `bdd4b42d163d0240d9ef520313504fd28d7c7747` scopes signature-based
+  tool-call deduplication to one model iteration. Duplicate calls in the same
+  batch still execute once, while a later read executes again. Provider calls
+  with a stable nonempty tool-call ID remain deduplicated across iterations so
+  replayed requests do not repeat side effects.
+- Focused review found no deploy blockers. Formatting and diff checks passed;
+  x86_64-musl validation passed 7,470 tests with 14 skipped, and the
+  `ReleaseSmall` build passed 9/9 steps. Native debug linking remains blocked by
+  the host GCC 16 `.sframe`/`R_X86_64_PC64` issue.
