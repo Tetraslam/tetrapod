@@ -91,7 +91,7 @@ export const BACKUPS = {
 
 export const OP_ITEMS = [
   { item: "FIRECRAWL_API_KEY", use: "firecrawl mcp + api" },
-  { item: "OpenRouter API Key - experiments", use: "nullclaw brain (glm-5.2)" },
+  { item: "OpenRouter API Key - tetrapod", use: "nullclaw brain (gpt-5.6-terra)" },
   { item: "NULLCLAW_DISCORD", use: "nullclaw discord bot token + owner id" },
   { item: "MORPHLLM_API_KEY", use: "morph opencode plugin (via bashrc)" },
   { item: "ANTHROPIC_API_KEY", use: "anthropic api" },

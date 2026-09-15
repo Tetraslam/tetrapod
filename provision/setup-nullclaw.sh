@@ -9,7 +9,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 opa vault list >/dev/null 2>&1 || { echo "setup-nullclaw: needs the opa token first"; exit 1; }
 
-OPENROUTER_KEY="$(opa read 'op://Agents/OpenRouter API Key - experiments/credential')"
+OPENROUTER_KEY="$(opa read 'op://Agents/OpenRouter API Key - tetrapod/credential')"
 FIRECRAWL_KEY="$(opa read 'op://Agents/FIRECRAWL_API_KEY/credential')"
 DISCORD_TOKEN="$(opa read 'op://Agents/NULLCLAW_DISCORD/credential')"
 DISCORD_USER_ID="$(opa read 'op://Agents/NULLCLAW_DISCORD/username')"
