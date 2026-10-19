@@ -41,7 +41,7 @@ http://tetrapod:4567/api/graphql`}</CodeBlock>
             <TableRow>
               <TableCell className="text-muted-foreground">image</TableCell>
               <TableCell className="font-mono text-xs">
-                suwayomi-server v2.3.2243 (pinned digest)
+                suwayomi-server v2.4.2366 (pinned digest)
               </TableCell>
             </TableRow>
             <TableRow>
