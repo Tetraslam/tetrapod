@@ -130,5 +130,20 @@ link.tetraslam.world {
 
 i.tetraslam.world {
 	import security
-	reverse_proxy 127.0.0.1:3200
+
+	# /a/<name>: zipline's raw file as a page that may run scripts. zipline
+	# sends `csp: sandbox` (no scripts) on every raw file; this swaps in a
+	# sandbox that allows scripts but not same-origin, so a page gets an opaque
+	# origin and cannot use zipline's cookies or api. used by the dotagents
+	# opencode artifacts plugin.
+	handle_path /a/* {
+		rewrite * /raw{path}
+		reverse_proxy 127.0.0.1:3200 {
+			header_down Content-Security-Policy "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads"
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3200
+	}
 }
