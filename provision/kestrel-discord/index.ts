@@ -275,15 +275,15 @@ async function registerSlashCommands(): Promise<void> {
   ].map((c) => c.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
-  // Register globally (for DMs) + per-guild (instant updates in servers like softmax!)
-  await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch((e) =>
-    console.error("kestrel-discord: global slash command registration failed:", e)
-  );
+  // Register globally only (works in both servers and DMs) and clear any guild-scoped duplicates
+  await rest
+    .put(Routes.applicationCommands(client.user.id), { body: commands })
+    .then(() => console.log("kestrel-discord: registered global slash commands"))
+    .catch((e) => console.error("kestrel-discord: global slash command registration failed:", e));
   for (const guild of client.guilds.cache.values()) {
     await rest
-      .put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands })
-      .then(() => console.log(`kestrel-discord: registered slash commands in guild ${guild.name}`))
-      .catch((e) => console.error(`kestrel-discord: guild slash registration failed (${guild.name}):`, e));
+      .put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: [] })
+      .catch(() => {});
   }
 }
 
