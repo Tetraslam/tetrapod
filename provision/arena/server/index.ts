@@ -27,10 +27,10 @@ const CANDIDATE_ROSTER: Contender[] = [
   { id: "openai/gpt-6.1-terra", provider: "openai", ticker: "gpt-6.1-terra", label: "openai/gpt-6.1-terra", color: "#34d399" },
   { id: "openai/gpt-6.2-sol", provider: "openai", ticker: "gpt-6.2-sol", label: "openai/gpt-6.2-sol", color: "#a78bfa" },
   { id: "openai/gpt-6-luna", provider: "openai", ticker: "gpt-6-luna", label: "openai/gpt-6-luna", color: "#2dd4bf" },
-  { id: "claude-agent/claude-sonnet-5", provider: "claude-agent", ticker: "claude-sonnet-5", label: "claude-agent/claude-sonnet-5", color: "#f59e0b" },
-  { id: "claude-agent/claude-opus-5", provider: "claude-agent", ticker: "claude-opus-5", label: "claude-agent/claude-opus-5", color: "#fb7185" },
-  { id: "claude-agent/claude-fable-5-2", provider: "claude-agent", ticker: "claude-fable-5-2", label: "claude-agent/claude-fable-5-2", color: "#f472b6" },
-  { id: "claude-agent/claude-haiku-4-5-20251001", provider: "claude-agent", ticker: "claude-haiku-4-5", label: "claude-agent/claude-haiku-4-5-20251001", color: "#fbbf24" },
+  { id: "claude-agent/sonnet", provider: "claude-agent", ticker: "claude-sonnet-5.5", label: "claude-agent/sonnet", color: "#f59e0b" },
+  { id: "claude-agent/opus", provider: "claude-agent", ticker: "claude-opus-5.5", label: "claude-agent/opus", color: "#fb7185" },
+  { id: "claude-agent/fable", provider: "claude-agent", ticker: "claude-fable-5.2", label: "claude-agent/fable", color: "#f472b6" },
+  { id: "claude-agent/haiku", provider: "claude-agent", ticker: "claude-haiku-5.5", label: "claude-agent/haiku", color: "#fbbf24" },
 ];
 
 let ROSTER: Contender[] = CANDIDATE_ROSTER.filter((c) => c.provider === "openai");
@@ -459,6 +459,7 @@ CRITICAL TACTICS:
 2. Also route at least 1-2 copper drills directly into the Core (x=${core ? core.x - 1 : 0}..${core ? core.x + 1 : 0}, y=${core ? core.y - 1 : 0}..${core ? core.y + 1 : 0}) so you never run out of copper!
 3. Build walls and turrets on the side of the core FACING the enemy spawn (${spawnsDesc}).
 4. Emit 3 to 6 concrete actions per turn. Coordinates MUST be open floor '.' (or ore for drills).
+5. ONLY use these action types: "build", "build_line", "demolish" ({"type":"demolish","x":120,"y":40} refunds 50% items), or "send_wave". Do NOT invent actions like "mine", "deconstruct", or "break".
 
 Respond with ONLY valid JSON (no markdown fences):
 {
