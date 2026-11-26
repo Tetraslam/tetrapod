@@ -9,7 +9,9 @@ echo "==> syncing ~/.config/opencode from $HERE/opencode"
 mkdir -p "$HOME/.config/opencode" "$HOME/.agents/skills" "$HOME/.agent-browser"
 chmod 700 "$HOME/.config/opencode"
 
-# Preserve mode-600 secret files while syncing tracked config, agents, skills, commands, plugins
+# Preserve mode-600 secret files while syncing tracked config, agents, skills, commands, plugins.
+# Remove symlinks first so cp never writes through legacy symlinks into ~/tetrapod/provision/agent.
+rm -f "$HOME/.config/opencode/opencode.json" "$HOME/.config/opencode/AGENTS.md" "$HOME/.config/opencode/package.json"
 cp "$HERE/opencode/opencode.json" "$HOME/.config/opencode/opencode.json"
 cp "$HERE/opencode/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
 cp "$HERE/opencode/package.json" "$HOME/.config/opencode/package.json"
