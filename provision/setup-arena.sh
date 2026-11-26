@@ -9,6 +9,7 @@ echo "==> building Mindustry arena-bridge.jar"
 
 echo "==> restarting Mindustry container with arena-bridge"
 sudo docker compose -f "$HERE/docker-compose.yml" up -d mindustry
+sudo docker restart provision-mindustry-1
 for _ in $(seq 1 25); do
   if curl -fsS http://127.0.0.1:6568/health >/dev/null 2>&1; then
     break
@@ -27,8 +28,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tetrapod-arena.service
 sudo systemctl restart tetrapod-arena.service
 
-echo "==> reloading Caddy for arena.tetraslam.world"
-sudo docker exec provision-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+echo "==> restarting Caddy for arena.tetraslam.world (picks up updated Caddyfile inode)"
+sudo docker restart provision-caddy-1
 
 sleep 2
 curl -fsS http://127.0.0.1:6570/health

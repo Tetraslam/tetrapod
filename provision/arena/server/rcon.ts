@@ -68,15 +68,11 @@ export async function factorioRcon(
           if (id === 1) {
             authed = true;
             socket.write(encodePacket(2, RCON_EXECCOMMAND, command));
-            // Sentinel empty packet to detect end of multi-packet response
-            socket.write(encodePacket(3, RCON_EXECCOMMAND, ""));
           }
-        } else {
-          if (id === 2) output += body;
-          else if (id === 3) {
-            done();
-            return;
-          }
+        } else if (id === 2) {
+          output += body;
+          done();
+          return;
         }
       }
     });
