@@ -69,12 +69,13 @@ export function renderBoard(state: State | null, meta: Meta | null): void {
   const cell = core.parentElement!;
   if (state.core && !state.gameOver) {
     const frac = state.core.hp / Math.max(1, state.core.maxHp);
-    flap(core, `${Math.round(frac * 100)}%`);
+    // No flip here: in a fight this changes several times a second and has to stay readable.
+    setText(core, `${Math.round(frac * 100)}%`);
     setText($("bCoreHp"), `${num(state.core.hp)} hp`);
     meter($("bCoreFill"), frac);
     cell.toggleAttribute("data-alarm", frac < 0.35);
   } else {
-    flap(core, "lost");
+    setText(core, "lost");
     setText($("bCoreHp"), "");
     meter($("bCoreFill"), 0);
     cell.setAttribute("data-alarm", "");

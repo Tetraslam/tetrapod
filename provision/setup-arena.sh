@@ -1,8 +1,34 @@
 #!/bin/bash
 # Build and deploy the Tetrapod AI Game Arena (Mindustry plugin + Bun server + web UI).
+# Pass --web to rebuild and swap only the web UI. Nothing restarts, so the match in progress survives.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+WEB_ONLY=0
+[ "${1:-}" = "--web" ] && WEB_ONLY=1
+
+deploy_web() {
+  echo "==> building the web UI (vite)"
+  # bun comes from mise on tetrapod and is not on a non-interactive PATH.
+  export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$PATH"
+  (
+    cd "$HERE/arena/web"
+    bun install --frozen-lockfile
+    bun run build
+  )
+  sudo install -d -o tetraslam -g tetraslam /opt/tetrapod/arena
+  # Swap the whole build in, so hashed assets from older builds don't pile up.
+  rm -rf /opt/tetrapod/arena/web.next
+  cp -r "$HERE/arena/web/dist" /opt/tetrapod/arena/web.next
+  rm -rf /opt/tetrapod/arena/web
+  mv /opt/tetrapod/arena/web.next /opt/tetrapod/arena/web
+}
+
+if [ "$WEB_ONLY" = 1 ]; then
+  deploy_web
+  echo "==> web UI deployed at https://arena.tetraslam.world"
+  exit 0
+fi
 
 echo "==> building Mindustry arena-bridge.jar"
 "$HERE/arena/mindustry-plugin/build.sh"
@@ -20,23 +46,11 @@ for _ in $(seq 1 25); do
   sleep 1
 done
 
-echo "==> building the web UI (vite)"
-# bun comes from mise on tetrapod and is not on a non-interactive PATH.
-export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$PATH"
-(
-  cd "$HERE/arena/web"
-  bun install --frozen-lockfile
-  bun run build
-)
+deploy_web
 
-echo "==> deploying /opt/tetrapod/arena"
-sudo install -d -o tetraslam -g tetraslam /opt/tetrapod/arena /opt/tetrapod/arena/server /opt/tetrapod/arena/web
+echo "==> deploying /opt/tetrapod/arena/server"
+sudo install -d -o tetraslam -g tetraslam /opt/tetrapod/arena/server
 cp "$HERE/arena/server/index.ts" "$HERE/arena/server/rcon.ts" /opt/tetrapod/arena/server/
-# Swap the whole build in, so hashed assets from older builds don't pile up.
-rm -rf /opt/tetrapod/arena/web.next
-cp -r "$HERE/arena/web/dist" /opt/tetrapod/arena/web.next
-rm -rf /opt/tetrapod/arena/web
-mv /opt/tetrapod/arena/web.next /opt/tetrapod/arena/web
 
 echo "==> installing & starting tetrapod-arena.service"
 sudo cp "$HERE/systemd/tetrapod-arena.service" /etc/systemd/system/

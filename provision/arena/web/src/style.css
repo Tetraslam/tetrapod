@@ -1207,10 +1207,20 @@ main {
 
 .fboard .cell,
 .fgrid .cell {
-  height: 112px;
-  padding: 14px 18px 16px;
+  height: auto;
+  min-height: 116px;
+  padding: 14px 18px 18px;
   justify-content: flex-start;
   gap: 9px;
+}
+
+.fboard .cell > *,
+.fgrid .cell > * {
+  flex: none;
+}
+
+.fgrid .sub {
+  white-space: normal;
 }
 
 .fboard .cell:first-child,
