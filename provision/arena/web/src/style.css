@@ -2792,13 +2792,13 @@ a.cell[href]:hover .lbl {
 .plan li > * {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  align-items: baseline;
+  align-items: start;
   gap: 0 8px;
   width: 100%;
-  padding: 3px 0;
+  padding: 4px 0;
   text-align: left;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.38;
   color: var(--ink);
 }
 
@@ -2807,25 +2807,31 @@ a.cell[href]:hover .lbl {
 }
 
 .plan button:hover code {
+  border-color: var(--signal);
   color: var(--signal);
 }
 
 .plan i {
   width: 7px;
   height: 7px;
-  align-self: center;
+  margin-top: 5px;
   background: var(--signal);
 }
 
 .plan .pt {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .plan code {
+  padding: 1px 5px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--raise);
   font-size: 11px;
-  color: var(--ink-3);
+  line-height: 1.3;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 
 .plan em {

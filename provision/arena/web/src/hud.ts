@@ -862,12 +862,10 @@ export function renderPlan(goals: PlanGoal[] | undefined, onJump: (targets: Targ
     el.replaceChildren();
     return;
   }
-  // Folded, the board keeps what is still in play: active first, then blocked, and done only if there is room.
+  // Always keep active and blocked goals above completed ones.
   const rank = { active: 0, blocked: 1, done: 2 } as const;
-  const shown =
-    planOpen || all.length <= PLAN_ROOM
-      ? all
-      : [...all].sort((a, b) => rank[a.status] - rank[b.status]).slice(0, PLAN_ROOM);
+  const ordered = [...all].sort((a, b) => rank[a.status] - rank[b.status]);
+  const shown = planOpen || ordered.length <= PLAN_ROOM ? ordered : ordered.slice(0, PLAN_ROOM);
   const left = all.filter((g) => g.status !== "done").length;
   el.replaceChildren(
     h(
