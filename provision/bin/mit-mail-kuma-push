@@ -1,0 +1,137 @@
+#!/usr/bin/env -S /home/tetraslam/.local/bin/uv run --script --quiet
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["msal==1.38.0"]
+# ///
+"""Verify MIT Mail OAuth2 health (both IMAP proxy & Graph SMTP) and push status to Uptime Kuma."""
+
+from __future__ import annotations
+
+import configparser
+import os
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+import msal
+
+IMAP_CACHE = Path("/var/lib/email-oauth2-proxy/emailproxy.cache")
+SMTP_CACHE = Path("/var/lib/mit-graph-smtp/token-cache.json")
+CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+AUTHORITY = "https://login.microsoftonline.com/common"
+SCOPES = ["https://graph.microsoft.com/Mail.Send"]
+ACCOUNT = "shresht@mit.edu"
+PUSH_ENV = Path("/opt/tetrapod/mit-mail-kuma-push.env")
+
+
+def load_push_url() -> str:
+    url = os.environ.get("KUMA_PUSH_URL", "").strip()
+    if url:
+        return url
+    if PUSH_ENV.exists():
+        for line in PUSH_ENV.read_text().splitlines():
+            if line.startswith("KUMA_PUSH_URL="):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+def push_kuma(status: str, msg: str) -> None:
+    raw = load_push_url()
+    if not raw.startswith("http"):
+        print(f"mit-mail-kuma-push: no KUMA_PUSH_URL configured ({status}: {msg})", file=sys.stderr)
+        return
+    base = raw.split("?", 1)[0]
+    qs = urllib.parse.urlencode({"status": status, "msg": msg[:240]})
+    with urllib.request.urlopen(f"{base}?{qs}", timeout=15) as resp:
+        resp.read()
+
+
+def check_imap() -> str | None:
+    active = subprocess.run(
+        ["systemctl", "is-active", "--quiet", "email-oauth2-proxy.service"]
+    ).returncode
+    if active != 0:
+        return "email-oauth2-proxy.service not active"
+    if not IMAP_CACHE.exists():
+        return "IMAP cache missing (run mit-imap-authorize)"
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(IMAP_CACHE)
+    if ACCOUNT not in cfg or not cfg[ACCOUNT].get("refresh_token"):
+        return "IMAP OAuth2 refresh_token missing (run mit-imap-authorize)"
+    # Check recent logs for token refresh failures after the last successful login/refresh
+    logs = subprocess.run(
+        [
+            "journalctl",
+            "-u",
+            "email-oauth2-proxy.service",
+            "--since",
+            "30 minutes ago",
+            "--no-pager",
+            "-o",
+            "cat",
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout
+    last_err = -1
+    last_ok = -1
+    for i, line in enumerate(logs.splitlines()):
+        if "TokenRefreshError" in line or "please authorise a request for account" in line:
+            last_err = i
+        if "Successfully refreshed access token" in line or "Authorisation succeeded" in line:
+            last_ok = i
+    if last_err > last_ok:
+        return "IMAP OAuth2 refresh failed (run mit-imap-authorize)"
+    return None
+
+
+def check_smtp() -> str | None:
+    active = subprocess.run(
+        ["systemctl", "is-active", "--quiet", "mit-graph-smtp.service"]
+    ).returncode
+    if active != 0:
+        return "mit-graph-smtp.service not active"
+    if not SMTP_CACHE.exists():
+        return "SMTP token cache missing (run mit-graph-smtp authorize)"
+    cache = msal.SerializableTokenCache()
+    cache.deserialize(SMTP_CACHE.read_text())
+    app = msal.PublicClientApplication(CLIENT_ID, authority=AUTHORITY, token_cache=cache)
+    accounts = app.get_accounts(username=ACCOUNT)
+    if not accounts:
+        return "SMTP MSAL account missing (run mit-graph-smtp authorize)"
+    result = app.acquire_token_silent(SCOPES, account=accounts[0])
+    if not result or "access_token" not in result:
+        err = (result or {}).get("error_description") or (result or {}).get("error") or "silent refresh failed"
+        return f"SMTP OAuth2 token expired: {err[:120]} (run mit-graph-smtp authorize)"
+    if cache.has_state_changed:
+        tmp = SMTP_CACHE.with_suffix(".tmp")
+        tmp.write_text(cache.serialize())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, SMTP_CACHE)
+    return None
+
+
+def main() -> int:
+    errors: list[str] = []
+    imap_err = check_imap()
+    if imap_err:
+        errors.append(imap_err)
+    smtp_err = check_smtp()
+    if smtp_err:
+        errors.append(smtp_err)
+
+    if errors:
+        msg = "; ".join(errors)
+        print(f"mit-mail-kuma-push: DOWN - {msg}", file=sys.stderr)
+        push_kuma("down", msg)
+        return 1
+
+    print("mit-mail-kuma-push: OK (IMAP + Graph SMTP tokens valid)")
+    push_kuma("up", "OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

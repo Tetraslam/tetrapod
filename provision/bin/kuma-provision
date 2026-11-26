@@ -60,7 +60,10 @@ TCP_MONITORS = [
     ("MIT Mail IMAP", HOST, 1993),
     ("MIT Mail SMTP", HOST, 1465),
 ]
-PUSH_MONITORS = ["nullclaw"]
+PUSH_MONITORS = [
+    ("nullclaw", 120, "/opt/tetrapod/nullclaw-kuma-push.env", "root"),
+    ("MIT Mail Auth", 1800, "/opt/tetrapod/mit-mail-kuma-push.env", "tetraslam"),
+]
 
 
 def opa(field: str) -> str:
@@ -95,18 +98,19 @@ def main() -> None:
         ensure(name, **kwargs)
     for name, host, port in TCP_MONITORS:
         ensure(name, type=MonitorType.PORT, hostname=host, port=port, interval=300, maxretries=2)
-    for name in PUSH_MONITORS:
-        # push interval 120s; the timer pings every minute, so one missed beat tolerated
-        ensure(name, type=MonitorType.PUSH, interval=120, maxretries=1)
+    for name, interval, env_path, owner in PUSH_MONITORS:
+        ensure(name, type=MonitorType.PUSH, interval=interval, maxretries=1)
 
-    # push URL for the nullclaw timer (token only lands in the root-owned env file)
-    push = next((m for m in api.get_monitors() if m["name"] == "nullclaw"), None)
-    if push and push.get("pushToken"):
-        env = f"KUMA_PUSH_URL={KUMA_URL}/api/push/{push['pushToken']}?status=up&msg=OK\n"
-        path = "/opt/tetrapod/nullclaw-kuma-push.env"
-        subprocess.run(["sudo", "tee", path], input=env, text=True, check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(["sudo", "chmod", "600", path], check=True)
-        print(f"push url written to {path}")
+    # push URLs for local timers (tokens only land in mode-600 env files)
+    all_monitors = {m["name"]: m for m in api.get_monitors()}
+    for name, _interval, env_path, owner in PUSH_MONITORS:
+        push = all_monitors.get(name)
+        if push and push.get("pushToken"):
+            env = f"KUMA_PUSH_URL={KUMA_URL}/api/push/{push['pushToken']}?status=up&msg=OK\n"
+            subprocess.run(["sudo", "tee", env_path], input=env, text=True, check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["sudo", "chown", f"{owner}:{owner}", env_path], check=True)
+            subprocess.run(["sudo", "chmod", "600", env_path], check=True)
+            print(f"push url written to {env_path}")
 
     # status page: append everything we know to the (single) group, keep order
     # stable. read via the public http api — the lib's get_status_page chokes

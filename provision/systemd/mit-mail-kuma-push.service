@@ -1,0 +1,10 @@
+[Unit]
+Description=check MIT Mail IMAP/SMTP OAuth2 tokens and push health to Kuma
+After=network-online.target email-oauth2-proxy.service mit-graph-smtp.service
+
+[Service]
+Type=oneshot
+User=tetraslam
+Group=tetraslam
+EnvironmentFile=-/opt/tetrapod/mit-mail-kuma-push.env
+ExecStart=/usr/local/bin/mit-mail-kuma-push

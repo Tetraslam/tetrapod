@@ -162,6 +162,8 @@ sudo install -m755 "$HERE/bin/public-services-provision" /usr/local/bin/public-s
 sudo install -m755 "$HERE/bin/ntfy-mcp" /usr/local/bin/ntfy-mcp
 sudo install -m755 "$HERE/bin/email-oauth2-proxy-cert" /usr/local/bin/email-oauth2-proxy-cert
 sudo install -m755 "$HERE/bin/mit-graph-smtp" /usr/local/bin/mit-graph-smtp
+sudo install -m755 "$HERE/bin/mit-imap-authorize" /usr/local/bin/mit-imap-authorize
+sudo install -m755 "$HERE/bin/mit-mail-kuma-push" /usr/local/bin/mit-mail-kuma-push
 
 # ------------------------------------------------------------------ runtimes
 
@@ -313,6 +315,19 @@ if [ ! -f "$JELLYFIN_ENHANCED_DLL" ]; then
   sudo install -d -o 1000 -g 1000 "$JELLYFIN_ENHANCED_DIR"
   sudo unzip -o "$tmp" -d "$JELLYFIN_ENHANCED_DIR"
   sudo chown -R 1000:1000 "$JELLYFIN_ENHANCED_DIR"
+  rm -f "$tmp"
+fi
+# Jellyfin Playback Reporting 19.0.0.0 (targetAbi 12.0.0.0)
+PLAYBACK_REPORTING_DIR="/opt/tetrapod/jellyfin/config/plugins/Playback Reporting_19.0.0.0"
+PLAYBACK_REPORTING_DLL="$PLAYBACK_REPORTING_DIR/Jellyfin.Plugin.PlaybackReporting.dll"
+if [ ! -f "$PLAYBACK_REPORTING_DLL" ]; then
+  tmp="$(mktemp)"
+  curl -fsSL -o "$tmp" \
+    https://repo.jellyfin.org/files/plugin/playback-reporting/playback-reporting_19.0.0.0.zip
+  echo "6599f6d84406e170a176d5177ddea04af682ddb2f34fe9424392f2a81a511180  $tmp" | sha256sum -c -
+  sudo install -d -o 1000 -g 1000 "$PLAYBACK_REPORTING_DIR"
+  sudo unzip -o "$tmp" -d "$PLAYBACK_REPORTING_DIR"
+  sudo chown -R 1000:1000 "$PLAYBACK_REPORTING_DIR"
   rm -f "$tmp"
 fi
 # searxng secret: generate once, survives re-runs

@@ -1,0 +1,10 @@
+[Unit]
+Description=check MIT Mail OAuth2 token health every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
