@@ -694,13 +694,24 @@ export class Renderer {
     ctx.drawImage(tag, Math.round(sx - tag.width / 2), Math.round(sy + Math.max(0.9 * s, 16 * this.dpr)));
   }
 
-  /** Keep the last few seconds of frame times, and trade resolution for smoothness if they run long. */
+  /** Keep the last few seconds of frame times, and trade resolution for smoothness only while focused. */
   private measure(ms: number): void {
     if (ms <= 0 || ms > 250) return;
+    // Unfocused or hidden browser windows throttle rAF (e.g. 30fps = 33ms in Firefox/Zen);
+    // never interpret compositor throttling as slow rendering.
+    if (document.visibilityState !== "visible" || !document.hasFocus()) {
+      this.slow = 0;
+      return;
+    }
     this.frames[this.frameCount++ % this.frames.length] = ms;
     this.slow = this.slow * 0.97 + (ms > 22 ? 1 : 0) * 0.03;
-    if (this.slow > 0.45 && this.quality > 0.5 && this.frameCount > 180) {
-      this.quality -= 0.25;
+    if (this.slow > 0.45 && this.quality > 0.75 && this.frameCount > 180) {
+      this.quality = Math.max(0.75, this.quality - 0.25);
+      this.slow = 0;
+      this.frameCount = 0;
+      this.resize();
+    } else if (this.slow < 0.05 && this.quality < 1 && this.frameCount > 120) {
+      this.quality = 1;
       this.slow = 0;
       this.frameCount = 0;
       this.resize();

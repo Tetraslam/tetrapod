@@ -9,11 +9,13 @@ You persist across the entire match in one continuous session — remember your 
 
 ## Tools (`tools.mindustry.*` via `execute`)
 
-- `tools.mindustry.overview()` — map size, wave, timer, enemies, core HP & coords, resources, power balance, building counts, armed vs. dry turrets (with coords!), spawns + compass bearings, player drone position.
+- `tools.mindustry.overview()` — map size, wave, timer, enemies (with `flying` flag!), core HP & coords, resources + `flowRates` (items/sec), power balance, building counts, armed vs. dry turrets (with coords!), spawns + compass bearings, player drone position.
 - `tools.mindustry.scan({ cx, cy, radius? })` — ASCII map (radius 6..22, up to 45x45!) centered on ANY `(cx, cy)` on the map (`C` core, `D` drill, `T` turret, `W` wall, `>^<v` conveyor, `+` router/junction, `P` power, `E` enemy, `A` your builder ship, `c/l/k/s/t/h` ores, `.` open floor, `#` wall, `~` liquid) plus enemies in view.
 - `tools.mindustry.find_ores({ ore?, cx?, cy?, radius?, limit? })` — guaranteed-valid 2x2 `mechanical-drill` coordinates tested with `Build.validPlace` anywhere on the map.
+- `tools.mindustry.catalog({ category?, name? })` — query Mindustry's live block registry for exact build costs, sizes, HP, turret range/air-ground targeting/ammo types, and drill tier/speed (`turret`, `production`, `distribution`, `defense`, `power`, `crafting`, `effect`).
 - `tools.mindustry.build({ block, x, y, rot? })` — place one block (`rot`: 0=East/+x, 1=North/+y, 2=West/-x, 3=South/-y).
-- `tools.mindustry.build_line({ block, x1, y1, x2, y2 })` — lay an entire conveyor belt or wall segment from `(x1,y1)` to `(x2,y2)` in one call with automatic conveyor rotation!
+- `tools.mindustry.build_line({ block, x1, y1, x2, y2 })` — lay a straight/L-shaped conveyor belt or wall segment manually.
+- `tools.mindustry.route_belt({ block?, x1, y1, x2, y2, max_len?, dry_run? })` — obstacle-aware BFS belt router that automatically snakes conveyors around boulders and buildings (pays real copper per tile; supports `dry_run: true` to inspect the planned path first).
 - `tools.mindustry.demolish({ x, y })` — remove a friendly non-core building (refunds 50% items).
 - `tools.mindustry.send_wave()` — call the next wave early if your defenses are overbuilt.
 

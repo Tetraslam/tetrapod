@@ -125,6 +125,11 @@ for (const col of [
   "ALTER TABLE matches ADD COLUMN output_chars INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN end_reason TEXT DEFAULT ''",
   "ALTER TABLE matches ADD COLUMN session_id TEXT DEFAULT ''",
+  "ALTER TABLE matches ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN compactions INTEGER NOT NULL DEFAULT 0",
 ]) {
   try {
     db.exec(col);
@@ -218,6 +223,7 @@ type StatePayload = {
   playing: boolean;
   core: { x: number; y: number; hp: number; maxHp: number; block: string } | null;
   items: Record<string, number>;
+  flowRates?: Record<string, number>;
   spawns: Array<{ x: number; y: number }>;
   buildings: Array<{
     x: number;
@@ -237,6 +243,7 @@ type StatePayload = {
   units: Array<{
     id: number;
     type: string;
+    flying?: boolean;
     team: string;
     x: number;
     y: number;
@@ -313,6 +320,12 @@ let matchTurns = 0;
 let matchTotalLatencyMs = 0;
 let matchPromptChars = 0;
 let matchOutputChars = 0;
+let matchInputTokens = 0;
+let matchOutputTokens = 0;
+let matchCacheReadTokens = 0;
+let matchCacheWriteTokens = 0;
+let matchCompactions = 0;
+let needsPostCompactionGrounding = false;
 let matchSnapshotSeq = 0;
 let recentActionFeedback: string[] = [];
 let recentFeed: FeedItem[] = [];
@@ -345,6 +358,17 @@ function getMetaPayload() {
     actionsFail: matchActionsFail,
     turns: matchTurns,
     avgLatencyMs: matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
+    tokens: {
+      input: matchInputTokens,
+      output: matchOutputTokens,
+      cacheRead: matchCacheReadTokens,
+      cacheWrite: matchCacheWriteTokens,
+      cacheHitPct:
+        matchInputTokens + matchCacheReadTokens > 0
+          ? Math.round((100 * matchCacheReadTokens) / (matchInputTokens + matchCacheReadTokens))
+          : 0,
+    },
+    compactions: matchCompactions,
     spectators: wsClients.size,
     queueLength: getQueue().length,
     lastCompleted: lastCompleted || null,
@@ -660,6 +684,12 @@ function startNewMatchRecord(mapName: string, st?: StatePayload): void {
   matchTotalLatencyMs = 0;
   matchPromptChars = 0;
   matchOutputChars = 0;
+  matchInputTokens = 0;
+  matchOutputTokens = 0;
+  matchCacheReadTokens = 0;
+  matchCacheWriteTokens = 0;
+  matchCompactions = 0;
+  needsPostCompactionGrounding = false;
   matchSnapshotSeq = 0;
   recentActionFeedback = [];
   if (st && st.ready) {
@@ -675,7 +705,7 @@ function finishMatchRecord(reason: string, st?: StatePayload): void {
   }
   const now = Date.now();
   db.prepare(
-    "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, status = 'completed', end_reason = ? WHERE id = ?"
+    "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, compactions = ?, status = 'completed', end_reason = ? WHERE id = ?"
   ).run(
     now,
     matchPeakWave,
@@ -686,6 +716,11 @@ function finishMatchRecord(reason: string, st?: StatePayload): void {
     matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
     matchPromptChars,
     matchOutputChars,
+    matchInputTokens,
+    matchOutputTokens,
+    matchCacheReadTokens,
+    matchCacheWriteTokens,
+    matchCompactions,
     reason,
     activeMatchId
   );
@@ -747,7 +782,9 @@ function getMatchDetail(matchId: number) {
     .query(
       `SELECT id, game, model, model_label as label, map, started_at, ended_at,
               peak_wave, blocks_built, actions_ok, actions_fail, turns,
-              avg_latency_ms, prompt_chars, output_chars, status, end_reason, last_thought
+              avg_latency_ms, prompt_chars, output_chars,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, compactions,
+              session_id, status, end_reason, last_thought
        FROM matches WHERE id = ?`
     )
     .get(matchId) as any;
@@ -865,7 +902,7 @@ function buildOverviewPayload(state: StatePayload) {
   const enemies = (state.units || [])
     .filter((u) => u.team !== "sharded")
     .slice(0, 20)
-    .map((u) => ({ type: u.type, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp }));
+    .map((u) => ({ type: u.type, flying: Boolean(u.flying), x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp }));
 
   return {
     map: state.map,
@@ -888,6 +925,7 @@ function buildOverviewPayload(state: StatePayload) {
     playerDrone: state.playerDrone,
     spawns,
     items: state.items,
+    flowRates: state.flowRates || {},
     power: state.power,
     buildingCounts: counts,
     armedTurrets: armedTurrets.slice(0, 20),
@@ -1031,6 +1069,67 @@ const handleMcp = createMcpHandler([
     },
   },
   {
+    name: "catalog",
+    description:
+      "Query Mindustry's live block registry for exact build costs, sizes, HP, turret range/air-ground targeting/ammo types, and drill tier/speed. Filter by category (turret, production, distribution, defense, power, crafting, effect) or name substring.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Optional category: turret, production, distribution, defense, power, crafting, effect" },
+        name: { type: "string", description: "Optional block name substring (e.g. 'scatter', 'graphite', 'arc')" },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const qs = new URLSearchParams();
+      if (args.category) qs.set("category", String(args.category));
+      if (args.name) qs.set("name", String(args.name));
+      return await mindustryJson(`/catalog?${qs.toString()}`);
+    },
+  },
+  {
+    name: "route_belt",
+    description:
+      "Route a 1x1 conveyor (or wall/bridge) around rocks and buildings using shortest-path BFS from (x1, y1) to (x2, y2). Still spends real core resources per tile. Supports dry_run=true to preview the path and length first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block: { type: "string", description: "1x1 block id (default 'conveyor', or 'titanium-conveyor', 'armored-conveyor')" },
+        x1: { type: "integer" },
+        y1: { type: "integer" },
+        x2: { type: "integer" },
+        y2: { type: "integer" },
+        max_len: { type: "integer", description: "Max belt tiles allowed (2..80, default 50)" },
+        dry_run: { type: "boolean", description: "If true, returns the planned path without spending copper or placing blocks" },
+      },
+      required: ["x1", "y1", "x2", "y2"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const block = String(args.block || "conveyor");
+      const x1 = Math.round(Number(args.x1));
+      const y1 = Math.round(Number(args.y1));
+      const x2 = Math.round(Number(args.x2));
+      const y2 = Math.round(Number(args.y2));
+      const maxLen = args.max_len !== undefined ? Math.round(Number(args.max_len)) : 50;
+      const dryRun = Boolean(args.dry_run);
+      const res = await mindustryJson<{ ok: boolean; built?: number; length?: number; error?: string }>("/action", {
+        type: "route_belt",
+        block,
+        x1,
+        y1,
+        x2,
+        y2,
+        maxLen,
+        dryRun,
+      });
+      if (!dryRun) {
+        recordMcpAction(`route ${block} (${x1},${y1})→(${x2},${y2})`, res, false);
+      }
+      return res;
+    },
+  },
+  {
     name: "demolish",
     description: "Remove a friendly non-core building at (x, y) and refund 50% of its items.",
     inputSchema: {
@@ -1068,6 +1167,30 @@ const handleMcp = createMcpHandler([
   },
 ]);
 
+async function buildPostCompactionGrounding(st: StatePayload): Promise<string> {
+  const core = st.core;
+  const spawns = (st.spawns || [])
+    .map((s) => `(${s.x},${s.y}) ${core ? compassDirection(core.x, core.y, s.x, s.y) : ""}`)
+    .join(", ");
+  const friendly = (st.buildings || []).filter((b) => b.team === "sharded");
+  const keyBuildings = friendly
+    .filter((b) => !b.block.includes("conveyor") && !b.block.includes("wall"))
+    .slice(0, 50)
+    .map((b) => `${b.block}@(${b.x},${b.y})${b.ammo > 0 ? `[ammo:${b.ammo}]` : ""}`)
+    .join(", ");
+  const scan = await mindustryJson<any>("/scan?r=16").catch(() => null);
+  return [
+    `[post-compaction re-grounding] your earlier conversation was compacted. here is the exact live state of your base on ${st.map} (${st.width}x${st.height}):`,
+    `core: (${core?.x},${core?.y}) ${core?.hp}/${core?.maxHp} hp | spawns: ${spawns || "unknown"}`,
+    `key structures (${friendly.length} total buildings): ${keyBuildings || "core only"}`,
+    scan?.ascii
+      ? `33x33 scan around core (x=${scan.bounds?.minX}..${scan.bounds?.maxX}, y=${scan.bounds?.minY}..${scan.bounds?.maxY}):\n${scan.ascii}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
   const core = st.core;
   const spawns = (st.spawns || [])
@@ -1079,6 +1202,7 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
   );
   const armed = turrets.filter((t) => t.ammo > 0 || t.block === "arc" || t.block === "lancer").length;
   const dry = turrets.length - armed;
+  const airEnemies = (st.units || []).filter((u) => u.team !== "sharded" && u.flying).length;
 
   if (isFirstTurn) {
     return [
@@ -1088,19 +1212,22 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
     ].join("\n");
   }
 
+  const flows = st.flowRates || {};
   const itemDeltas = ["copper", "lead", "graphite", "coal", "silicon", "titanium"]
-    .filter((k) => (st.items[k] || 0) > 0 || (prevTurnItems[k] || 0) > 0)
+    .filter((k) => (st.items[k] || 0) > 0 || (prevTurnItems[k] || 0) > 0 || (flows[k] || 0) > 0)
     .map((k) => {
       const cur = st.items[k] || 0;
       const diff = cur - (prevTurnItems[k] || 0);
-      return `${k}=${cur}${diff !== 0 ? `(${diff > 0 ? "+" : ""}${diff})` : ""}`;
+      const rate = flows[k] ? `, ${flows[k]}/s` : "";
+      return `${k}=${cur}${diff !== 0 || rate ? `(${diff >= 0 ? "+" : ""}${diff}${rate})` : ""}`;
     })
     .join(" ");
 
   const hpDiff = (core?.hp ?? 0) - prevTurnCoreHp;
   const hpNote = hpDiff !== 0 ? ` (${hpDiff > 0 ? "+" : ""}${hpDiff})` : "";
+  const airNote = airEnemies > 0 ? ` (${airEnemies} AIR)` : "";
 
-  return `[tick] wave ${st.wave} (next in ${Math.ceil(st.waveTime)}s) | enemies: ${st.enemies} | core: ${core?.hp ?? 0}/${core?.maxHp ?? 0}${hpNote} | ${itemDeltas || "items: none"} | power: +${st.power.produced}/-${st.power.consumed} | turrets: ${armed} armed, ${dry} dry. take your next tactical move (or pass briefly if saving resources).`;
+  return `[tick] wave ${st.wave} (next in ${Math.ceil(st.waveTime)}s) | enemies: ${st.enemies}${airNote} | core: ${core?.hp ?? 0}/${core?.maxHp ?? 0}${hpNote} | ${itemDeltas || "items: none"} | power: +${st.power.produced}/-${st.power.consumed} | turrets: ${armed} armed, ${dry} dry. take your next tactical move (or pass briefly if saving resources).`;
 }
 
 async function runAiTurn(force = false): Promise<void> {
@@ -1114,7 +1241,12 @@ async function runAiTurn(force = false): Promise<void> {
   const isFirstTurn = matchTurns === 0;
   try {
     const sid = await ensureMatchSession(latestState.map);
-    const prompt = formatDeltaPrompt(latestState, isFirstTurn);
+    let prompt = formatDeltaPrompt(latestState, isFirstTurn);
+    if (!isFirstTurn && needsPostCompactionGrounding) {
+      needsPostCompactionGrounding = false;
+      const grounding = await buildPostCompactionGrounding(latestState);
+      prompt = `${grounding}\n\n${prompt}`;
+    }
     prevTurnItems = { ...(latestState.items || {}) };
     prevTurnCoreHp = latestState.core.hp;
 
@@ -1151,7 +1283,7 @@ async function runAiTurn(force = false): Promise<void> {
 
     if (activeMatchId !== null) {
       db.prepare(
-        "UPDATE matches SET peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, last_thought = ? WHERE id = ?"
+        "UPDATE matches SET peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, compactions = ?, last_thought = ? WHERE id = ?"
       ).run(
         matchPeakWave,
         matchBlocksBuilt,
@@ -1161,6 +1293,11 @@ async function runAiTurn(force = false): Promise<void> {
         Math.round(matchTotalLatencyMs / matchTurns),
         matchPromptChars,
         matchOutputChars,
+        matchInputTokens,
+        matchOutputTokens,
+        matchCacheReadTokens,
+        matchCacheWriteTokens,
+        matchCompactions,
         thought,
         activeMatchId
       );
@@ -1327,6 +1464,71 @@ async function pollFactorio(): Promise<void> {
   }
 }
 
+async function startOpencodeEventListener(): Promise<void> {
+  while (true) {
+    try {
+      const auth = await getOcAuthHeader();
+      const headers: Record<string, string> = { accept: "text/event-stream" };
+      if (auth) headers.authorization = auth;
+      const resp = await fetch(`${OPENCODE_URL}/api/event`, { headers });
+      if (!resp.ok || !resp.body) throw new Error(`SSE HTTP ${resp.status}`);
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const dataLines = frame
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim());
+          if (dataLines.length === 0) continue;
+          try {
+            const evt = JSON.parse(dataLines.join("\n"));
+            const evType = String(evt?.type || "");
+            const data = evt?.data || evt?.properties || evt;
+            const sid = data?.sessionID;
+            if (!sid || sid !== activeSessionId) continue;
+
+            if (evType === "session.compaction.ended") {
+              matchCompactions++;
+              needsPostCompactionGrounding = true;
+              pushFeed("system", "session compacted — full map orientation queued for next turn", undefined, "ARENA");
+            } else if (evType === "session.usage.updated" || evType === "session.usage.recorded") {
+              const t = data?.tokens;
+              if (t && typeof t === "object") {
+                if (evType === "session.usage.updated") {
+                  // Cumulative session token usage snapshot
+                  matchInputTokens = Math.max(matchInputTokens, Number(t.input || 0));
+                  matchOutputTokens = Math.max(matchOutputTokens, Number(t.output || 0));
+                  matchCacheReadTokens = Math.max(matchCacheReadTokens, Number(t.cache?.read || 0));
+                  matchCacheWriteTokens = Math.max(matchCacheWriteTokens, Number(t.cache?.write || 0));
+                } else {
+                  matchInputTokens += Number(t.input || 0);
+                  matchOutputTokens += Number(t.output || 0);
+                  matchCacheReadTokens += Number(t.cache?.read || 0);
+                  matchCacheWriteTokens += Number(t.cache?.write || 0);
+                }
+              }
+            }
+          } catch {
+            // ignore keepalives
+          }
+        }
+      }
+    } catch {
+      await Bun.sleep(4000);
+    }
+  }
+}
+
+void startOpencodeEventListener();
 void refreshActiveRoster();
 setInterval(() => void refreshActiveRoster(), 60_000);
 setInterval(() => void pollMindustry(), 300);
@@ -1458,7 +1660,12 @@ const server = Bun.serve({
                   COALESCE(SUM(turns), 0) as total_turns,
                   COALESCE(SUM(blocks_built), 0) as total_blocks,
                   COALESCE(SUM(prompt_chars), 0) as total_prompt_chars,
-                  COALESCE(SUM(output_chars), 0) as total_output_chars
+                  COALESCE(SUM(output_chars), 0) as total_output_chars,
+                  COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                  COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                  COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+                  COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens,
+                  COALESCE(SUM(compactions), 0) as total_compactions
            FROM matches`
         )
         .get();

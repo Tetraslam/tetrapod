@@ -30,16 +30,21 @@ import mindustry.world.Block;
 import mindustry.world.Build;
 import mindustry.world.Tile;
 import mindustry.world.blocks.defense.turrets.BaseTurret;
+import mindustry.world.blocks.defense.turrets.ItemTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
 import mindustry.world.blocks.distribution.Conveyor;
+import mindustry.world.blocks.production.Drill;
 import mindustry.world.blocks.storage.CoreBlock;
+import mindustry.world.meta.BuildVisibility;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -76,6 +81,7 @@ public class ArenaBridgePlugin extends Plugin {
             server.createContext("/tactical", this::handleTactical);
             server.createContext("/scan", this::handleScan);
             server.createContext("/ores", this::handleOres);
+            server.createContext("/catalog", this::handleCatalog);
             server.createContext("/maps", this::handleMaps);
             server.createContext("/action", this::handleAction);
             server.setExecutor(Executors.newFixedThreadPool(4));
@@ -432,6 +438,66 @@ public class ArenaBridgePlugin extends Plugin {
         }
     }
 
+    private void handleCatalog(HttpExchange ex) throws IOException {
+        try {
+            HashMap<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
+            String catFilter = q.getOrDefault("category", "").trim().toLowerCase();
+            String nameFilter = q.getOrDefault("name", "").trim().toLowerCase();
+            String json = onMainThread(() -> {
+                StringBuilder sb = new StringBuilder(8192);
+                sb.append("{\"blocks\":[");
+                boolean first = true;
+                for (Block b : Vars.content.blocks()) {
+                    if (b == null || b.name == null || b.requirements == null || b.requirements.length == 0) continue;
+                    if (b.buildVisibility == BuildVisibility.hidden || b.buildVisibility == BuildVisibility.sandboxOnly || b.buildVisibility == BuildVisibility.editorOnly) continue;
+                    String cat = b.category != null ? b.category.name().toLowerCase() : "other";
+                    if (!catFilter.isEmpty() && !cat.equals(catFilter)) continue;
+                    if (!nameFilter.isEmpty() && !b.name.toLowerCase().contains(nameFilter)) continue;
+                    if (!first) sb.append(',');
+                    first = false;
+                    sb.append("{\"name\":\"").append(esc(b.name))
+                      .append("\",\"category\":\"").append(esc(cat))
+                      .append("\",\"size\":").append(b.size)
+                      .append(",\"hp\":").append(b.health)
+                      .append(",\"costs\":{");
+                    for (int i = 0; i < b.requirements.length; i++) {
+                        ItemStack s = b.requirements[i];
+                        if (i > 0) sb.append(',');
+                        sb.append('"').append(esc(s.item.name)).append("\":").append(s.amount);
+                    }
+                    sb.append('}');
+                    if (b instanceof BaseTurret bt) {
+                        sb.append(",\"range\":").append(Math.round(bt.range / 8f));
+                    }
+                    if (b instanceof Turret t) {
+                        sb.append(",\"targetAir\":").append(t.targetAir)
+                          .append(",\"targetGround\":").append(t.targetGround);
+                    }
+                    if (b instanceof ItemTurret it && it.ammoTypes != null) {
+                        sb.append(",\"ammo\":[");
+                        boolean fa = true;
+                        for (Item am : it.ammoTypes.keys()) {
+                            if (!fa) sb.append(',');
+                            fa = false;
+                            sb.append('"').append(esc(am.name)).append('"');
+                        }
+                        sb.append(']');
+                    }
+                    if (b instanceof Drill d) {
+                        sb.append(",\"tier\":").append(d.tier)
+                          .append(",\"drillTime\":").append(Math.round(d.drillTime));
+                    }
+                    sb.append('}');
+                }
+                sb.append("]}");
+                return sb.toString();
+            });
+            sendJson(ex, 200, json);
+        } catch (Exception e) {
+            sendJson(ex, 500, "{\"error\":\"" + esc(e.toString()) + "\"}");
+        }
+    }
+
     private void handleTactical(HttpExchange ex) throws IOException {
         try {
             String json = onMainThread(() -> {
@@ -760,9 +826,19 @@ public class ArenaBridgePlugin extends Plugin {
                             sb.append('"').append(esc(item.name)).append("\":").append(amt);
                         }
                     }
+                    sb.append("},\"flowRates\":{");
+                    boolean firstFlow = true;
+                    for (Item item : Vars.content.items()) {
+                        float rate = core.items.getFlowRate(item);
+                        if (rate > 0.05f) {
+                            if (!firstFlow) sb.append(',');
+                            firstFlow = false;
+                            sb.append('"').append(esc(item.name)).append("\":").append(Math.round(rate * 10f) / 10f);
+                        }
+                    }
                     sb.append('}');
                 } else {
-                    sb.append(",\"core\":null,\"items\":{}");
+                    sb.append(",\"core\":null,\"items\":{},\"flowRates\":{}");
                 }
 
                 // Spawns
@@ -871,7 +947,8 @@ public class ArenaBridgePlugin extends Plugin {
                     firstU = false;
                     sb.append("{\"id\":").append(u.id)
                       .append(",\"type\":\"").append(esc(u.type != null ? u.type.name : "unit"))
-                      .append("\",\"team\":\"").append(esc(u.team.name))
+                      .append("\",\"flying\":").append(u.type != null && u.type.flying)
+                      .append(",\"team\":\"").append(esc(u.team.name))
                       .append("\",\"x\":").append(Math.round(u.x / 8f * 10f) / 10f)
                       .append(",\"y\":").append(Math.round(u.y / 8f * 10f) / 10f)
                       .append(",\"hp\":").append(Math.round(u.health))
@@ -1018,6 +1095,133 @@ public class ArenaBridgePlugin extends Plugin {
                             return "{\"ok\":false,\"built\":0,\"error\":\"" + esc(lastErr != null ? lastErr : "nothing built") + "\"}";
                         }
                         return "{\"ok\":true,\"built\":" + built + ",\"skipped\":" + skipped + "}";
+                    }
+                    case "route_belt" -> {
+                        String blockName = req.getString("block", "conveyor");
+                        int x1 = req.getInt("x1", -1);
+                        int y1 = req.getInt("y1", -1);
+                        int x2 = req.getInt("x2", -1);
+                        int y2 = req.getInt("y2", -1);
+                        int maxLen = Math.max(2, Math.min(80, req.getInt("maxLen", 50)));
+                        boolean dryRun = req.getBoolean("dryRun", false);
+
+                        Block block = Vars.content.block(blockName);
+                        if (block == null || block.size != 1 || block.requirements == null || block.requirements.length == 0) {
+                            return "{\"ok\":false,\"error\":\"route_belt requires a 1x1 buildable block\"}";
+                        }
+                        int w = Vars.world.width();
+                        int h = Vars.world.height();
+                        if (x1 < 0 || y1 < 0 || x1 >= w || y1 >= h || x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) {
+                            return "{\"ok\":false,\"error\":\"coordinates out of bounds\"}";
+                        }
+
+                        // BFS shortest obstacle-avoiding path; target tile (x2,y2) may be an existing building (e.g. core/router/turret)
+                        // in which case we stop at the adjacent buildable tile facing into (x2,y2).
+                        boolean endIsBuilding = Vars.world.tile(x2, y2) != null && Vars.world.tile(x2, y2).build != null;
+                        int[] dxs = {1, 0, -1, 0};
+                        int[] dys = {0, 1, 0, -1};
+                        HashMap<Integer, Integer> parent = new HashMap<>();
+                        ArrayDeque<Integer> queue = new ArrayDeque<>();
+
+                        // Start from (x1,y1) if buildable, else its buildable neighbors (e.g. if user passed a drill's tile)
+                        if (Build.validPlace(block, Team.sharded, x1, y1, 0)) {
+                            int sk = y1 * w + x1;
+                            parent.put(sk, -1);
+                            queue.add(sk);
+                        } else {
+                            for (int d = 0; d < 4; d++) {
+                                int nx = x1 + dxs[d], ny = y1 + dys[d];
+                                if (nx >= 0 && ny >= 0 && nx < w && ny < h && Build.validPlace(block, Team.sharded, nx, ny, 0)) {
+                                    int sk = ny * w + nx;
+                                    if (!parent.containsKey(sk)) {
+                                        parent.put(sk, -1);
+                                        queue.add(sk);
+                                    }
+                                }
+                            }
+                        }
+
+                        int foundKey = -1;
+                        int visitedCap = 3500;
+                        int visited = 0;
+                        while (!queue.isEmpty() && visited++ < visitedCap) {
+                            int cur = queue.poll();
+                            int cx = cur % w, cy = cur / w;
+                            if (cx == x2 && cy == y2) {
+                                foundKey = cur;
+                                break;
+                            }
+                            if (endIsBuilding && Math.abs(cx - x2) + Math.abs(cy - y2) == 1) {
+                                foundKey = cur;
+                                break;
+                            }
+                            for (int d = 0; d < 4; d++) {
+                                int nx = cx + dxs[d], ny = cy + dys[d];
+                                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                                int nk = ny * w + nx;
+                                if (parent.containsKey(nk)) continue;
+                                if (!Build.validPlace(block, Team.sharded, nx, ny, 0)) continue;
+                                // Bounding box sanity so BFS stays local
+                                if (Math.abs(nx - x1) + Math.abs(ny - y1) > maxLen + 12) continue;
+                                parent.put(nk, cur);
+                                queue.add(nk);
+                            }
+                        }
+
+                        if (foundKey == -1) {
+                            return "{\"ok\":false,\"error\":\"no unobstructed belt path from (" + x1 + "," + y1 + ") to (" + x2 + "," + y2 + ")\"}";
+                        }
+
+                        List<int[]> path = new ArrayList<>();
+                        int k = foundKey;
+                        while (k != -1) {
+                            path.add(new int[]{k % w, k / w, 0});
+                            k = parent.getOrDefault(k, -1);
+                        }
+                        Collections.reverse(path);
+                        if (path.size() > maxLen) {
+                            return "{\"ok\":false,\"error\":\"path length " + path.size() + " exceeds maxLen " + maxLen + "\"}";
+                        }
+                        for (int idx = 0; idx < path.size(); idx++) {
+                            int px = path.get(idx)[0], py = path.get(idx)[1];
+                            int tx = (idx + 1 < path.size()) ? path.get(idx + 1)[0] : x2;
+                            int ty = (idx + 1 < path.size()) ? path.get(idx + 1)[1] : y2;
+                            int dx = tx - px, dy = ty - py;
+                            int rot = 0;
+                            if (dx > 0) rot = 0;
+                            else if (dy > 0) rot = 1;
+                            else if (dx < 0) rot = 2;
+                            else if (dy < 0) rot = 3;
+                            else if (idx > 0) rot = path.get(idx - 1)[2];
+                            path.get(idx)[2] = rot;
+                        }
+
+                        if (dryRun) {
+                            StringBuilder psb = new StringBuilder("{\"ok\":true,\"dryRun\":true,\"length\":" + path.size() + ",\"path\":[");
+                            for (int idx = 0; idx < path.size(); idx++) {
+                                if (idx > 0) psb.append(',');
+                                psb.append('[').append(path.get(idx)[0]).append(',').append(path.get(idx)[1]).append(',').append(path.get(idx)[2]).append(']');
+                            }
+                            psb.append("]}");
+                            return psb.toString();
+                        }
+
+                        int built = 0;
+                        String lastErr = null;
+                        for (int[] step : path) {
+                            String err = buildOne(blockName, step[0], step[1], step[2]);
+                            if (err == null) built++;
+                            else {
+                                lastErr = err;
+                                if (err.startsWith("insufficient resources")) break;
+                            }
+                        }
+                        if (built == 0) {
+                            return "{\"ok\":false,\"built\":0,\"error\":\"" + esc(lastErr != null ? lastErr : "nothing built") + "\"}";
+                        }
+                        int[] lastStep = path.get(path.size() - 1);
+                        return "{\"ok\":true,\"built\":" + built + ",\"length\":" + path.size()
+                            + ",\"end\":{\"x\":" + lastStep[0] + ",\"y\":" + lastStep[1] + "}}";
                     }
                     case "demolish" -> {
                         int x = req.getInt("x", -1);
