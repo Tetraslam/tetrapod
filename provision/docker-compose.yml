@@ -119,20 +119,6 @@ services:
       retries: 3
     mem_limit: 256m
 
-  steel:
-    # heavy fallback when lightpanda's engine trips on a js-heavy page.
-    # only publishes :latest, so pinned by digest (update deliberately).
-    image: ghcr.io/steel-dev/steel-browser-api@sha256:a58dd308875116fd5828c148d02c887075a2fd9dc3216eeeede64dce1277b23b
-    restart: unless-stopped
-    # api + CDP: ws://tetrapod:3003 (sessions api on http://tetrapod:3003)
-    ports:
-      - "3003:3000"
-    environment:
-      CHROME_HEADLESS: "true"
-    volumes:
-      - /opt/tetrapod/steel/.cache:/app/.cache
-    mem_limit: 3g
-
   # ------------------------------------------------------------ media stack
   # library + downloads live on the 4TB sc1 volume (/srv/media). everything
   # tailnet-only via the SG. flow: prowlarr feeds indexers to sonarr/radarr,

@@ -42,7 +42,6 @@ HTTP_MONITORS = [
     ("flaresolverr", f"http://{HOST}:8191/", None),
     ("searxng", f"http://{HOST}:8888/", None),
     ("ntfy", "https://ntfy.tetraslam.world/v1/health", None),
-    ("steel", f"http://{HOST}:3003/v1/health", None),
     ("jellyfin", f"http://{HOST}:8096/health", None),
     ("seerr", f"http://{HOST}:5055/api/v1/settings/public", None),
     ("qbittorrent", f"http://{HOST}:8081/", None),
@@ -61,7 +60,7 @@ TCP_MONITORS = [
     ("MIT Mail SMTP", HOST, 1465),
 ]
 PUSH_MONITORS = [
-    ("nullclaw", 120, "/opt/tetrapod/nullclaw-kuma-push.env", "root"),
+    ("kestrel", 120, "/opt/tetrapod/kestrel-kuma-push.env", "root"),
     ("MIT Mail Auth", 1800, "/opt/tetrapod/mit-mail-kuma-push.env", "tetraslam"),
 ]
 
@@ -77,12 +76,15 @@ def main() -> None:
     api.login(opa("username"), opa("password"))
 
     existing = {m["name"]: m for m in api.get_monitors()}
+    default_notifs = [n["id"] for n in api.get_notifications() if n.get("isDefault")]
     created = []
 
     def ensure(name, **kwargs):
         if name in existing:
             print(f"  = {name} (exists, id {existing[name]['id']})")
             return existing[name]
+        if default_notifs and "notificationIDList" not in kwargs:
+            kwargs["notificationIDList"] = default_notifs
         m = api.add_monitor(name=name, **kwargs)
         mid = m["monitorID"]
         existing[name] = {"id": mid, "name": name}
@@ -102,9 +104,9 @@ def main() -> None:
         ensure(name, type=MonitorType.PUSH, interval=interval, maxretries=1)
 
     # push URLs for local timers (tokens only land in mode-600 env files)
-    all_monitors = {m["name"]: m for m in api.get_monitors()}
     for name, _interval, env_path, owner in PUSH_MONITORS:
-        push = all_monitors.get(name)
+        mid = existing[name]["id"]
+        push = api.get_monitor(mid)
         if push and push.get("pushToken"):
             env = f"KUMA_PUSH_URL={KUMA_URL}/api/push/{push['pushToken']}?status=up&msg=OK\n"
             subprocess.run(["sudo", "tee", env_path], input=env, text=True, check=True, stdout=subprocess.DEVNULL)

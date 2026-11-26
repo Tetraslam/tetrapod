@@ -1,0 +1,123 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "update": "disable",
+  "model": "claude-agent/opus",
+  "permissions": [
+    {
+      "action": "*",
+      "resource": "*",
+      "effect": "allow"
+    },
+    {
+      "action": "question",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "websearch",
+      "resource": "*",
+      "effect": "deny"
+    }
+  ],
+  "plugins": [
+    {
+      "package": "./artifacts",
+      "options": {
+        "url": "{file:~/.config/opencode/zipline-url}",
+        "token": "{file:~/.config/opencode/zipline-token}"
+      }
+    },
+    {
+      "package": "./tell"
+    },
+    {
+      "package": "./mise-shims"
+    }
+  ],
+  "agents": {
+    "explore": {
+      "model": "claude-agent/haiku"
+    },
+    "general": {
+      "model": "claude-agent/sonnet"
+    },
+    "title": {
+      "model": "claude-agent/haiku"
+    }
+  },
+  "providers": {
+    "claude-agent": {
+      "models": {
+        "fable": {
+          "limit": {
+            "context": 1000000
+          }
+        }
+      }
+    },
+    "openrouter": {
+      "env": ["OPENROUTER_API_KEY"]
+    }
+  },
+  "mcp": {
+    "servers": {
+      "searxng": {
+        "type": "remote",
+        "url": "http://127.0.0.1:8890/mcp"
+      },
+      "alphaxiv": {
+        "type": "remote",
+        "url": "https://api.alphaxiv.org/mcp/v1",
+        "headers": {
+          "Authorization": "Bearer {file:~/.config/opencode/alphaxiv-api-key}"
+        }
+      },
+      "context7": {
+        "type": "local",
+        "command": ["npx", "-y", "@upstash/context7-mcp@latest"],
+        "environment": {
+          "CONTEXT7_API_KEY": "{file:~/.config/opencode/context7-api-key}"
+        }
+      },
+      "firecrawl": {
+        "type": "remote",
+        "url": "https://mcp.firecrawl.dev/v2/mcp",
+        "headers": {
+          "Authorization": "Bearer {file:~/.config/opencode/firecrawl-api-key}"
+        }
+      },
+      "ntfy": {
+        "type": "local",
+        "command": ["/usr/local/bin/ntfy-mcp"]
+      },
+      "linear": {
+        "type": "remote",
+        "url": "https://mcp.linear.app/mcp",
+        "disabled": true
+      },
+      "notion": {
+        "type": "remote",
+        "url": "https://mcp.notion.com/mcp",
+        "disabled": true
+      },
+      "github": {
+        "type": "remote",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "disabled": true
+      },
+      "financialdatasets": {
+        "type": "remote",
+        "url": "https://mcp.financialdatasets.ai/",
+        "disabled": true
+      },
+      "x": {
+        "type": "local",
+        "command": ["xurl", "mcp"],
+        "disabled": true
+      }
+    }
+  },
+  "experimental": {
+    "artifacts": true
+  }
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Kestrel Discord bridge to OpenCode V2
+After=network-online.target opencode-serve.service
+Wants=network-online.target opencode-serve.service
+
+[Service]
+Type=simple
+User=tetraslam
+Group=tetraslam
+WorkingDirectory=/opt/tetrapod/kestrel-discord
+Environment=HOME=/home/tetraslam
+Environment=OPENCODE_URL=http://127.0.0.1:4096
+Environment=HEALTH_PORT=4097
+Environment=KESTREL_STATE_DIR=/opt/tetrapod/kestrel
+Environment=PATH=/home/tetraslam/.local/share/mise/shims:/home/tetraslam/.bun/bin:/home/tetraslam/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/opt/tetrapod/kestrel-discord.env
+ExecStart=/home/tetraslam/.local/share/mise/shims/bun run /opt/tetrapod/kestrel-discord/index.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

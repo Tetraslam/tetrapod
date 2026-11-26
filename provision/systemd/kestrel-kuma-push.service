@@ -1,0 +1,8 @@
+[Unit]
+Description=push Kestrel (OpenCode V2 + Discord bridge) health to Uptime Kuma
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/tetrapod/kestrel-kuma-push.env
+ExecStart=/bin/bash -c 'curl -fsS -m 5 http://127.0.0.1:4097/health >/dev/null && curl -fsS -m 10 "$KUMA_PUSH_URL" >/dev/null'
