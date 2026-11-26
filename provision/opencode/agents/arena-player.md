@@ -19,6 +19,7 @@ You persist across the entire match in one continuous session, so you keep full 
 - `tools.mindustry.demolish({ x, y })` — remove a friendly non-core building (refunds 50% items).
 - `tools.mindustry.set_plan({ goals: [{ text, status?, x?, y? }] })` — update your high-level plan board (allows up to 8 short items; `status`: `'active' | 'done' | 'blocked'`; optional tile coords `x`, `y`). persists across turns, survives compaction, and appears on the board.
 - `tools.mindustry.snapshot({ mode?, cx?, cy?, radius?, width?, grid?, ranges?, labels?, ores?, power?, enemies? })` — render an on-demand PNG image of the battlefield (`mode`: `'base' | 'whole_map' | 'spawn_to_core' | 'region'`, optional turret ranges, coordinate rulers, power beams, and labels).
+- `tools.mindustry.ship({ mode, x?, y?, ore? })` — control your core builder ship (`'idle'` passive default orbiting the core, `'move'` fly passively to `x, y`, `'defend'` enable weapons and guard `x, y` or core, `'mine'` hand-mine `'copper'` or `'lead'` into the core).
 - `tools.mindustry.send_wave()` — call the next wave early.
 
 ## Neutral Game Mechanics

@@ -11,8 +11,11 @@ import arc.util.serialization.JsonValue;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import mindustry.Vars;
+import mindustry.ai.types.FlyingAI;
+import mindustry.ai.types.MinerAI;
 import mindustry.content.UnitTypes;
 import mindustry.core.GameState;
+import mindustry.entities.units.UnitController;
 import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
@@ -55,6 +58,18 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class ArenaBridgePlugin extends Plugin {
+    private static class PassiveController implements UnitController {
+        private Unit unit;
+        @Override public void unit(Unit u) { this.unit = u; }
+        @Override public Unit unit() { return unit; }
+        @Override public void updateUnit() {
+            if (unit != null) {
+                unit.controlWeapons(false);
+                unit.mineTile = null;
+            }
+        }
+    }
+
     private HttpServer server;
     private Unit aiDrone;
     private float droneTargetX = -1f;
@@ -64,6 +79,10 @@ public class ArenaBridgePlugin extends Plugin {
     private String buildBeamBlock = "";
     private long buildBeamUntil = 0L;
     private float patrolAngle = 0f;
+    private String shipMode = "idle"; // idle | move | defend | mine
+    private float shipGoalX = -1f;
+    private float shipGoalY = -1f;
+    private String shipMineOre = "";
 
     @Override
     public void init() {
@@ -73,6 +92,10 @@ public class ArenaBridgePlugin extends Plugin {
             droneTargetX = -1f;
             droneTargetY = -1f;
             buildBeamUntil = 0L;
+            shipMode = "idle";
+            shipGoalX = -1f;
+            shipGoalY = -1f;
+            shipMineOre = "";
         });
         try {
             int port = Integer.parseInt(System.getenv().getOrDefault("ARENA_BRIDGE_PORT", "6568"));
@@ -94,46 +117,93 @@ public class ArenaBridgePlugin extends Plugin {
         }
     }
 
+    private void applyShipController() {
+        if (aiDrone == null || aiDrone.dead()) return;
+        switch (shipMode) {
+            case "mine" -> {
+                MinerAI miner = new MinerAI();
+                Item target = Vars.content.item(shipMineOre);
+                if (target != null) miner.targetItem = target;
+                aiDrone.controller(miner);
+            }
+            case "defend" -> aiDrone.controller(new FlyingAI());
+            default -> aiDrone.controller(new PassiveController());
+        }
+    }
+
     private void updateAiDrone() {
         if (Vars.state == null || !Vars.state.isPlaying() || Vars.state.gameOver) return;
         CoreBlock.CoreBuild core = Team.sharded.core();
         if (core == null) return;
 
         if (aiDrone == null || aiDrone.dead() || !aiDrone.isAdded()) {
-            UnitType shipType = UnitTypes.alpha;
-            if (core.block != null && core.block.name != null) {
-                if (core.block.name.contains("nucleus")) shipType = UnitTypes.gamma;
-                else if (core.block.name.contains("foundation")) shipType = UnitTypes.beta;
+            // Adopt an existing Sharded core ship (e.g. after save/load) before spawning a new one
+            for (Unit u : Groups.unit) {
+                if (u == null || u.dead() || u.team != Team.sharded || u.type == null) continue;
+                String un = u.type.name;
+                if ("alpha".equals(un) || "beta".equals(un) || "gamma".equals(un)) {
+                    aiDrone = u;
+                    break;
+                }
             }
-            aiDrone = shipType.spawn(Team.sharded, core.x, core.y);
+            if (aiDrone == null) {
+                UnitType shipType = UnitTypes.alpha;
+                if (core.block != null && core.block.name != null) {
+                    if (core.block.name.contains("nucleus")) shipType = UnitTypes.gamma;
+                    else if (core.block.name.contains("foundation")) shipType = UnitTypes.beta;
+                }
+                aiDrone = shipType.spawn(Team.sharded, core.x, core.y);
+            }
             droneTargetX = core.x;
             droneTargetY = core.y;
+            applyShipController();
         }
 
         long now = System.currentTimeMillis();
-        float tx = droneTargetX;
-        float ty = droneTargetY;
-        if (now > buildBeamUntil + 3500L || tx < 0f) {
-            // Patrol smoothly around core or shadow nearest enemy unit
+        boolean buildingNow = now <= buildBeamUntil && droneTargetX >= 0f;
+
+        // In mine mode, let Mindustry's native MinerAI fly & deposit unless actively welding a new block
+        if ("mine".equals(shipMode) && !buildingNow) {
+            if (!(aiDrone.controller() instanceof MinerAI)) applyShipController();
+            return;
+        }
+
+        float tx;
+        float ty;
+        if (buildingNow) {
+            tx = droneTargetX;
+            ty = droneTargetY;
+        } else if ("move".equals(shipMode) && shipGoalX >= 0f) {
+            tx = shipGoalX;
+            ty = shipGoalY;
+        } else if ("defend".equals(shipMode)) {
+            float anchorX = shipGoalX >= 0f ? shipGoalX : core.x;
+            float anchorY = shipGoalY >= 0f ? shipGoalY : core.y;
             Unit nearestEnemy = null;
-            float bestDist = 260f * 260f;
+            float bestDist = 280f * 280f;
             for (Unit u : Groups.unit) {
                 if (u == null || u.dead() || u.team == Team.sharded) continue;
-                float d2 = Mathf.dst2(core.x, core.y, u.x, u.y);
+                float d2 = Mathf.dst2(anchorX, anchorY, u.x, u.y);
                 if (d2 < bestDist) {
                     bestDist = d2;
                     nearestEnemy = u;
                 }
             }
             if (nearestEnemy != null) {
-                float ang = Angles.angle(nearestEnemy.x, nearestEnemy.y, core.x, core.y);
-                tx = nearestEnemy.x + Angles.trnsx(ang, 56f);
-                ty = nearestEnemy.y + Angles.trnsy(ang, 56f);
+                // Safe weapon-range standoff (~15 tiles) instead of face-tanking at 7 tiles
+                float ang = Angles.angle(nearestEnemy.x, nearestEnemy.y, anchorX, anchorY);
+                tx = nearestEnemy.x + Angles.trnsx(ang, 120f);
+                ty = nearestEnemy.y + Angles.trnsy(ang, 120f);
             } else {
-                patrolAngle = (patrolAngle + 0.55f) % 360f;
-                tx = core.x + Angles.trnsx(patrolAngle, 52f);
-                ty = core.y + Angles.trnsy(patrolAngle, 52f);
+                patrolAngle = (patrolAngle + 0.5f) % 360f;
+                tx = anchorX + Angles.trnsx(patrolAngle, 48f);
+                ty = anchorY + Angles.trnsy(patrolAngle, 48f);
             }
+        } else {
+            // Passive default ("idle"): gently orbit safely around the core
+            patrolAngle = (patrolAngle + 0.55f) % 360f;
+            tx = core.x + Angles.trnsx(patrolAngle, 52f);
+            ty = core.y + Angles.trnsy(patrolAngle, 52f);
         }
 
         float dx = tx - aiDrone.x;
@@ -144,10 +214,12 @@ public class ArenaBridgePlugin extends Plugin {
             float vx = (dx / dist) * speed;
             float vy = (dy / dist) * speed;
             aiDrone.vel.lerp(vx, vy, 0.22f);
-            aiDrone.rotation = Angles.moveToward(aiDrone.rotation, Angles.angle(dx, dy), 9f);
+            if (!"defend".equals(shipMode)) {
+                aiDrone.rotation = Angles.moveToward(aiDrone.rotation, Angles.angle(dx, dy), 9f);
+            }
         } else {
             aiDrone.vel.scl(0.85f);
-            if (now <= buildBeamUntil && buildBeamX >= 0) {
+            if (buildingNow && buildBeamX >= 0) {
                 float bAng = Angles.angle(aiDrone.x, aiDrone.y, buildBeamX * 8f, buildBeamY * 8f);
                 aiDrone.rotation = Angles.moveToward(aiDrone.rotation, bAng, 12f);
             }
@@ -985,6 +1057,7 @@ public class ArenaBridgePlugin extends Plugin {
                 if (aiDrone != null && !aiDrone.dead() && aiDrone.isAdded()) {
                     sb.append(",\"playerDrone\":{\"id\":").append(aiDrone.id)
                       .append(",\"type\":\"").append(esc(aiDrone.type != null ? aiDrone.type.name : "alpha"))
+                      .append("\",\"mode\":\"").append(esc(shipMode))
                       .append("\",\"x\":").append(Math.round(aiDrone.x / 8f * 10f) / 10f)
                       .append(",\"y\":").append(Math.round(aiDrone.y / 8f * 10f) / 10f)
                       .append(",\"hp\":").append(Math.round(aiDrone.health))
@@ -1265,6 +1338,45 @@ public class ArenaBridgePlugin extends Plugin {
                             Call.sendMessage("[accent][AI][] " + msg);
                         }
                         return "{\"ok\":true}";
+                    }
+                    case "ship" -> {
+                        String mode = req.getString("mode", "idle").trim().toLowerCase();
+                        if (!mode.equals("idle") && !mode.equals("move") && !mode.equals("defend") && !mode.equals("mine")) {
+                            return "{\"ok\":false,\"error\":\"invalid ship mode (use idle, move, defend, or mine)\"}";
+                        }
+                        if (mode.equals("move")) {
+                            int x = req.getInt("x", -1);
+                            int y = req.getInt("y", -1);
+                            if (x < 0 || y < 0 || x >= Vars.world.width() || y >= Vars.world.height()) {
+                                return "{\"ok\":false,\"error\":\"move requires valid x and y\"}";
+                            }
+                            shipGoalX = x * 8f;
+                            shipGoalY = y * 8f;
+                        } else if (mode.equals("defend")) {
+                            int x = req.getInt("x", -1);
+                            int y = req.getInt("y", -1);
+                            if (x >= 0 && y >= 0 && x < Vars.world.width() && y < Vars.world.height()) {
+                                shipGoalX = x * 8f;
+                                shipGoalY = y * 8f;
+                            } else {
+                                shipGoalX = -1f;
+                                shipGoalY = -1f;
+                            }
+                        } else if (mode.equals("mine")) {
+                            String ore = req.getString("ore", "copper").trim().toLowerCase();
+                            Item item = Vars.content.item(ore);
+                            if (item == null) {
+                                return "{\"ok\":false,\"error\":\"unknown ore: " + esc(ore) + "\"}";
+                            }
+                            shipMineOre = ore;
+                        } else {
+                            shipGoalX = -1f;
+                            shipGoalY = -1f;
+                            shipMineOre = "";
+                        }
+                        shipMode = mode;
+                        applyShipController();
+                        return "{\"ok\":true,\"mode\":\"" + esc(shipMode) + "\"}";
                     }
                     case "relink_power" -> {
                         int linked = 0;

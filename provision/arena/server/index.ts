@@ -1284,6 +1284,38 @@ const handleMcp = createMcpHandler([
     },
   },
   {
+    name: "ship",
+    description:
+      "Control your core builder ship (alpha/beta/gamma). Default mode is 'idle' (passive, orbits core safely, does not shoot). Modes: 'idle' (passive), 'move' (fly passively to x,y), 'defend' (enable weapons and guard around x,y or core at standoff range), 'mine' (hand-mine ore such as 'copper' or 'lead' into the core).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mode: { type: "string", enum: ["idle", "move", "defend", "mine"] },
+        x: { type: "integer", description: "Target tile X (required for 'move', optional anchor for 'defend')" },
+        y: { type: "integer", description: "Target tile Y (required for 'move', optional anchor for 'defend')" },
+        ore: { type: "string", description: "Ore name for 'mine' mode (e.g. 'copper' or 'lead', default 'copper')" },
+      },
+      required: ["mode"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const mode = String(args.mode || "idle");
+      const payload: Record<string, unknown> = { type: "ship", mode };
+      if (args.x !== undefined) payload.x = Math.round(Number(args.x));
+      if (args.y !== undefined) payload.y = Math.round(Number(args.y));
+      if (args.ore !== undefined) payload.ore = String(args.ore);
+      const res = await mindustryJson<{ ok: boolean; mode?: string; error?: string }>("/action", payload);
+      const suffix =
+        mode === "mine"
+          ? ` ${args.ore || "copper"}`
+          : args.x !== undefined && args.y !== undefined
+            ? ` @(${Math.round(Number(args.x))},${Math.round(Number(args.y))})`
+            : "";
+      recordMcpAction(`ship ${mode}${suffix}`, res, false);
+      return res;
+    },
+  },
+  {
     name: "send_wave",
     description: "Trigger the next enemy wave immediately.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
