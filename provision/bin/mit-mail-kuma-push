@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import configparser
+import imaplib
 import os
 import subprocess
 import sys
@@ -17,6 +18,9 @@ from pathlib import Path
 
 import msal
 
+IMAP_HOST = "tetrapod.tailc27667.ts.net"
+IMAP_PORT = 1993
+PASSWORD_REF = "op://Agents/MIT Mail Proxy/password"
 IMAP_CACHE = Path("/var/lib/email-oauth2-proxy/emailproxy.cache")
 SMTP_CACHE = Path("/var/lib/mit-graph-smtp/token-cache.json")
 CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
@@ -60,30 +64,18 @@ def check_imap() -> str | None:
     cfg.read(IMAP_CACHE)
     if ACCOUNT not in cfg or not cfg[ACCOUNT].get("refresh_token"):
         return "IMAP OAuth2 refresh_token missing (run mit-imap-authorize)"
-    # Check recent logs for token refresh failures after the last successful login/refresh
-    logs = subprocess.run(
-        [
-            "journalctl",
-            "-u",
-            "email-oauth2-proxy.service",
-            "--since",
-            "30 minutes ago",
-            "--no-pager",
-            "-o",
-            "cat",
-        ],
-        capture_output=True,
-        text=True,
-    ).stdout
-    last_err = -1
-    last_ok = -1
-    for i, line in enumerate(logs.splitlines()):
-        if "TokenRefreshError" in line or "please authorise a request for account" in line:
-            last_err = i
-        if "Successfully refreshed access token" in line or "Authorisation succeeded" in line:
-            last_ok = i
-    if last_err > last_ok:
-        return "IMAP OAuth2 refresh failed (run mit-imap-authorize)"
+    # Verify real end-to-end IMAP LOGIN (exercises OAuth2 token refresh live)
+    try:
+        pw = subprocess.run(
+            ["opa", "read", PASSWORD_REF], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=15)
+        typ, _ = imap.login(ACCOUNT, pw)
+        imap.logout()
+        if typ != "OK":
+            return f"IMAP login returned {typ} (run mit-imap-authorize)"
+    except Exception as exc:
+        return f"IMAP OAuth2 login failed: {str(exc)[:120]} (run mit-imap-authorize)"
     return None
 
 

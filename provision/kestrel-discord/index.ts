@@ -1,12 +1,17 @@
 import {
   ChannelType,
+  type ChatInputCommandInteraction,
   Client,
   GatewayIntentBits,
   type Message,
   Partials,
+  REST,
+  Routes,
   type SendableChannels,
+  SlashCommandBuilder,
+  type ThreadChannel,
 } from "discord.js";
-import { mkdir, rename, stat, writeFile, readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 const OPENCODE_URL = (process.env.OPENCODE_URL || "http://127.0.0.1:4096").replace(/\/+$/, "");
@@ -22,7 +27,17 @@ const MENTION_EXEMPT = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
-const DEFAULT_MODEL = process.env.KESTREL_DEFAULT_MODEL || "openai/gpt-6.2-astra";
+const DEFAULT_MODEL = process.env.KESTREL_DEFAULT_MODEL || "claude-agent/opus";
+
+const MODEL_CHOICES = [
+  { name: "Opus 5.5 (claude-agent/opus · default)", value: "claude-agent/opus" },
+  { name: "Fable 5.2 (claude-agent/fable)", value: "claude-agent/fable" },
+  { name: "Sonnet 5.5 (claude-agent/sonnet)", value: "claude-agent/sonnet" },
+  { name: "Haiku 5.5 (claude-agent/haiku)", value: "claude-agent/haiku" },
+  { name: "GPT-6.2 Astra (openai/gpt-6.2-astra)", value: "openai/gpt-6.2-astra" },
+  { name: "GPT-6.1 Terra (openai/gpt-6.1-terra)", value: "openai/gpt-6.1-terra" },
+  { name: "GPT-6.2 Sol (openai/gpt-6.2-sol)", value: "openai/gpt-6.2-sol" },
+];
 
 if (!DISCORD_TOKEN) {
   console.error("kestrel-discord: DISCORD_TOKEN is required");
@@ -98,8 +113,7 @@ async function ocFetch(path: string, init: RequestInit = {}): Promise<Response> 
   if (init.body && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
-  const resp = await fetch(`${OPENCODE_URL}${path}`, { ...init, headers });
-  return resp;
+  return await fetch(`${OPENCODE_URL}${path}`, { ...init, headers });
 }
 
 async function ocJson<T = any>(path: string, init: RequestInit = {}): Promise<T> {
@@ -159,7 +173,6 @@ function startTyping(channelId: string, channel: SendableChannels): void {
     channel.sendTyping().catch(() => {});
   }, 8000);
   typingTimers.set(channelId, timer);
-  // Safety cap so typing never sticks forever
   setTimeout(() => stopTyping(channelId), 10 * 60 * 1000);
 }
 
@@ -236,6 +249,44 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
+async function registerSlashCommands(): Promise<void> {
+  if (!client.user) return;
+  const commands = [
+    new SlashCommandBuilder().setName("new").setDescription("Start a fresh OpenCode V2 session in this channel or thread"),
+    new SlashCommandBuilder()
+      .setName("model")
+      .setDescription("Show or switch Kestrel's model for this channel/thread")
+      .addStringOption((opt) =>
+        opt
+          .setName("model")
+          .setDescription("Subscription model ticker (omit to view current)")
+          .setRequired(false)
+          .addChoices(...MODEL_CHOICES)
+      ),
+    new SlashCommandBuilder()
+      .setName("thread")
+      .setDescription("Create a new Discord thread with its own clean OpenCode session")
+      .addStringOption((opt) =>
+        opt.setName("topic").setDescription("Thread name / initial prompt").setRequired(true)
+      ),
+    new SlashCommandBuilder().setName("status").setDescription("Show OpenCode version, model, session ID, and MCP health"),
+    new SlashCommandBuilder().setName("abort").setDescription("Interrupt Kestrel's currently running turn"),
+    new SlashCommandBuilder().setName("help").setDescription("How to use Kestrel, threads, and slash commands"),
+  ].map((c) => c.toJSON());
+
+  const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
+  // Register globally (for DMs) + per-guild (instant updates in servers like softmax!)
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch((e) =>
+    console.error("kestrel-discord: global slash command registration failed:", e)
+  );
+  for (const guild of client.guilds.cache.values()) {
+    await rest
+      .put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands })
+      .then(() => console.log(`kestrel-discord: registered slash commands in guild ${guild.name}`))
+      .catch((e) => console.error(`kestrel-discord: guild slash registration failed (${guild.name}):`, e));
+  }
+}
+
 async function deliverPendingReplies(sessionID: string, errorMsg?: string): Promise<void> {
   const channelId = findChannelBySession(sessionID);
   if (!channelId) return;
@@ -265,6 +316,7 @@ async function deliverPendingReplies(sessionID: string, errorMsg?: string): Prom
     const assistantMsgs = messages
       .filter((m) => m.type === "assistant")
       .sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
+
     let startIdx = 0;
     if (entry.lastDeliveredMessageID) {
       const lastIdx = assistantMsgs.findIndex((m) => m.id === entry.lastDeliveredMessageID);
@@ -340,10 +392,7 @@ async function startEventStream(): Promise<void> {
               evt?.data?.sessionID ||
               evt?.sessionID;
             if (!sessionID) continue;
-            if (
-              evType === "session.execution.succeeded" ||
-              evType === "session.idle"
-            ) {
+            if (evType === "session.execution.succeeded" || evType === "session.idle") {
               void deliverPendingReplies(sessionID);
             } else if (evType === "session.execution.failed") {
               const errMsg =
@@ -354,7 +403,7 @@ async function startEventStream(): Promise<void> {
               void deliverPendingReplies(sessionID, String(errMsg));
             }
           } catch {
-            // ignore non-JSON keepalives
+            // ignore keepalives
           }
         }
       }
@@ -378,7 +427,7 @@ async function downloadAttachments(message: Message): Promise<string[]> {
       await writeFile(dest, buf);
       saved.push(dest);
     } catch {
-      // ignore failed downloads
+      // ignore
     }
   }
   return saved;
@@ -388,6 +437,11 @@ function shouldRespond(message: Message): boolean {
   if (message.author.bot || message.system) return false;
   if (message.channel.type === ChannelType.DM) return true;
   if (MENTION_EXEMPT.has(message.channelId)) return true;
+  if (message.channel.isThread()) {
+    // Once Kestrel has a session in a thread (or the thread is under #botmaxxing), reply without requiring @mention
+    if (state.channels[message.channelId]) return true;
+    if (message.channel.parentId && MENTION_EXEMPT.has(message.channel.parentId)) return true;
+  }
   if (client.user && message.mentions.has(client.user)) return true;
   if (message.reference?.messageId && message.mentions.repliedUser?.id === client.user?.id) {
     return true;
@@ -395,7 +449,182 @@ function shouldRespond(message: Message): boolean {
   return false;
 }
 
-async function handleCommand(message: Message, rawText: string): Promise<boolean> {
+async function fetchRecentHistory(message: Message, afterDiscordId?: string): Promise<string> {
+  const lines: string[] = [];
+  try {
+    // If this is the first turn in a Discord thread, pull the starter message it branched from!
+    if (!afterDiscordId && message.channel.isThread()) {
+      const starter = await (message.channel as ThreadChannel).fetchStarterMessage().catch(() => null);
+      if (starter && starter.id !== message.id) {
+        const who = starter.author.id === client.user?.id ? "kestrel" : `@${starter.author.username}`;
+        const body = (starter.content || "").replace(/\s+/g, " ").trim().slice(0, 400);
+        if (body) lines.push(`[thread starter] ${who}: ${body}`);
+      }
+    }
+    const fetched = await message.channel.messages.fetch({ limit: 15, before: message.id });
+    let items = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    if (afterDiscordId) {
+      const idx = items.findIndex((m) => m.id === afterDiscordId);
+      if (idx >= 0) items = items.slice(idx + 1);
+    }
+    for (const m of items) {
+      const who = m.author.id === client.user?.id ? "kestrel" : `@${m.author.username}`;
+      const body = (m.content || "").replace(/\s+/g, " ").trim().slice(0, 280);
+      const att = m.attachments.size > 0 ? ` [${m.attachments.size} attachment(s)]` : "";
+      if (body || att) lines.push(`${who}: ${body}${att}`);
+    }
+  } catch {
+    // ignore fetch issues
+  }
+  if (lines.length === 0) return "";
+  return `[recent discord messages in this channel]\n${lines.join("\n")}\n[end recent history]\n`;
+}
+
+async function getStatusText(channelId: string): Promise<string> {
+  const info = await ocJson<any>("/api/info");
+  const mcp = await ocJson<any>("/api/mcp").catch(() => null);
+  const entry = state.channels[channelId];
+  const mcpList = Array.isArray(mcp?.data || mcp)
+    ? (mcp?.data || mcp)
+        .filter((s: any) => s?.status?.type !== "disabled")
+        .map((s: any) => `${s.name}:${s.status?.type || "?"}`)
+        .join(", ")
+    : "n/a";
+  return [
+    `opencode: \`${info?.version || "v2"}\` | model: \`${entry?.model || DEFAULT_MODEL}\``,
+    `session: \`${entry?.sessionID || "none yet"}\``,
+    `mcp: ${mcpList}`,
+  ].join("\n");
+}
+
+const HELP_TEXT = [
+  "`/new` — fresh opencode session for this channel/thread",
+  "`/model [ticker]` — show or switch model (opus-5, fable-5-2, sonnet-5, gpt-6.2-astra, ...)",
+  "`/thread <topic>` — open a dedicated Discord thread + isolated opencode session",
+  "`/status` — opencode version, active model, session ID, MCPs",
+  "`/abort` — interrupt current run",
+  "threads: create a thread off any message and mention `@kestrel` once; kestrel reads the starter message and tracks follow-ups automatically without needing more mentions.",
+].join("\n");
+
+async function sendPromptToSession(
+  channelId: string,
+  channel: SendableChannels,
+  entry: ChannelState,
+  promptText: string
+): Promise<void> {
+  startTyping(channelId, channel);
+  const active = await ocJson<any>("/api/session/active").catch(() => null);
+  const activeList = Array.isArray(active?.data) ? active.data : Array.isArray(active) ? active : [];
+  const isRunning = activeList.some((s: any) => s?.id === entry.sessionID || s?.sessionID === entry.sessionID);
+
+  await ocJson(`/api/session/${entry.sessionID}/prompt`, {
+    method: "POST",
+    body: JSON.stringify({
+      text: promptText,
+      delivery: isRunning ? "steer" : "queue",
+    }),
+  });
+
+  void ocFetch(`/api/experimental/session/${entry.sessionID}/wait`, { method: "POST" })
+    .then(() => deliverPendingReplies(entry.sessionID))
+    .catch(() => {});
+}
+
+async function handleSlashCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const cmd = interaction.commandName;
+  const channelId = interaction.channelId;
+  const channelLabel =
+    interaction.channel?.type === ChannelType.DM
+      ? `dm-${interaction.user.username}`
+      : interaction.channel && "name" in interaction.channel && interaction.channel.name
+        ? `#${interaction.channel.name}`
+        : channelId;
+
+  if (cmd === "help") {
+    await interaction.reply({ content: HELP_TEXT, ephemeral: true });
+    return;
+  }
+
+  if (cmd === "new") {
+    await interaction.deferReply();
+    const prevModel = state.channels[channelId]?.model || DEFAULT_MODEL;
+    const sessionID = await createSession(channelLabel, prevModel);
+    state.channels[channelId] = { sessionID, model: prevModel };
+    await saveState();
+    await interaction.editReply(`fresh session \`${sessionID}\` (\`${prevModel}\`)`);
+    return;
+  }
+
+  if (cmd === "model") {
+    await interaction.deferReply();
+    const arg = interaction.options.getString("model");
+    const entry = await ensureChannelSession(channelId, channelLabel);
+    if (!arg) {
+      await interaction.editReply(`current model: \`${entry.model || DEFAULT_MODEL}\` (session \`${entry.sessionID}\`)`);
+      return;
+    }
+    const ref = parseModelRef(arg);
+    if (!ref) {
+      await interaction.editReply("invalid model format — expected `provider/model`");
+      return;
+    }
+    await ocJson(`/api/session/${entry.sessionID}/model`, {
+      method: "POST",
+      body: JSON.stringify({ model: ref }),
+    });
+    entry.model = arg;
+    await saveState();
+    await interaction.editReply(`switched session \`${entry.sessionID}\` to \`${arg}\``);
+    return;
+  }
+
+  if (cmd === "abort") {
+    await interaction.deferReply();
+    const entry = state.channels[channelId];
+    if (!entry) {
+      await interaction.editReply("no active session in this channel");
+      return;
+    }
+    await ocJson(`/api/session/${entry.sessionID}/interrupt`, { method: "POST" });
+    stopTyping(channelId);
+    await interaction.editReply(`interrupted \`${entry.sessionID}\``);
+    return;
+  }
+
+  if (cmd === "status") {
+    await interaction.deferReply();
+    await interaction.editReply(await getStatusText(channelId));
+    return;
+  }
+
+  if (cmd === "thread") {
+    const topic = interaction.options.getString("topic", true).trim();
+    const ch = interaction.channel;
+    if (!ch || !("threads" in ch) || ch.isThread()) {
+      await interaction.reply({ content: "run `/thread` in a regular server text channel.", ephemeral: true });
+      return;
+    }
+    await interaction.deferReply();
+    const thread = await ch.threads.create({
+      name: topic.slice(0, 90),
+      autoArchiveDuration: 1440,
+    });
+    const sessionID = await createSession(`#${thread.name}`, DEFAULT_MODEL);
+    const entry: ChannelState = { sessionID, model: DEFAULT_MODEL };
+    state.channels[thread.id] = entry;
+    await saveState();
+    await interaction.editReply(`opened thread <#${thread.id}> (\`${sessionID}\` · \`${DEFAULT_MODEL}\`)`);
+    await sendPromptToSession(
+      thread.id,
+      thread,
+      entry,
+      `[discord thread #${thread.name} | @${interaction.user.username}]: ${topic}`
+    );
+    return;
+  }
+}
+
+async function handleBangCommand(message: Message, rawText: string): Promise<boolean> {
   const trimmed = rawText.trim();
   if (!trimmed.startsWith("!")) return false;
   const [cmd, ...rest] = trimmed.split(/\s+/);
@@ -408,26 +637,17 @@ async function handleCommand(message: Message, rawText: string): Promise<boolean
         : message.channelId;
 
   if (cmd === "!help") {
-    await message.reply(
-      [
-        "`!new` — fresh opencode session for this channel",
-        "`!model [provider/id]` — show or switch model (e.g. `claude-agent/opus`, `claude-agent/fable`, `openrouter/google/gemini-4-neon`)",
-        "`!abort` — interrupt current run",
-        "`!status` — opencode + mcp + session status",
-      ].join("\n")
-    );
+    await message.reply(HELP_TEXT);
     return true;
   }
-
   if (cmd === "!new") {
     const prevModel = state.channels[message.channelId]?.model || DEFAULT_MODEL;
     const sessionID = await createSession(channelLabel, prevModel);
     state.channels[message.channelId] = { sessionID, model: prevModel };
     await saveState();
-    await message.reply(`fresh session \`${sessionID}\` (${prevModel})`);
+    await message.reply(`fresh session \`${sessionID}\` (\`${prevModel}\`)`);
     return true;
   }
-
   if (cmd === "!model") {
     const entry = await ensureChannelSession(message.channelId, channelLabel);
     if (!arg) {
@@ -436,7 +656,7 @@ async function handleCommand(message: Message, rawText: string): Promise<boolean
     }
     const ref = parseModelRef(arg);
     if (!ref) {
-      await message.reply("usage: `!model provider/model` (example: `!model claude-agent/fable`)");
+      await message.reply("usage: `!model provider/model`");
       return true;
     }
     await ocJson(`/api/session/${entry.sessionID}/model`, {
@@ -448,7 +668,6 @@ async function handleCommand(message: Message, rawText: string): Promise<boolean
     await message.reply(`switched session \`${entry.sessionID}\` to \`${arg}\``);
     return true;
   }
-
   if (cmd === "!abort") {
     const entry = state.channels[message.channelId];
     if (!entry) {
@@ -460,58 +679,33 @@ async function handleCommand(message: Message, rawText: string): Promise<boolean
     await message.reply(`interrupted \`${entry.sessionID}\``);
     return true;
   }
-
   if (cmd === "!status") {
-    const info = await ocJson<any>("/api/info");
-    const mcp = await ocJson<any>("/api/mcp").catch(() => null);
-    const entry = state.channels[message.channelId];
-    const mcpList = Array.isArray(mcp?.data || mcp)
-      ? (mcp?.data || mcp)
-          .filter((s: any) => s?.status?.type !== "disabled")
-          .map((s: any) => `${s.name}:${s.status?.type || "?"}`)
-          .join(", ")
-      : "n/a";
-    await message.reply(
-      [
-        `opencode: \`${info?.version || "v2"}\` | model: \`${entry?.model || DEFAULT_MODEL}\``,
-        `session: \`${entry?.sessionID || "none yet"}\``,
-        `mcp: ${mcpList}`,
-      ].join("\n")
-    );
+    await message.reply(await getStatusText(message.channelId));
     return true;
   }
-
   return false;
 }
 
-client.on("ready", () => {
+client.on("clientReady", () => {
   discordReady = true;
   console.log(`kestrel-discord: logged in as ${client.user?.tag}`);
+  void registerSlashCommands();
 });
 
-async function fetchRecentHistory(message: Message, afterDiscordId?: string): Promise<string> {
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
   try {
-    const fetched = await message.channel.messages.fetch({ limit: 15, before: message.id });
-    let items = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    if (afterDiscordId) {
-      const idx = items.findIndex((m) => m.id === afterDiscordId);
-      if (idx >= 0) items = items.slice(idx + 1);
+    await handleSlashCommand(interaction);
+  } catch (err: any) {
+    console.error("kestrel-discord: slash command error:", err);
+    const msg = `command error: ${String(err?.message || err).slice(0, 400)}`;
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(msg).catch(() => {});
+    } else {
+      await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
     }
-    if (items.length === 0) return "";
-    const lines = items
-      .map((m) => {
-        const who = m.author.id === client.user?.id ? "kestrel" : `@${m.author.username}`;
-        const body = (m.content || "").replace(/\s+/g, " ").trim().slice(0, 280);
-        const att = m.attachments.size > 0 ? ` [${m.attachments.size} attachment(s)]` : "";
-        return body || att ? `${who}: ${body}${att}` : "";
-      })
-      .filter(Boolean);
-    if (lines.length === 0) return "";
-    return `[recent discord messages in this channel]\n${lines.join("\n")}\n[end recent history]\n`;
-  } catch {
-    return "";
   }
-}
+});
 
 client.on("messageCreate", async (message) => {
   if (!shouldRespond(message)) return;
@@ -522,7 +716,7 @@ client.on("messageCreate", async (message) => {
   }
 
   try {
-    if (await handleCommand(message, text)) return;
+    if (await handleBangCommand(message, text)) return;
 
     const channelLabel =
       message.channel.type === ChannelType.DM
@@ -554,26 +748,8 @@ client.on("messageCreate", async (message) => {
     if (!promptText) return;
 
     if (message.channel.isTextBased() && "sendTyping" in message.channel) {
-      startTyping(message.channelId, message.channel as SendableChannels);
+      await sendPromptToSession(message.channelId, message.channel as SendableChannels, entry, promptText);
     }
-
-    // Check if session is currently running so we steer instead of stalling
-    const active = await ocJson<any>("/api/session/active").catch(() => null);
-    const activeList = Array.isArray(active?.data) ? active.data : Array.isArray(active) ? active : [];
-    const isRunning = activeList.some((s: any) => s?.id === entry.sessionID || s?.sessionID === entry.sessionID);
-
-    await ocJson(`/api/session/${entry.sessionID}/prompt`, {
-      method: "POST",
-      body: JSON.stringify({
-        text: promptText,
-        delivery: isRunning ? "steer" : "queue",
-      }),
-    });
-
-    // Safety fallback: wait on the turn in the background in case SSE missed an event
-    void ocFetch(`/api/experimental/session/${entry.sessionID}/wait`, { method: "POST" })
-      .then(() => deliverPendingReplies(entry.sessionID))
-      .catch(() => {});
   } catch (err: any) {
     stopTyping(message.channelId);
     console.error("kestrel-discord: message handling error:", err);
@@ -581,7 +757,6 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// Health server for Uptime Kuma push timer
 Bun.serve({
   hostname: "127.0.0.1",
   port: HEALTH_PORT,

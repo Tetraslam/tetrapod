@@ -16,9 +16,9 @@ cp "$HERE/opencode/opencode.json" "$HOME/.config/opencode/opencode.json"
 cp "$HERE/opencode/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
 cp "$HERE/opencode/package.json" "$HOME/.config/opencode/package.json"
 rm -rf "$HOME/.config/opencode/artifacts" "$HOME/.config/opencode/tell" "$HOME/.config/opencode/mise-shims" \
-       "$HOME/.config/opencode/agents" "$HOME/.config/opencode/skills" "$HOME/.config/opencode/commands"
+       "$HOME/.config/opencode/agents" "$HOME/.config/opencode/skills" "$HOME/.config/opencode/commands" "$HOME/.config/opencode/context"
 cp -r "$HERE/opencode/artifacts" "$HERE/opencode/tell" "$HERE/opencode/mise-shims" \
-      "$HERE/opencode/agents" "$HERE/opencode/skills" "$HERE/opencode/commands" "$HOME/.config/opencode/"
+      "$HERE/opencode/agents" "$HERE/opencode/skills" "$HERE/opencode/commands" "$HERE/opencode/context" "$HOME/.config/opencode/"
 rm -rf "$HOME/.agents/skills/agent-browser"
 cp -r "$HERE/opencode/skills/agent-browser" "$HOME/.agents/skills/agent-browser"
 
@@ -57,7 +57,7 @@ fi
 {
   printf 'DISCORD_TOKEN=%s\n' "$DISCORD_TOKEN"
   printf 'MENTION_EXEMPT_CHANNELS=1475401568173162578\n'
-  printf 'KESTREL_DEFAULT_MODEL=openai/gpt-6.2-astra\n'
+  printf 'KESTREL_DEFAULT_MODEL=claude-agent/opus\n'
 } | sudo tee /opt/tetrapod/kestrel-discord.env >/dev/null
 sudo chown tetraslam:tetraslam /opt/tetrapod/kestrel-discord.env
 sudo chmod 600 /opt/tetrapod/kestrel-discord.env
