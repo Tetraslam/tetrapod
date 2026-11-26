@@ -2748,3 +2748,10 @@ a.cell[href]:hover .lbl {
     font-size: 24px;
   }
 }
+
+/* the map is most of the page, so its focus ring is a hairline, not a frame that reads as a mode */
+#map:focus-visible,
+#mMap:focus-visible {
+  outline: 1px solid var(--ink-3);
+  outline-offset: -1px;
+}

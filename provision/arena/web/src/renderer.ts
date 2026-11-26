@@ -482,7 +482,13 @@ export class Renderer {
     const t = world.terrain!;
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 0.42;
-    ctx.drawImage(t.oreMap, 0, 0, t.w, t.h);
+    // Only the part of the ore picture that is on screen, not the whole map scaled up.
+    const r = this.viewRect();
+    const x0 = Math.max(0, Math.floor(r.x));
+    const y0 = Math.max(0, Math.floor(r.y));
+    const x1 = Math.min(t.w, Math.ceil(r.x + r.w));
+    const y1 = Math.min(t.h, Math.ceil(r.y + r.h));
+    if (x1 > x0 && y1 > y0) ctx.drawImage(t.oreMap, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
     ctx.globalAlpha = 1;
     ctx.imageSmoothingEnabled = this.cam.z * this.dpr < 30;
     const mh = world.h;
