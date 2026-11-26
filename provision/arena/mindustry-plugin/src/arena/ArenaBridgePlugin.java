@@ -33,6 +33,7 @@ import mindustry.world.blocks.defense.turrets.BaseTurret;
 import mindustry.world.blocks.defense.turrets.ItemTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
 import mindustry.world.blocks.distribution.Conveyor;
+import mindustry.world.blocks.power.PowerNode;
 import mindustry.world.blocks.production.Drill;
 import mindustry.world.blocks.storage.CoreBlock;
 import mindustry.world.meta.BuildVisibility;
@@ -1264,6 +1265,20 @@ public class ArenaBridgePlugin extends Plugin {
                             Call.sendMessage("[accent][AI][] " + msg);
                         }
                         return "{\"ok\":true}";
+                    }
+                    case "relink_power" -> {
+                        int linked = 0;
+                        int w = Vars.world.width();
+                        int h = Vars.world.height();
+                        for (int idx = 0; idx < w * h; idx++) {
+                            Tile t = Vars.world.tile(idx % w, idx / w);
+                            if (t == null || t.build == null || t.build.tile != t) continue;
+                            if (t.build.team == Team.sharded && t.build instanceof PowerNode.PowerNodeBuild) {
+                                t.build.placed();
+                                linked++;
+                            }
+                        }
+                        return "{\"ok\":true,\"nodes\":" + linked + "}";
                     }
                     case "set_paused" -> {
                         boolean wantPaused = req.getBoolean("paused", false);

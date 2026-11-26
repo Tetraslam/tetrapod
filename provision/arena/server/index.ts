@@ -1378,6 +1378,9 @@ async function runAiTurn(force = false): Promise<void> {
   const isFirstTurn = matchTurns === 0;
   try {
     const sid = await ensureMatchSession(latestState.map);
+    if (!lastSessionDeliveredMsgId && matchTurns > 0) {
+      await readNewAssistantText(sid).catch(() => {});
+    }
     let prompt = formatDeltaPrompt(latestState, isFirstTurn);
     if (!isFirstTurn && needsPostCompactionGrounding) {
       needsPostCompactionGrounding = false;
@@ -1665,6 +1668,55 @@ async function startOpencodeEventListener(): Promise<void> {
   }
 }
 
+function tryRestorePlayingMatch(): void {
+  const row = db
+    .query(
+      `SELECT id, model, map, peak_wave, blocks_built, actions_ok, actions_fail, turns,
+              avg_latency_ms, prompt_chars, output_chars, input_tokens, output_tokens,
+              cache_read_tokens, cache_write_tokens, compactions, plan_json, session_id
+       FROM matches WHERE status = 'playing' ORDER BY id DESC LIMIT 1`
+    )
+    .get() as any;
+  if (!row) return;
+  activeMatchId = Number(row.id);
+  activeContender = makeContender(String(row.model));
+  activeSessionId = row.session_id ? String(row.session_id) : null;
+  matchPeakWave = Number(row.peak_wave || 1);
+  matchBlocksBuilt = Number(row.blocks_built || 0);
+  matchActionsOk = Number(row.actions_ok || 0);
+  matchActionsFail = Number(row.actions_fail || 0);
+  matchTurns = Number(row.turns || 0);
+  matchTotalLatencyMs = Number(row.avg_latency_ms || 0) * matchTurns;
+  matchPromptChars = Number(row.prompt_chars || 0);
+  matchOutputChars = Number(row.output_chars || 0);
+  matchInputTokens = Number(row.input_tokens || 0);
+  matchOutputTokens = Number(row.output_tokens || 0);
+  matchCacheReadTokens = Number(row.cache_read_tokens || 0);
+  matchCacheWriteTokens = Number(row.cache_write_tokens || 0);
+  matchCompactions = Number(row.compactions || 0);
+  try {
+    currentPlan = JSON.parse(row.plan_json || "[]");
+  } catch {
+    currentPlan = [];
+  }
+  const snapRow = db.query("SELECT COALESCE(MAX(seq), 0) as s FROM match_snapshots WHERE match_id = ?").get(activeMatchId) as any;
+  matchSnapshotSeq = Number(snapRow?.s || 0);
+  const feedRows = db
+    .query("SELECT id, ts, kind, model, text, actions_json FROM feed_events WHERE match_id = ? ORDER BY id DESC LIMIT 35")
+    .all(activeMatchId) as any[];
+  recentFeed = feedRows.reverse().map((r) => ({
+    id: Number(r.id),
+    ts: Number(r.ts),
+    kind: r.kind,
+    model: r.model || undefined,
+    text: String(r.text || ""),
+    actions: r.actions_json ? JSON.parse(r.actions_json) : undefined,
+  }));
+  arenaIdle = false;
+  console.log(`restored in-progress match #${activeMatchId} (${activeContender.id} on ${row.map}, session=${activeSessionId})`);
+}
+
+tryRestorePlayingMatch();
 void startOpencodeEventListener();
 void refreshActiveRoster();
 setInterval(() => void refreshActiveRoster(), 60_000);
