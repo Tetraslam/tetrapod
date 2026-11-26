@@ -355,6 +355,8 @@ main {
 
 /* ---------- stage ---------- */
 .stage {
+  grid-column: 1;
+  grid-row: 2;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -752,6 +754,8 @@ main {
 
 /* ---------- the brain ---------- */
 .brain {
+  grid-column: 2;
+  grid-row: 1 / -1;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
@@ -1251,15 +1255,15 @@ main {
 /* ---------- small screens ---------- */
 @media (max-width: 1180px) {
   :root {
-    --brain-w: 340px;
+    --brain-w: 330px;
   }
 
   .board {
-    grid-template-columns: minmax(240px, 1.6fr) 80px 124px 92px 132px minmax(110px, 1fr);
+    grid-template-columns: minmax(170px, 1.4fr) 68px 104px 76px 112px minmax(92px, 1fr);
   }
 
   .cell {
-    padding-inline: 12px;
+    padding-inline: 10px;
   }
 }
 
