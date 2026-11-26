@@ -1208,7 +1208,7 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
     return [
       `match #${activeMatchId} started on ${st.map} (${st.width}x${st.height}).`,
       `core: (${core?.x},${core?.y}) ${core?.hp}/${core?.maxHp} hp | spawns: ${spawns || "unknown"} | starting items: ${JSON.stringify(st.items)}.`,
-      `use tools.mindustry.find_ores and tools.mindustry.scan inside execute to scout the map and lay down your opening copper drills and armed defense line, then summarize your opening in 1-2 short lowercase sentences.`,
+      `scout the map with tools.mindustry.* inside execute, plan your build, and begin defending your core.`,
     ].join("\n");
   }
 
