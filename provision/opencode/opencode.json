@@ -43,6 +43,13 @@
     },
     "title": {
       "model": "claude-agent/haiku"
+    },
+    "arena-player": {
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "execute", "resource": "*", "effect": "allow" },
+        { "action": "mindustry_*", "resource": "*", "effect": "allow" }
+      ]
     }
   },
   "providers": {
@@ -64,6 +71,10 @@
       "searxng": {
         "type": "remote",
         "url": "http://127.0.0.1:8890/mcp"
+      },
+      "mindustry": {
+        "type": "remote",
+        "url": "http://127.0.0.1:6570/mcp"
       },
       "alphaxiv": {
         "type": "remote",

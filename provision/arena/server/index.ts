@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import type { ServerWebSocket } from "bun";
+import { createMcpHandler } from "./mcp";
 import { factorioRcon } from "./rcon";
 
 const PORT = Number(process.env.ARENA_PORT || "6570");
@@ -123,6 +124,7 @@ for (const col of [
   "ALTER TABLE matches ADD COLUMN prompt_chars INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN output_chars INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN end_reason TEXT DEFAULT ''",
+  "ALTER TABLE matches ADD COLUMN session_id TEXT DEFAULT ''",
 ]) {
   try {
     db.exec(col);
@@ -289,6 +291,13 @@ let rosterIdx = 0;
 let mapIdx = 0;
 let activeContender: Contender = ROSTER[0];
 let activeMatchId: number | null = null;
+let activeSessionId: string | null = null;
+let lastSessionDeliveredMsgId: string | null = null;
+let currentTurnActions: NonNullable<FeedItem["actions"]> = [];
+let prevTurnItems: Record<string, number> = {};
+let prevTurnCoreHp = 0;
+let lastSteeredWave = 1;
+let lastSteeredCoreHp = 0;
 let arenaIdle = config.mode === "paused";
 let aiPaused = config.mode === "paused";
 let aiBusy = false;
@@ -490,25 +499,114 @@ async function refreshActiveRoster(): Promise<void> {
   }
 }
 
-async function callOpenCodeGenerate(modelSpec: string, prompt: string): Promise<string> {
+async function ocRequest<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const auth = await getOcAuthHeader();
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string> | undefined),
+  };
   if (auth) headers.authorization = auth;
-  const resp = await fetch(`${OPENCODE_URL}/api/experimental/generate/text`, {
-    method: "POST",
+  if (init.body && !headers["content-type"]) {
+    headers["content-type"] = "application/json";
+  }
+  const resp = await fetch(`${OPENCODE_URL}${path}`, {
+    ...init,
     headers,
-    body: JSON.stringify({
-      model: parseModelRef(modelSpec),
-      prompt,
-    }),
-    signal: AbortSignal.timeout(45_000),
+    signal: init.signal ?? AbortSignal.timeout(90_000),
   });
   if (!resp.ok) {
     const txt = await resp.text().catch(() => "");
-    throw new Error(`OpenCode generate ${resp.status}: ${txt.slice(0, 200)}`);
+    throw new Error(`OpenCode ${init.method || "GET"} ${path} -> ${resp.status}: ${txt.slice(0, 240)}`);
   }
-  const data = (await resp.json()) as { data?: { text?: string }; text?: string };
-  return data?.data?.text ?? data?.text ?? "";
+  const txt = await resp.text();
+  return txt ? (JSON.parse(txt) as T) : (undefined as T);
+}
+
+async function interruptActiveSession(): Promise<void> {
+  if (!activeSessionId) return;
+  await ocRequest(`/api/session/${activeSessionId}/interrupt`, {
+    method: "POST",
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
+}
+
+async function ensureMatchSession(mapName: string): Promise<string> {
+  if (activeSessionId) {
+    try {
+      await ocRequest(`/api/session/${activeSessionId}`, { signal: AbortSignal.timeout(5000) });
+      return activeSessionId;
+    } catch {
+      activeSessionId = null;
+    }
+  }
+  const res = await ocRequest<{ data: { id: string } }>("/api/session", {
+    method: "POST",
+    body: JSON.stringify({
+      agent: "arena-player",
+      model: parseModelRef(activeContender.id),
+      title: `arena #${activeMatchId ?? "?"}: ${activeContender.id} on ${mapName}`,
+    }),
+  });
+  activeSessionId = res.data.id;
+  lastSessionDeliveredMsgId = null;
+  if (activeMatchId !== null) {
+    db.prepare("UPDATE matches SET session_id = ? WHERE id = ?").run(activeSessionId, activeMatchId);
+  }
+  return activeSessionId;
+}
+
+async function switchActiveSessionModel(modelId: string): Promise<void> {
+  if (!activeSessionId) return;
+  await ocRequest(`/api/session/${activeSessionId}/model`, {
+    method: "POST",
+    body: JSON.stringify({ model: parseModelRef(modelId) }),
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
+}
+
+async function steerActiveSession(text: string): Promise<void> {
+  if (!activeSessionId || !aiBusy) return;
+  await ocRequest(`/api/session/${activeSessionId}/prompt`, {
+    method: "POST",
+    body: JSON.stringify({ text, delivery: "steer" }),
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
+}
+
+async function readNewAssistantText(sessionID: string): Promise<{ text: string; outputChars: number }> {
+  const res = await ocRequest<any>(`/api/session/${sessionID}/message`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  const list: any[] = Array.isArray(res)
+    ? res
+    : Array.isArray(res?.data)
+      ? res.data
+      : Array.isArray(res?.messages)
+        ? res.messages
+        : [];
+  const assistants = list
+    .filter((m) => m?.type === "assistant")
+    .sort((a, b) => (a?.time?.created ?? 0) - (b?.time?.created ?? 0));
+
+  let start = 0;
+  if (lastSessionDeliveredMsgId) {
+    const idx = assistants.findIndex((m) => m.id === lastSessionDeliveredMsgId);
+    if (idx >= 0) start = idx + 1;
+  }
+  const fresh = assistants.slice(start);
+  const texts: string[] = [];
+  let outputChars = 0;
+  for (const m of fresh) {
+    for (const part of m.content || []) {
+      if (part?.type === "text" && part.text) {
+        texts.push(String(part.text).trim());
+        outputChars += String(part.text).length;
+      } else if (part?.type === "tool") {
+        outputChars += JSON.stringify(part.input ?? part.args ?? "").length;
+      }
+    }
+    lastSessionDeliveredMsgId = m.id;
+  }
+  return { text: texts.join(" ").replace(/\s+/g, " ").trim(), outputChars };
 }
 
 async function mindustryJson<T = any>(path: string, body?: unknown): Promise<T> {
@@ -546,6 +644,14 @@ function startNewMatchRecord(mapName: string, st?: StatePayload): void {
     )
     .run(activeContender.id, activeContender.label, mapName, now);
   activeMatchId = Number(res.lastInsertRowid);
+  void interruptActiveSession();
+  activeSessionId = null;
+  lastSessionDeliveredMsgId = null;
+  currentTurnActions = [];
+  prevTurnItems = { ...(st?.items || {}) };
+  prevTurnCoreHp = st?.core?.hp ?? 0;
+  lastSteeredWave = st?.wave ?? 1;
+  lastSteeredCoreHp = st?.core?.hp ?? 0;
   matchBlocksBuilt = 0;
   matchActionsOk = 0;
   matchActionsFail = 0;
@@ -589,6 +695,9 @@ function finishMatchRecord(reason: string, st?: StatePayload): void {
     undefined,
     "ARENA"
   );
+  void interruptActiveSession();
+  activeSessionId = null;
+  lastSessionDeliveredMsgId = null;
   activeMatchId = null;
 }
 
@@ -730,171 +839,315 @@ function compassDirection(fromX: number, fromY: number, toX: number, toY: number
   return `${ns}${ew || (ns ? "" : "HERE")} (${dist} tiles)`;
 }
 
-function buildTacticalPrompt(state: StatePayload, tactical: any): string {
+function buildOverviewPayload(state: StatePayload) {
   const core = state.core;
-  const spawnsDesc = (state.spawns || [])
-    .map((s) => `(${s.x},${s.y}) [${core ? compassDirection(core.x, core.y, s.x, s.y) : ""}]`)
-    .join(", ");
-
+  const spawns = (state.spawns || []).map((s) => ({
+    x: s.x,
+    y: s.y,
+    fromCore: core ? compassDirection(core.x, core.y, s.x, s.y) : "",
+  }));
   const friendly = (state.buildings || []).filter((b) => b.team === "sharded");
   const counts: Record<string, number> = {};
   for (const b of friendly) counts[b.block] = (counts[b.block] || 0) + 1;
 
   const turrets = friendly.filter((b) =>
-    ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo"].includes(b.block)
+    ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo", "ripple", "swarmer", "fuse"].includes(b.block)
   );
-  const dryTurrets = turrets.filter((t) => t.ammo === 0).map((t) => `${t.block}@(${t.x},${t.y})`);
-  const armedTurrets = turrets.filter((t) => t.ammo > 0).map((t) => `${t.block}@(${t.x},${t.y})[${t.ammo}]`);
+  const dryTurrets = turrets.filter((t) => t.ammo === 0 && t.block !== "arc" && t.block !== "lancer").map((t) => ({
+    block: t.block,
+    x: t.x,
+    y: t.y,
+  }));
+  const armedTurrets = turrets
+    .filter((t) => t.ammo > 0 || t.block === "arc" || t.block === "lancer")
+    .map((t) => ({ block: t.block, x: t.x, y: t.y, ammo: t.ammo }));
 
-  const drillSites = tactical?.drillSites || {};
-  const oreLines = ["copper", "lead", "coal", "sand", "titanium"]
-    .filter((o) => (drillSites[o] || []).length > 0)
-    .map(
-      (o) =>
-        `  ${o}: ${(drillSites[o] as Array<{ x: number; y: number; tiles: number }>)
-          .slice(0, 5)
-          .map((p) => `(${p.x},${p.y})[${p.tiles}t]`)
-          .join(" ")}`
-    )
-    .join("\n");
+  const enemies = (state.units || [])
+    .filter((u) => u.team !== "sharded")
+    .slice(0, 20)
+    .map((u) => ({ type: u.type, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp }));
 
-  const feedbackBlock =
-    recentActionFeedback.length > 0
-      ? recentActionFeedback.slice(-6).join("\n")
-      : "none yet (start of match)";
-
-  return `You are playing a live survival game of Mindustry (Sharded team) streamed to human spectators!
-Your goal: survive as many waves as possible by building copper/lead drills routed into your Core and armed Turrets, plus walls facing the enemy spawn.
-
-CURRENT STATE:
-- Map: ${state.map} (${state.width}x${state.height}) | Wave: ${state.wave} | Next wave in: ${state.waveTime}s | Active enemies: ${state.enemies}
-- Core: ${core ? `(${core.x},${core.y}) HP ${core.hp}/${core.maxHp} [3x3 tiles: x=${core.x - 1}..${core.x + 1}, y=${core.y - 1}..${core.y + 1}]` : "DESTROYED"}
-- Enemy spawns: ${spawnsDesc || "unknown"}
-- Resources: ${JSON.stringify(state.items)}
-- Power: +${state.power.produced} / -${state.power.consumed}
-- Existing buildings: ${JSON.stringify(counts)}
-- Armed turrets: ${armedTurrets.slice(0, 10).join(", ") || "NONE"}
-- UNARMED turrets (need ammo belts!): ${dryTurrets.slice(0, 10).join(", ") || "none"}
-
-GUARANTEED VALID 2x2 DRILL SITES NEAR CORE (tested with Build.validPlace):
-${oreLines || "  none found within 34 tiles"}
-
-RECENT ACTION RESULTS:
-${feedbackBlock}
-
-LOCAL 33x33 MAP AROUND CORE (x=${tactical?.gridBounds?.minX}..${tactical?.gridBounds?.maxX}, y=${tactical?.gridBounds?.minY}..${tactical?.gridBounds?.maxY}):
-Legend: C=core, D=drill, T=turret, W=wall, >^<v=conveyor, +=router/junction, P=power, c=copper, l=lead, k=coal, .=open floor, #=solid wall, ~=liquid
-${tactical?.ascii || "(unavailable)"}
-
-BUILD RULES & COSTS:
-- mechanical-drill (2x2, 12 copper): mines ore under its 2x2 footprint (x..x+1, y..y+1) and outputs onto any adjacent conveyor or core!
-- conveyor (1x1, 1 copper): moves items in direction rot (0=East/+x, 1=North/+y, 2=West/-x, 3=South/-y). Use build_line for instant conveyor paths!
-- router (1x1, 3 copper): splits one belt into 3 directions (great right behind a row of Duos to feed all of them!).
-- duo (1x1 turret, 35 copper): shoots ground enemies — REQUIRES copper or graphite fed by conveyor/router!
-- scatter (2x2 AA turret, 85 copper + 45 lead): shoots air enemies — requires lead/scrap ammo!
-- scorch (1x1 flamethrower, 25 copper + 22 graphite): brutal close-range — requires coal!
-- copper-wall (1x1, 6 copper) / copper-wall-large (2x2, 24 copper): blocks enemy fire.
-- combustion-generator (1x1, 60 copper + 25 lead) + power-node (1x1, 1 copper + 3 lead) + arc (1x1 electric turret, 50 copper + 50 lead): electric defense (needs coal in generator).
-
-CRITICAL TACTICS:
-1. Turrets DO NOT FIRE without ammo! Always connect a copper mechanical-drill -> conveyor (via build_line) -> router -> adjacent Duo turrets!
-2. Also route at least 1-2 copper drills directly into the Core (x=${core ? core.x - 1 : 0}..${core ? core.x + 1 : 0}, y=${core ? core.y - 1 : 0}..${core ? core.y + 1 : 0}) so you never run out of copper!
-3. Build walls and turrets on the side of the core FACING the enemy spawn (${spawnsDesc}).
-4. Emit 3 to 6 concrete actions per turn. Coordinates MUST be open floor '.' (or ore for drills).
-5. ONLY use these action types: "build", "build_line", "demolish" ({"type":"demolish","x":120,"y":40} refunds 50% items), or "send_wave". Do NOT invent actions like "mine", "deconstruct", or "break".
-
-Respond with ONLY valid JSON (no markdown fences):
-{
-  "thought": "1-2 punchy sentences of tactical reasoning for spectators (witty, concrete, lowercase)",
-  "chat": "optional short 6-word in-game broadcast",
-  "actions": [
-    {"type": "build", "block": "mechanical-drill", "x": 120, "y": 40, "rot": 0},
-    {"type": "build_line", "block": "conveyor", "x1": 122, "y1": 40, "x2": 128, "y2": 40},
-    {"type": "build", "block": "router", "x": 128, "y": 41},
-    {"type": "build", "block": "duo", "x": 128, "y": 42}
-  ]
-}`;
+  return {
+    map: state.map,
+    width: state.width,
+    height: state.height,
+    wave: state.wave,
+    waveTimeSec: state.waveTime,
+    enemiesCount: state.enemies,
+    enemiesSample: enemies,
+    core: core
+      ? {
+          x: core.x,
+          y: core.y,
+          hp: core.hp,
+          maxHp: core.maxHp,
+          block: core.block,
+          footprint: `x=${core.x - 1}..${core.x + 1}, y=${core.y - 1}..${core.y + 1}`,
+        }
+      : null,
+    playerDrone: state.playerDrone,
+    spawns,
+    items: state.items,
+    power: state.power,
+    buildingCounts: counts,
+    armedTurrets: armedTurrets.slice(0, 20),
+    dryTurrets: dryTurrets.slice(0, 20),
+  };
 }
 
-function extractJsonObject(raw: string): any {
-  const cleaned = raw.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("No JSON object found in model reply");
+function recordMcpAction(label: string, res: { ok: boolean; built?: number; error?: string }, isBuild = false): void {
+  if (res.ok) {
+    matchActionsOk++;
+    matchBlocksBuilt += res.built || (isBuild ? 1 : 0);
+    currentTurnActions.push({ label, ok: true });
+  } else {
+    matchActionsFail++;
+    currentTurnActions.push({ label, ok: false, error: res.error });
   }
-  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+const handleMcp = createMcpHandler([
+  {
+    name: "overview",
+    description:
+      "Get current Mindustry match status: map dimensions, wave, countdown, enemies, core HP/coords, resources, power, building counts, armed vs dry turrets, spawns, and builder drone.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: async () => {
+      const st = await mindustryJson<StatePayload>("/state");
+      if (!st.ready) return { ready: false };
+      latestState = st;
+      return buildOverviewPayload(st);
+    },
+  },
+  {
+    name: "scan",
+    description:
+      "Scan ANY region of the map as a coordinate-labeled ASCII grid (radius 6..22, up to 45x45 tiles) plus enemies in view. Use this to inspect choke points, enemy spawns, distant ore veins, or your own base.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cx: { type: "integer", description: "Center X tile coordinate (defaults to core X)" },
+        cy: { type: "integer", description: "Center Y tile coordinate (defaults to core Y)" },
+        radius: { type: "integer", description: "Half-width in tiles (6 to 22, default 16)" },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const qs = new URLSearchParams();
+      if (args.cx !== undefined) qs.set("cx", String(Math.round(Number(args.cx))));
+      if (args.cy !== undefined) qs.set("cy", String(Math.round(Number(args.cy))));
+      if (args.radius !== undefined) qs.set("r", String(Math.round(Number(args.radius))));
+      return await mindustryJson(`/scan?${qs.toString()}`);
+    },
+  },
+  {
+    name: "find_ores",
+    description:
+      "Find guaranteed-valid 2x2 mechanical-drill coordinates for ores (copper, lead, coal, sand, titanium, thorium, scrap) near any (cx, cy) on the map, pre-verified with Build.validPlace.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ore: { type: "string", description: "Optional single ore name (e.g. 'copper', 'lead', 'coal', 'titanium'); omit for all ores" },
+        cx: { type: "integer", description: "Search center X (defaults to core X)" },
+        cy: { type: "integer", description: "Search center Y (defaults to core Y)" },
+        radius: { type: "integer", description: "Search radius in tiles (8..90, default 55)" },
+        limit: { type: "integer", description: "Max drill sites per ore (1..12, default 6)" },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const qs = new URLSearchParams();
+      if (args.ore) qs.set("ore", String(args.ore));
+      if (args.cx !== undefined) qs.set("cx", String(Math.round(Number(args.cx))));
+      if (args.cy !== undefined) qs.set("cy", String(Math.round(Number(args.cy))));
+      if (args.radius !== undefined) qs.set("r", String(Math.round(Number(args.radius))));
+      if (args.limit !== undefined) qs.set("limit", String(Math.round(Number(args.limit))));
+      return await mindustryJson(`/ores?${qs.toString()}`);
+    },
+  },
+  {
+    name: "build",
+    description:
+      "Place one block at (x, y) with optional rotation rot (0=East/+x, 1=North/+y, 2=West/-x, 3=South/-y). Deducts real core resources.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block: { type: "string", description: "Exact Mindustry block id (e.g. mechanical-drill, conveyor, router, duo, scatter, scorch, copper-wall, power-node, combustion-generator, arc, graphite-press)" },
+        x: { type: "integer" },
+        y: { type: "integer" },
+        rot: { type: "integer", description: "0=East, 1=North, 2=West, 3=South (default 0)" },
+      },
+      required: ["block", "x", "y"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const x = Math.round(Number(args.x));
+      const y = Math.round(Number(args.y));
+      const rot = Math.round(Number(args.rot ?? 0));
+      const block = String(args.block || "");
+      const res = await mindustryJson<{ ok: boolean; built?: number; error?: string }>("/action", {
+        type: "build",
+        block,
+        x,
+        y,
+        rot,
+      });
+      recordMcpAction(`${block} @(${x},${y})`, res, true);
+      return res;
+    },
+  },
+  {
+    name: "build_line",
+    description:
+      "Build a straight or L-shaped line of conveyors, walls, or bridges from (x1, y1) to (x2, y2) with automatic conveyor rotation along the path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block: { type: "string", description: "Block id (default 'conveyor', or 'copper-wall', 'titanium-conveyor', etc.)" },
+        x1: { type: "integer" },
+        y1: { type: "integer" },
+        x2: { type: "integer" },
+        y2: { type: "integer" },
+      },
+      required: ["x1", "y1", "x2", "y2"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const block = String(args.block || "conveyor");
+      const x1 = Math.round(Number(args.x1));
+      const y1 = Math.round(Number(args.y1));
+      const x2 = Math.round(Number(args.x2));
+      const y2 = Math.round(Number(args.y2));
+      const res = await mindustryJson<{ ok: boolean; built?: number; skipped?: number; error?: string }>("/action", {
+        type: "build_line",
+        block,
+        x1,
+        y1,
+        x2,
+        y2,
+      });
+      recordMcpAction(`${block} (${x1},${y1})→(${x2},${y2})`, res, false);
+      return res;
+    },
+  },
+  {
+    name: "demolish",
+    description: "Remove a friendly non-core building at (x, y) and refund 50% of its items.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "integer" },
+        y: { type: "integer" },
+      },
+      required: ["x", "y"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const x = Math.round(Number(args.x));
+      const y = Math.round(Number(args.y));
+      const res = await mindustryJson<{ ok: boolean; error?: string }>("/action", {
+        type: "demolish",
+        x,
+        y,
+      });
+      recordMcpAction(`demolish @(${x},${y})`, res, false);
+      return res;
+    },
+  },
+  {
+    name: "send_wave",
+    description: "Trigger the next enemy wave immediately.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: async () => {
+      const res = await mindustryJson<{ ok: boolean; wave?: number; error?: string }>("/action", {
+        type: "send_wave",
+      });
+      recordMcpAction("send_wave", res, false);
+      return res;
+    },
+  },
+]);
+
+function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
+  const core = st.core;
+  const spawns = (st.spawns || [])
+    .map((s) => `(${s.x},${s.y}) ${core ? compassDirection(core.x, core.y, s.x, s.y) : ""}`)
+    .join(", ");
+  const friendly = (st.buildings || []).filter((b) => b.team === "sharded");
+  const turrets = friendly.filter((b) =>
+    ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo"].includes(b.block)
+  );
+  const armed = turrets.filter((t) => t.ammo > 0 || t.block === "arc" || t.block === "lancer").length;
+  const dry = turrets.length - armed;
+
+  if (isFirstTurn) {
+    return [
+      `match #${activeMatchId} started on ${st.map} (${st.width}x${st.height}).`,
+      `core: (${core?.x},${core?.y}) ${core?.hp}/${core?.maxHp} hp | spawns: ${spawns || "unknown"} | starting items: ${JSON.stringify(st.items)}.`,
+      `use tools.mindustry.find_ores and tools.mindustry.scan inside execute to scout the map and lay down your opening copper drills and armed defense line, then summarize your opening in 1-2 short lowercase sentences.`,
+    ].join("\n");
+  }
+
+  const itemDeltas = ["copper", "lead", "graphite", "coal", "silicon", "titanium"]
+    .filter((k) => (st.items[k] || 0) > 0 || (prevTurnItems[k] || 0) > 0)
+    .map((k) => {
+      const cur = st.items[k] || 0;
+      const diff = cur - (prevTurnItems[k] || 0);
+      return `${k}=${cur}${diff !== 0 ? `(${diff > 0 ? "+" : ""}${diff})` : ""}`;
+    })
+    .join(" ");
+
+  const hpDiff = (core?.hp ?? 0) - prevTurnCoreHp;
+  const hpNote = hpDiff !== 0 ? ` (${hpDiff > 0 ? "+" : ""}${hpDiff})` : "";
+
+  return `[tick] wave ${st.wave} (next in ${Math.ceil(st.waveTime)}s) | enemies: ${st.enemies} | core: ${core?.hp ?? 0}/${core?.maxHp ?? 0}${hpNote} | ${itemDeltas || "items: none"} | power: +${st.power.produced}/-${st.power.consumed} | turrets: ${armed} armed, ${dry} dry. take your next tactical move (or pass briefly if saving resources).`;
 }
 
 async function runAiTurn(force = false): Promise<void> {
-  if ((!force && aiPaused) || aiBusy || !latestState || !latestState.ready || latestState.gameOver || !latestState.core) {
+  if ((!force && (aiPaused || arenaIdle)) || aiBusy || !latestState || !latestState.ready || latestState.gameOver || !latestState.core) {
     return;
   }
   aiBusy = true;
   lastTurnAt = Date.now();
+  currentTurnActions = [];
   const t0 = Date.now();
+  const isFirstTurn = matchTurns === 0;
   try {
-    const tactical = await mindustryJson("/tactical");
-    const prompt = buildTacticalPrompt(latestState, tactical);
-    const raw = await callOpenCodeGenerate(activeContender.id, prompt);
+    const sid = await ensureMatchSession(latestState.map);
+    const prompt = formatDeltaPrompt(latestState, isFirstTurn);
+    prevTurnItems = { ...(latestState.items || {}) };
+    prevTurnCoreHp = latestState.core.hp;
+
+    await ocRequest(`/api/session/${sid}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ text: prompt, delivery: "queue" }),
+    });
+    await ocRequest(`/api/experimental/session/${sid}/wait`, {
+      method: "POST",
+      signal: AbortSignal.timeout(90_000),
+    });
+
     const latencyMs = Date.now() - t0;
-    const decision = extractJsonObject(raw);
-
-    const thought = String(decision.thought || "thinking...").slice(0, 320);
-    const actions: any[] = Array.isArray(decision.actions) ? decision.actions.slice(0, 8) : [];
-    const results: FeedItem["actions"] = [];
-
-    if (decision.chat && typeof decision.chat === "string") {
-      await mindustryJson("/action", { type: "say", text: decision.chat.slice(0, 100) }).catch(() => {});
-    }
-
-    for (const act of actions) {
-      if (!act || typeof act !== "object" || !act.type) continue;
-      if (act.type === "new_game") continue;
-      try {
-        const res = await mindustryJson<{ ok: boolean; built?: number; error?: string }>("/action", act);
-        const label =
-          act.type === "build"
-            ? `${act.block} @(${act.x},${act.y})`
-            : act.type === "build_line"
-              ? `${act.block} (${act.x1},${act.y1})→(${act.x2},${act.y2})`
-              : act.type === "demolish"
-                ? `demolish @(${act.x},${act.y})`
-                : act.type;
-        if (res.ok) {
-          matchActionsOk++;
-          matchBlocksBuilt += res.built || (act.type === "build" ? 1 : 0);
-          results.push({ label, ok: true });
-          recentActionFeedback.push(`OK: ${label}`);
-        } else {
-          matchActionsFail++;
-          results.push({ label, ok: false, error: res.error });
-          recentActionFeedback.push(`FAIL: ${label} -> ${res.error}`);
-        }
-      } catch (e: any) {
-        matchActionsFail++;
-        results.push({ label: String(act.type), ok: false, error: String(e?.message || e) });
-      }
-    }
+    const { text: rawThought, outputChars } = await readNewAssistantText(sid);
+    const thought = (rawThought || (currentTurnActions.length > 0 ? "executed build order." : "holding position.")).slice(0, 360);
+    const actionsSnapshot = [...currentTurnActions];
 
     matchTurns++;
     matchTotalLatencyMs += latencyMs;
     matchPromptChars += prompt.length;
-    matchOutputChars += raw.length;
-    if (recentActionFeedback.length > 16) recentActionFeedback = recentActionFeedback.slice(-16);
+    matchOutputChars += outputChars;
 
-    // Fetch fresh post-action state for snapshot accuracy
     const postState = await mindustryJson<StatePayload>("/state").catch(() => latestState!);
     if (postState && postState.ready) latestState = postState;
 
     const seq = recordSnapshot(latestState, "turn", {
       thought,
-      actions: results,
+      actions: actionsSnapshot,
       promptChars: prompt.length,
-      outputChars: raw.length,
+      outputChars,
       latencyMs,
     });
-    pushFeed("thought", thought, results, activeContender.label, { latencyMs, seq });
+    pushFeed("thought", thought, actionsSnapshot, activeContender.label, { latencyMs, seq });
 
     if (activeMatchId !== null) {
       db.prepare(
@@ -983,7 +1236,16 @@ async function pollMindustry(): Promise<void> {
       if (st.wave > 1) {
         const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
         pushFeed("milestone", `wave ${st.wave} incoming (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
+        if (st.wave > lastSteeredWave) {
+          lastSteeredWave = st.wave;
+          void steerActiveSession(`[alert] wave ${st.wave} just arrived with ${st.enemies} enemies! core ${st.core?.hp ?? 0}/${st.core?.maxHp ?? 0} hp.`);
+        }
       }
+    }
+    if (!arenaIdle && st.core && lastSteeredCoreHp - st.core.hp >= 100) {
+      const drop = lastSteeredCoreHp - st.core.hp;
+      lastSteeredCoreHp = st.core.hp;
+      void steerActiveSession(`[alert] core under attack! lost ${drop} hp (now ${st.core.hp}/${st.core.maxHp}), ${st.enemies} enemies active.`);
     }
 
     if (!arenaIdle && st.gameOver && !prevGameOver) {
@@ -1097,6 +1359,10 @@ const server = Bun.serve({
   port: PORT,
   async fetch(req, srv) {
     const url = new URL(req.url);
+
+    if (url.pathname === "/mcp") {
+      return await handleMcp(req);
+    }
 
     if (url.pathname === "/ws") {
       if (srv.upgrade(req)) return;
@@ -1299,6 +1565,7 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as any;
       if (body.action === "pause") {
         aiPaused = true;
+        void interruptActiveSession();
         pushFeed("system", "match paused", undefined, "ARENA");
       } else if (body.action === "resume") {
         arenaIdle = false;
@@ -1318,6 +1585,7 @@ const server = Bun.serve({
         if (!arenaIdle) void runAiTurn(true);
       } else if ((body.action === "set_model" || body.action === "switch_model") && body.model) {
         activeContender = makeContender(String(body.model));
+        await switchActiveSessionModel(activeContender.id);
         pushFeed("system", `switched active contender to ${activeContender.id}`, undefined, "ARENA");
       } else if (body.action === "send_wave") {
         if (!arenaIdle) {

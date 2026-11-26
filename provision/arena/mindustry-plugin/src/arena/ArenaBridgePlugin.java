@@ -74,6 +74,8 @@ public class ArenaBridgePlugin extends Plugin {
             server.createContext("/state", this::handleState);
             server.createContext("/terrain", this::handleTerrain);
             server.createContext("/tactical", this::handleTactical);
+            server.createContext("/scan", this::handleScan);
+            server.createContext("/ores", this::handleOres);
             server.createContext("/maps", this::handleMaps);
             server.createContext("/action", this::handleAction);
             server.setExecutor(Executors.newFixedThreadPool(4));
@@ -221,6 +223,213 @@ public class ArenaBridgePlugin extends Plugin {
 
     private void handleHealth(HttpExchange ex) throws IOException {
         sendJson(ex, 200, "{\"ok\":true}");
+    }
+
+    private static HashMap<String, String> parseQuery(String query) {
+        HashMap<String, String> map = new HashMap<>();
+        if (query == null || query.isEmpty()) return map;
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0) {
+                map.put(pair.substring(0, eq), pair.substring(eq + 1));
+            }
+        }
+        return map;
+    }
+
+    private static int parseIntParam(HashMap<String, String> q, String key, int def) {
+        String v = q.get(key);
+        if (v == null || v.isEmpty()) return def;
+        try { return Integer.parseInt(v); } catch (Exception e) { return def; }
+    }
+
+    private void handleScan(HttpExchange ex) throws IOException {
+        try {
+            HashMap<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
+            String json = onMainThread(() -> {
+                if (Vars.world == null || Vars.world.width() == 0) return "{\"ready\":false}";
+                CoreBlock.CoreBuild core = Team.sharded.core();
+                int w = Vars.world.width();
+                int h = Vars.world.height();
+                int defX = core != null ? core.tileX() : w / 2;
+                int defY = core != null ? core.tileY() : h / 2;
+                int cx = Math.max(0, Math.min(w - 1, parseIntParam(q, "cx", defX)));
+                int cy = Math.max(0, Math.min(h - 1, parseIntParam(q, "cy", defY)));
+                int gr = Math.max(6, Math.min(22, parseIntParam(q, "r", 16)));
+                int minX = Math.max(0, cx - gr);
+                int maxX = Math.min(w - 1, cx + gr);
+                int minY = Math.max(0, cy - gr);
+                int maxY = Math.min(h - 1, cy + gr);
+
+                // Overlay enemies & player drone onto a lookup map for the scanned window
+                HashMap<Long, Character> unitOverlay = new HashMap<>();
+                StringBuilder enemiesInView = new StringBuilder("[");
+                boolean firstE = true;
+                for (Unit u : Groups.unit) {
+                    if (u == null || u.dead()) continue;
+                    int ux = Math.round(u.x / 8f);
+                    int uy = Math.round(u.y / 8f);
+                    if (ux < minX || ux > maxX || uy < minY || uy > maxY) continue;
+                    long key = (((long) ux) << 32) | (uy & 0xFFFFFFFFL);
+                    if (u.team != Team.sharded) {
+                        unitOverlay.put(key, 'E');
+                        if (!firstE) enemiesInView.append(',');
+                        firstE = false;
+                        enemiesInView.append("{\"type\":\"").append(esc(u.type != null ? u.type.name : "unit"))
+                            .append("\",\"x\":").append(ux).append(",\"y\":").append(uy)
+                            .append(",\"hp\":").append(Math.round(u.health)).append('}');
+                    } else if (aiDrone != null && u.id == aiDrone.id) {
+                        unitOverlay.putIfAbsent(key, 'A');
+                    }
+                }
+                enemiesInView.append(']');
+
+                StringBuilder grid = new StringBuilder();
+                for (int y = maxY; y >= minY; y--) {
+                    grid.append(String.format("y=%3d ", y));
+                    for (int x = minX; x <= maxX; x++) {
+                        long key = (((long) x) << 32) | (y & 0xFFFFFFFFL);
+                        Character uChar = unitOverlay.get(key);
+                        if (uChar != null) {
+                            grid.append(uChar.charValue());
+                            continue;
+                        }
+                        Tile t = Vars.world.tile(x, y);
+                        char ch = '.';
+                        if (t == null) {
+                            ch = '#';
+                        } else if (t.build != null) {
+                            String bn = t.build.block.name;
+                            if (t.build instanceof CoreBlock.CoreBuild) ch = 'C';
+                            else if (bn.contains("drill")) ch = 'D';
+                            else if (t.build instanceof Turret.TurretBuild) ch = 'T';
+                            else if (bn.contains("wall")) ch = 'W';
+                            else if (bn.contains("conveyor")) ch = switch (t.build.rotation) {
+                                case 0 -> '>';
+                                case 1 -> '^';
+                                case 2 -> '<';
+                                default -> 'v';
+                            };
+                            else if (bn.contains("router") || bn.contains("junction") || bn.contains("distributor")) ch = '+';
+                            else if (bn.contains("power") || bn.contains("generator") || bn.contains("battery") || bn.contains("solar")) ch = 'P';
+                            else ch = 'B';
+                        } else if (t.block() != null && t.block().solid) {
+                            ch = '#';
+                        } else if (t.floor() != null && t.floor().isLiquid) {
+                            ch = '~';
+                        } else if (t.overlay() != null && t.overlay().itemDrop != null) {
+                            String on = t.overlay().itemDrop.name;
+                            ch = switch (on) {
+                                case "copper" -> 'c';
+                                case "lead" -> 'l';
+                                case "coal" -> 'k';
+                                case "sand" -> 's';
+                                case "titanium" -> 't';
+                                case "thorium" -> 'h';
+                                case "scrap" -> 'r';
+                                default -> 'o';
+                            };
+                        }
+                        grid.append(ch);
+                    }
+                    grid.append('\n');
+                }
+
+                StringBuilder sb = new StringBuilder(4096);
+                sb.append("{\"ready\":true,\"center\":{\"x\":").append(cx).append(",\"y\":").append(cy)
+                  .append("},\"bounds\":{\"minX\":").append(minX).append(",\"maxX\":").append(maxX)
+                  .append(",\"minY\":").append(minY).append(",\"maxY\":").append(maxY)
+                  .append("},\"mapSize\":{\"width\":").append(w).append(",\"height\":").append(h)
+                  .append("},\"enemiesInView\":").append(enemiesInView)
+                  .append(",\"ascii\":\"").append(esc(grid.toString())).append("\"}");
+                return sb.toString();
+            });
+            sendJson(ex, 200, json);
+        } catch (Exception e) {
+            sendJson(ex, 500, "{\"error\":\"" + esc(e.toString()) + "\"}");
+        }
+    }
+
+    private void handleOres(HttpExchange ex) throws IOException {
+        try {
+            HashMap<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
+            String oreFilter = q.getOrDefault("ore", "").trim().toLowerCase();
+            String json = onMainThread(() -> {
+                if (Vars.world == null || Vars.world.width() == 0) return "{\"ready\":false}";
+                CoreBlock.CoreBuild core = Team.sharded.core();
+                int w = Vars.world.width();
+                int h = Vars.world.height();
+                int cx = Math.max(0, Math.min(w - 1, parseIntParam(q, "cx", core != null ? core.tileX() : w / 2)));
+                int cy = Math.max(0, Math.min(h - 1, parseIntParam(q, "cy", core != null ? core.tileY() : h / 2)));
+                int searchR = Math.max(8, Math.min(90, parseIntParam(q, "r", 55)));
+                int limit = Math.max(1, Math.min(12, parseIntParam(q, "limit", 6)));
+                Block mechDrill = Vars.content.block("mechanical-drill");
+
+                String[] oreTypes = oreFilter.isEmpty()
+                    ? new String[]{"copper", "lead", "coal", "sand", "titanium", "thorium", "scrap"}
+                    : new String[]{oreFilter};
+                HashMap<String, List<int[]>> drillSites = new HashMap<>();
+                for (String ore : oreTypes) drillSites.put(ore, new ArrayList<>());
+
+                for (int r = 2; r <= searchR; r++) {
+                    for (int dy = -r; dy <= r; dy++) {
+                        for (int dx = -r; dx <= r; dx++) {
+                            if (Math.max(Math.abs(dx), Math.abs(dy)) != r) continue;
+                            int tx = cx + dx;
+                            int ty = cy + dy;
+                            if (tx < 2 || ty < 2 || tx >= w - 2 || ty >= h - 2) continue;
+                            if (mechDrill == null || !Build.validPlace(mechDrill, Team.sharded, tx, ty, 0)) continue;
+                            HashMap<String, Integer> counts = new HashMap<>();
+                            for (int oy = 0; oy <= 1; oy++) {
+                                for (int ox = 0; ox <= 1; ox++) {
+                                    Tile t = Vars.world.tile(tx + ox, ty + oy);
+                                    if (t != null && t.overlay() != null && t.overlay().itemDrop != null) {
+                                        String name = t.overlay().itemDrop.name;
+                                        counts.put(name, counts.getOrDefault(name, 0) + 1);
+                                    }
+                                }
+                            }
+                            for (var entry : counts.entrySet()) {
+                                List<int[]> list = drillSites.get(entry.getKey());
+                                if (list != null && list.size() < limit) {
+                                    boolean tooClose = false;
+                                    for (int[] prev : list) {
+                                        if (Math.abs(prev[0] - tx) < 2 && Math.abs(prev[1] - ty) < 2) {
+                                            tooClose = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!tooClose) list.add(new int[]{tx, ty, entry.getValue(), r});
+                                }
+                            }
+                        }
+                    }
+                }
+
+                StringBuilder sb = new StringBuilder(2048);
+                sb.append("{\"ready\":true,\"center\":{\"x\":").append(cx).append(",\"y\":").append(cy).append("},\"drillSites\":{");
+                boolean firstOre = true;
+                for (var entry : drillSites.entrySet()) {
+                    if (!firstOre) sb.append(',');
+                    firstOre = false;
+                    sb.append('"').append(esc(entry.getKey())).append("\":[");
+                    List<int[]> pts = entry.getValue();
+                    for (int i = 0; i < pts.size(); i++) {
+                        if (i > 0) sb.append(',');
+                        sb.append("{\"x\":").append(pts.get(i)[0])
+                          .append(",\"y\":").append(pts.get(i)[1])
+                          .append(",\"tiles\":").append(pts.get(i)[2])
+                          .append(",\"dist\":").append(pts.get(i)[3]).append('}');
+                    }
+                    sb.append(']');
+                }
+                sb.append("}}");
+                return sb.toString();
+            });
+            sendJson(ex, 200, json);
+        } catch (Exception e) {
+            sendJson(ex, 500, "{\"error\":\"" + esc(e.toString()) + "\"}");
+        }
     }
 
     private void handleTactical(HttpExchange ex) throws IOException {
