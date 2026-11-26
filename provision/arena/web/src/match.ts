@@ -57,8 +57,8 @@ const STRIPS: Strip[] = [
   {
     name: "thinking time",
     series: [],
-    bars: { label: "latency", color: "#7d776a", value: (p) => p.latencyMs / 1000 },
-    unit: (v) => `${v.toFixed(1)}s`,
+    bars: { label: "took", color: "#7d776a", value: (p) => p.latencyMs / 1000 },
+    unit: (v) => (v > 0 ? `${v.toFixed(1)}s` : "--"),
   },
 ];
 
@@ -475,7 +475,10 @@ export class MatchView {
     for (const strip of STRIPS) {
       const H = 54;
       const el = svg("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "strip" });
-      const all = [...strip.series, ...(strip.bars ? [strip.bars] : [])];
+      // A series that never leaves zero in this match (graphite, usually) is left out.
+      const live = (sr: Series) => tl.some((p) => sr.value(p) > 0);
+      const lines = strip.series.filter(live);
+      const all = [...lines, ...(strip.bars && live(strip.bars) ? [strip.bars] : [])];
       // Each series is scaled to its own peak: the strips compare shape over time, the labels carry the numbers.
       if (strip.bars) {
         const max = Math.max(1, ...tl.map(strip.bars.value));
@@ -496,7 +499,7 @@ export class MatchView {
           );
         });
       }
-      for (const s of strip.series) {
+      for (const s of lines) {
         const max = Math.max(1, ...tl.map(s.value));
         const y = (v: number) => H - 3 - (v / max) * (H - 10);
         let d = "";
@@ -540,11 +543,7 @@ export class MatchView {
       if (p.wave === wave) return;
       wave = p.wave;
       waves.append(
-        h(
-          "i",
-          { style: { left: `${n > 1 ? (i / (n - 1)) * 100 : 50}%` } },
-          h("span", null, `wave ${p.wave}`),
-        ),
+        h("i", { style: { left: `${n > 1 ? (i / (n - 1)) * 100 : 50}%` } }, h("span", null, String(p.wave))),
       );
     });
     $("mLane").replaceChildren(waves, ...rows, h("div", { class: "cursor", id: "mCursor" }));
@@ -559,7 +558,7 @@ export class MatchView {
     if (cursor) cursor.style.left = `${n > 1 ? (this.at / (n - 1)) * 100 : 50}%`;
     const p = d.timeline[this.at];
     const snap = d.snapshots[this.at];
-    setText($("mTrackLabel"), `${this.at + 1} of ${n}, wave ${snap.wave}`);
+    setText($("mTrackLabel"), `step ${this.at + 1} of ${n}, wave ${snap.wave}`);
     const labels = $("mLabels").querySelectorAll<HTMLElement>("[data-series]");
     const bySeries = new Map<string, string>();
     for (const strip of STRIPS) {

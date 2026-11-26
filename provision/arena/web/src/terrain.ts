@@ -67,6 +67,7 @@ export class TerrainModel {
   private readonly palette: string[];
   private readonly ore: Uint8Array;
   private readonly wall: Uint8Array;
+  private readonly under: Uint16Array;
   private infos: TileInfo[] = [];
   private readonly names: string[];
   private readonly chunks = new Map<number, Chunk>();
@@ -103,6 +104,7 @@ export class TerrainModel {
         this.ore[y * this.w + x] = idx + 1;
     }
 
+    this.under = this.nearestFloor();
     this.base = this.paintBase();
     this.dark = this.paintDark();
     this.oreMap = this.paintOres();
@@ -222,6 +224,73 @@ export class TerrainModel {
     return c;
   }
 
+  /** Lay floor under a 2x2 boulder whose bottom-left tile is (x, y). Always true, so it chains. */
+  private floorUnder(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    s: number,
+  ): boolean {
+    for (let k = 0; k < 4; k++) {
+      const tx = x + (k & 1);
+      const ty = y + (k >> 1);
+      const floor = this.infos[this.under[ty * this.w + tx]];
+      if (floor?.sprites.length)
+        blit(
+          ctx,
+          floor.sprites[(hash2(tx, ty) >>> 4) % floor.sprites.length],
+          dx + (k & 1) * s,
+          dy + (1 - (k >> 1)) * s,
+          s,
+          s,
+        );
+    }
+    return true;
+  }
+
+  /** For every rock tile, the kind of floor nearest to it: what would be under it in the game. */
+  private nearestFloor(): Uint16Array {
+    const { w, h } = this;
+    const under = new Uint16Array(w * h);
+    const seen = new Uint8Array(w * h);
+    const queue = new Int32Array(w * h);
+    let tail = 0;
+    const tally = new Map<number, number>();
+    for (let i = 0; i < w * h; i++) {
+      if (this.wall[i]) continue;
+      under[i] = this.cell[i];
+      seen[i] = 1;
+      queue[tail++] = i;
+      tally.set(this.cell[i], (tally.get(this.cell[i]) || 0) + 1);
+    }
+    let common = 0;
+    let most = -1;
+    for (const [name, n] of tally)
+      if (n > most) {
+        most = n;
+        common = name;
+      }
+    for (let head = 0; head < tail; head++) {
+      const i = queue[head];
+      const x = i % w;
+      const y = (i - x) / w;
+      for (let k = 0; k < 4; k++) {
+        const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0);
+        const ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (seen[j]) continue;
+        seen[j] = 1;
+        under[j] = under[i];
+        queue[tail++] = j;
+      }
+    }
+    for (let i = 0; i < w * h; i++) if (!seen[i]) under[i] = common;
+    return under;
+  }
+
   /** One tile into a destination rect: floor or wall sprite, then ore. Flat colour if a sprite is missing. */
   private drawTile(
     ctx: CanvasRenderingContext2D,
@@ -234,6 +303,11 @@ export class TerrainModel {
     const i = y * this.w + x;
     const info = this.infos[this.cell[i]];
     const hsh = hash2(x, y);
+    // Boulders and shrubs have see-through corners, so the nearest floor goes down under every rock first.
+    if (info?.wall) {
+      const floor = this.infos[this.under[i]];
+      if (floor?.sprites.length) blit(ctx, floor.sprites[(hsh >>> 4) % floor.sprites.length], dx, dy, s, s);
+    }
     const name = info?.sprites.length ? info.sprites[hsh % info.sprites.length] : null;
     if (!name || !blit(ctx, name, dx, dy, s, s)) {
       ctx.fillStyle = this.palette[this.pal[i]] || "#161513";
@@ -307,6 +381,7 @@ export class TerrainModel {
           this.cell[i + this.w] === this.cell[i] &&
           this.cell[i + this.w + 1] === this.cell[i] &&
           !this.ore[i] &&
+          this.floorUnder(ctx, x, y, lx * ppt, (ly - 1) * ppt, ppt) &&
           blit(ctx, info.large, lx * ppt, (ly - 1) * ppt, ppt * 2, ppt * 2)
         ) {
           skip[ly * tpc + lx + 1] = 1;

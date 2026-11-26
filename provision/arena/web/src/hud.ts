@@ -48,7 +48,8 @@ export function renderBoard(state: State | null, meta: Meta | null): void {
     flap($("tBuilt"), num(meta.blocksBuilt));
     const total = meta.actionsOk + meta.actionsFail;
     flap($("tActions"), `${meta.actionsOk} / ${total}`);
-    flap($("tAcc"), total ? `${Math.round((meta.actionsOk / total) * 100)}%` : "--");
+    flap($("tPace"), meta.avgLatencyMs ? seconds(meta.avgLatencyMs) : "--");
+    pace = meta.avgLatencyMs || 0;
     const n = meta.spectators;
     setText($("watching"), `${n} watching`);
   }
@@ -99,6 +100,7 @@ export function renderBoard(state: State | null, meta: Meta | null): void {
 }
 
 let thinkingSince = 0;
+let pace = 0;
 
 export function renderBrainStatus(state: State | null, meta: Meta | null, now: number): void {
   const el = $("brainStatus");
@@ -121,6 +123,11 @@ export function renderBrainStatus(state: State | null, meta: Meta | null, now: n
   el.dataset.state = mode;
   setText(el, text);
   brain.toggleAttribute("data-thinking", mode === "thinking");
+  // With a known pace the bar fills toward when the move is due. Without one it just sweeps.
+  const bar = brain.querySelector<HTMLElement>(".think > i")!;
+  const due = mode === "thinking" && pace > 0;
+  brain.toggleAttribute("data-due", due);
+  bar.style.transform = due ? `scaleX(${clamp((now - thinkingSince) / pace, 0.02, 1)})` : "";
 }
 
 // ---------- core stock ----------
@@ -368,8 +375,12 @@ export function actionList(actions: FeedAction[], onJump: (targets: Target[]) =>
   return h(
     "ul",
     { class: "acts" },
-    ...actions.map((a) => {
+    ...actions.map((a, i) => {
       const targets = actionTargets(a);
+      // A run of actions that failed the same way states the reason once, under the last of them.
+      const next = actions[i + 1];
+      const repeat =
+        !!next && !next.ok && !a.ok && !!a.error && shortError(next.error || "") === shortError(a.error);
       return h(
         "li",
         { class: a.ok ? "ok" : "fail" },
@@ -382,7 +393,7 @@ export function actionList(actions: FeedAction[], onJump: (targets: Target[]) =>
           },
           h("i", null),
           h("code", null, a.label),
-          !a.ok && a.error ? h("em", { title: a.error }, shortError(a.error)) : null,
+          !a.ok && a.error && !repeat ? h("em", { title: a.error }, shortError(a.error)) : null,
         ),
       );
     }),

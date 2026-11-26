@@ -2562,3 +2562,10 @@ a.cell[href]:hover .lbl {
 .entry {
   contain: layout;
 }
+
+.brain[data-due] .think > i {
+  width: 100%;
+  animation: none;
+  transform-origin: left;
+  transition: transform 260ms linear;
+}
