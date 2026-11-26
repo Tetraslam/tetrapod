@@ -202,9 +202,10 @@ main {
 
 /* ---------- the board ---------- */
 .board {
-  grid-column: 1 / -1;
+  grid-column: 1;
+  grid-row: 1;
   display: grid;
-  grid-template-columns: minmax(300px, 1.7fr) 96px 150px 110px 170px minmax(140px, 1fr);
+  grid-template-columns: minmax(210px, 1.5fr) 76px 124px 88px 134px minmax(116px, 1fr);
   border-bottom: 1px solid var(--rule);
   background: var(--panel);
 }
