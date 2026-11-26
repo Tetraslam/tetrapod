@@ -58,6 +58,14 @@ function fill(id: string, options: Array<{ value: string; label: string }>, valu
   el.value = value;
 }
 
+function fmtTok(n: number | undefined): string {
+  const v = Math.round(n || 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}m`;
+  if (v >= 10_000) return `${(v / 1_000).toFixed(1)}k`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(2)}k`;
+  return String(v);
+}
+
 /**
  * The control deck. It only exists for someone signed in through Authelia: everyone else
  * gets a quiet sign-in link and none of this markup.
@@ -490,17 +498,35 @@ export class AdminDeck {
         : [h("li", { class: "quiet none" }, "nothing queued. the mode above decides what plays next.")]),
     );
 
+    this.renderUsage();
+    this.renderNow();
+  }
+
+  private renderUsage(): void {
+    const s = this.state;
+    if (!s || !document.getElementById("deckUsage")) return;
     const u = s.usage;
+    const t = this.meta?.tokens;
+    const totIn = u.total_input_tokens || 0;
+    const totCache = u.total_cache_read_tokens || 0;
+    const totOut = u.total_output_tokens || 0;
+    const allHit = totIn + totCache > 0 ? `${Math.round((100 * totCache) / (totIn + totCache))}%` : "--";
+    const liveHit =
+      t && t.input + t.cacheRead > 0
+        ? `${t.cacheHitPct}% (${fmtTok(t.cacheRead)} / ${fmtTok(t.input + t.cacheRead)})`
+        : "--";
     const row = (k: string, v: string) => h("div", null, h("dt", null, k), h("dd", null, v));
     $("deckUsage").replaceChildren(
+      row("this match cache", liveHit),
+      row("all-time cache hit", allHit),
+      row("tokens cached", fmtTok(totCache)),
+      row("tokens uncached", fmtTok(totIn)),
+      row("tokens written", fmtTok(totOut)),
+      row("compactions", num(u.total_compactions || 0)),
       row("matches", num(u.total_matches)),
       row("turns taken", num(u.total_turns)),
       row("blocks built", num(u.total_blocks)),
-      row("characters read", num(u.total_prompt_chars)),
-      row("characters written", num(u.total_output_chars)),
-      row("chars read per turn", u.total_turns ? num(u.total_prompt_chars / u.total_turns) : "--"),
     );
-    this.renderNow();
   }
 
   open(): void {
@@ -515,7 +541,7 @@ export class AdminDeck {
     const idle = air === "idle";
     const id = m?.contender.id || s.contender.id;
     const now = $("deckNow");
-    const key = `${air}|${id}|${m?.matchId}|${m?.turns}|${m?.avgLatencyMs}|${m?.emptyPaused}|${m?.lastCompleted?.id}`;
+    const key = `${air}|${id}|${m?.matchId}|${m?.turns}|${m?.avgLatencyMs}|${m?.tokens?.cacheHitPct}|${m?.tokens?.cacheRead}|${m?.compactions}|${m?.emptyPaused}|${m?.lastCompleted?.id}`;
     if (now.dataset.key !== key) {
       now.dataset.key = key;
       const word = h("b", { class: "air", "data-air": air }, idle ? "off air" : air);
@@ -530,11 +556,16 @@ export class AdminDeck {
           ),
         );
       } else {
+        const tok = m?.tokens;
+        const cacheNote = tok && tok.input + tok.cacheRead > 0 ? `${tok.cacheHitPct}% cache` : "";
+        const compNote = m?.compactions ? `${m.compactions} compact` : "";
         const facts = [
           m?.matchId ? `match ${m.matchId}` : "",
           air === "paused" ? (m?.emptyPaused ? "nobody was watching" : "game and ai frozen") : "",
           m?.turns ? `${m.turns} turns` : "",
           m?.avgLatencyMs ? `${(m.avgLatencyMs / 1000).toFixed(1)}s a turn` : "",
+          cacheNote,
+          compNote,
         ].filter(Boolean);
         now.replaceChildren(word, tickerEl(id, "m"), h("span", { class: "quiet" }, facts.join(", ")));
       }
@@ -548,6 +579,7 @@ export class AdminDeck {
       setText($("startTitle"), idle ? "start a match" : "start or queue a match");
       setText($("lLaunch"), idle ? "go on air" : "launch now");
       setText($("secAfter").querySelector("h3")!, idle ? "after a match ends" : "after this match ends");
+      this.renderUsage();
     }
     setText($("aPause"), air === "paused" ? "resume" : "pause");
   }

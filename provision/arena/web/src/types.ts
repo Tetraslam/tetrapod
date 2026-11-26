@@ -76,6 +76,14 @@ export type RunnerMode = "paused" | "single" | "pinned" | "rotation";
 
 export type Contender = { id: string; provider: string; ticker: string; label: string; color: string };
 
+export type TokenUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheHitPct: number;
+};
+
 export type Meta = {
   contender: Contender;
   matchId: number | null;
@@ -88,6 +96,8 @@ export type Meta = {
   emptyPaused?: boolean;
   turns?: number;
   avgLatencyMs?: number;
+  tokens?: TokenUsage;
+  compactions?: number;
   queueLength?: number;
   aiPaused: boolean;
   aiBusy: boolean;
@@ -212,6 +222,11 @@ export type AdminState = {
     total_blocks: number;
     total_prompt_chars: number;
     total_output_chars: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_cache_read_tokens?: number;
+    total_cache_write_tokens?: number;
+    total_compactions?: number;
   };
 };
 
