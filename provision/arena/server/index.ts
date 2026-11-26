@@ -13,6 +13,7 @@ const SPRITES_DIR = process.env.ARENA_SPRITES_DIR || join(DATA_DIR, "sprites");
 const DEFAULT_TURN_MS = Number(process.env.ARENA_TURN_MS || "13000");
 
 type RunnerMode = "paused" | "single" | "pinned" | "rotation";
+type MatchState = "live" | "paused" | "idle";
 
 type Contender = {
   id: string;
@@ -288,6 +289,7 @@ let rosterIdx = 0;
 let mapIdx = 0;
 let activeContender: Contender = ROSTER[0];
 let activeMatchId: number | null = null;
+let arenaIdle = config.mode === "paused";
 let aiPaused = config.mode === "paused";
 let aiBusy = false;
 let lastTurnAt = 0;
@@ -313,10 +315,16 @@ function getQueue(): Array<{ id: number; model: string; map: string; created_at:
 
 function getMetaPayload() {
   const emptyPaused =
-    config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+    !arenaIdle && config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+  const matchState: MatchState = arenaIdle ? "idle" : aiPaused || emptyPaused ? "paused" : "live";
+  const lastCompleted = db
+    .query("SELECT id, model, map, peak_wave, ended_at FROM matches WHERE status = 'completed' ORDER BY id DESC LIMIT 1")
+    .get() as any;
   return {
     contender: activeContender,
-    matchId: activeMatchId,
+    matchId: arenaIdle ? null : activeMatchId,
+    matchState,
+    arenaIdle,
     mode: config.mode,
     turnIntervalMs: config.turnIntervalMs,
     autoPauseEmpty: config.autoPauseEmpty,
@@ -330,6 +338,7 @@ function getMetaPayload() {
     avgLatencyMs: matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
     spectators: wsClients.size,
     queueLength: getQueue().length,
+    lastCompleted: lastCompleted || null,
   };
 }
 
@@ -919,24 +928,28 @@ async function advanceAfterMatchEnd(): Promise<void> {
   if (nextQueued) {
     db.prepare("DELETE FROM match_queue WHERE id = ?").run(nextQueued.id);
     activeContender = makeContender(nextQueued.model);
+    arenaIdle = false;
     aiPaused = false;
     pushFeed("system", `launching queued match: ${activeContender.id} on ${nextQueued.map}`, undefined, "ARENA");
     await mindustryJson("/action", { type: "new_game", map: nextQueued.map }).catch(() => {});
-    broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+    broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
     return;
   }
 
-  // 2. Otherwise follow configured runner mode
+  // 2. Otherwise follow configured after-match policy
   if (config.mode === "single" || config.mode === "paused") {
+    arenaIdle = true;
     aiPaused = true;
-    pushFeed("system", `mode=${config.mode}: paused after match completion`, undefined, "ARENA");
+    pushFeed("system", "arena off-air — no active match", undefined, "ARENA");
   } else if (config.mode === "pinned") {
+    arenaIdle = false;
     activeContender = makeContender(config.pinnedModel);
   } else {
+    arenaIdle = false;
     rosterIdx = (rosterIdx + 1) % ROSTER.length;
     activeContender = ROSTER[rosterIdx];
   }
-  broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+  broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
 }
 
 async function pollMindustry(): Promise<void> {
@@ -958,30 +971,30 @@ async function pollMindustry(): Promise<void> {
         "INSERT INTO map_terrains (map, terrain_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(map) DO UPDATE SET terrain_json = excluded.terrain_json, updated_at = excluded.updated_at"
       ).run(cachedTerrain.map, JSON.stringify(cachedTerrain), Date.now());
       broadcast({ type: "terrain", terrain: cachedTerrain });
-      if (activeMatchId === null || (prevMap && prevMap !== st.map)) {
+      if (!arenaIdle && (activeMatchId === null || (prevMap && prevMap !== st.map))) {
         startNewMatchRecord(st.map, st);
       }
-    } else if (activeMatchId === null && !st.gameOver) {
+    } else if (!arenaIdle && activeMatchId === null && !st.gameOver) {
       startNewMatchRecord(st.map, st);
     }
 
-    if (st.wave > matchPeakWave) {
+    if (!arenaIdle && st.wave > matchPeakWave) {
       matchPeakWave = st.wave;
       if (st.wave > 1) {
         const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
-        pushFeed("milestone", `wave ${st.wave} incoming! (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
+        pushFeed("milestone", `wave ${st.wave} incoming (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
       }
     }
 
-    if (st.gameOver && !prevGameOver) {
+    if (!arenaIdle && st.gameOver && !prevGameOver) {
       lastGameOverAt = Date.now();
       finishMatchRecord("core destroyed", st);
       await advanceAfterMatchEnd();
     }
 
     const emptyPaused =
-      config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
-    const desiredPaused = aiPaused || emptyPaused;
+      !arenaIdle && config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+    const desiredPaused = arenaIdle || aiPaused || emptyPaused;
 
     // Keep Mindustry simulation strictly synchronized with runner pause state
     if (!st.gameOver && typeof st.paused === "boolean" && st.paused !== desiredPaused && Date.now() - lastPauseSyncAt > 800) {
@@ -1199,8 +1212,10 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as any;
       if (body.mode && ["paused", "single", "pinned", "rotation"].includes(body.mode)) {
         config.mode = body.mode;
-        if (config.mode === "paused") aiPaused = true;
-        else if (body.aiPaused === undefined) aiPaused = false;
+      }
+      if (typeof body.arenaIdle === "boolean") {
+        arenaIdle = body.arenaIdle;
+        if (arenaIdle) aiPaused = true;
       }
       if (typeof body.turnIntervalMs === "number") {
         config.turnIntervalMs = Math.max(5000, Math.min(60000, Math.round(body.turnIntervalMs)));
@@ -1249,11 +1264,12 @@ const server = Bun.serve({
         saveConfig(config);
       }
       activeContender = makeContender(modelId);
+      arenaIdle = false;
       aiPaused = false;
       finishMatchRecord("admin launch", latestState || undefined);
       await mindustryJson("/action", { type: "new_game", map: mapName });
       broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
-      return Response.json({ ok: true, contender: activeContender, map: mapName, config });
+      return Response.json({ ok: true, contender: activeContender, map: mapName, config, meta: getMetaPayload() });
     }
 
     const adminDeleteMatch = url.pathname.match(/^\/api\/admin\/matches\/(\d+)$/);
@@ -1281,23 +1297,31 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as any;
       if (body.action === "pause") {
         aiPaused = true;
-        pushFeed("system", "AI runner paused", undefined, "ARENA");
+        pushFeed("system", "match paused", undefined, "ARENA");
       } else if (body.action === "resume") {
+        arenaIdle = false;
         aiPaused = false;
         if (config.mode === "paused") {
           config.mode = "single";
           saveConfig(config);
         }
-        pushFeed("system", "AI runner resumed", undefined, "ARENA");
+        pushFeed("system", "match resumed", undefined, "ARENA");
         void runAiTurn();
+      } else if (body.action === "go_idle") {
+        finishMatchRecord("off-air", latestState || undefined);
+        arenaIdle = true;
+        aiPaused = true;
+        pushFeed("system", "arena set off-air", undefined, "ARENA");
       } else if (body.action === "step") {
-        void runAiTurn(true);
+        if (!arenaIdle) void runAiTurn(true);
       } else if ((body.action === "set_model" || body.action === "switch_model") && body.model) {
         activeContender = makeContender(String(body.model));
         pushFeed("system", `switched active contender to ${activeContender.id}`, undefined, "ARENA");
       } else if (body.action === "send_wave") {
-        await mindustryJson("/action", { type: "send_wave" });
-        pushFeed("system", "sent next wave early", undefined, "ARENA");
+        if (!arenaIdle) {
+          await mindustryJson("/action", { type: "send_wave" });
+          pushFeed("system", "sent next wave early", undefined, "ARENA");
+        }
       } else if (body.action === "end_match") {
         finishMatchRecord("ended by admin", latestState || undefined);
         await advanceAfterMatchEnd();
@@ -1309,12 +1333,13 @@ const server = Bun.serve({
           activeContender = ROSTER[rosterIdx];
         }
         const nextMap = body.map || MAP_ROTATION[(mapIdx = (mapIdx + 1) % MAP_ROTATION.length)];
+        arenaIdle = false;
         aiPaused = false;
         finishMatchRecord("manual reset", latestState || undefined);
         await mindustryJson("/action", { type: "new_game", map: nextMap });
       }
       broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
-      return Response.json({ ok: true, aiPaused, contender: activeContender, config });
+      return Response.json({ ok: true, aiPaused, arenaIdle, contender: activeContender, config, meta: getMetaPayload() });
     }
 
     if (url.pathname === "/api/factorio/rcon" && req.method === "POST") {
