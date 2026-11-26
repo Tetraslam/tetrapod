@@ -50,7 +50,8 @@ deploy_web
 
 echo "==> deploying /opt/tetrapod/arena/server"
 sudo install -d -o tetraslam -g tetraslam /opt/tetrapod/arena/server
-cp "$HERE/arena/server/index.ts" "$HERE/arena/server/rcon.ts" "$HERE/arena/server/mcp.ts" /opt/tetrapod/arena/server/
+cp "$HERE/arena/server/package.json" "$HERE/arena/server/index.ts" "$HERE/arena/server/rcon.ts" "$HERE/arena/server/mcp.ts" "$HERE/arena/server/snapshot.ts" /opt/tetrapod/arena/server/
+(cd /opt/tetrapod/arena/server && bun install --silent)
 
 echo "==> installing & starting tetrapod-arena.service"
 sudo cp "$HERE/systemd/tetrapod-arena.service" /etc/systemd/system/

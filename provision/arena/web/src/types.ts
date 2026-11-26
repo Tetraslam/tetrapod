@@ -170,6 +170,7 @@ export type Snapshot = {
   items: Record<string, number>;
   power: { produced: number; consumed: number };
   buildings: Building[];
+  powerLinks?: Array<[number, number, number, number]>;
   units: Unit[];
   playerDrone: PlayerDrone | null;
   thought: string | null;

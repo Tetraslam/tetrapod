@@ -371,7 +371,7 @@ export class MatchView {
       items: snap.items,
       spawns: t.spawns,
       buildings: snap.buildings,
-      powerLinks: [],
+      powerLinks: snap.powerLinks || [],
       conveyorItems: [],
       power: snap.power,
       units: snap.units,

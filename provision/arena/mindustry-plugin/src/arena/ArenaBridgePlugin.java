@@ -46,6 +46,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -858,6 +859,7 @@ public class ArenaBridgePlugin extends Plugin {
                 float powerCons = 0f;
                 StringBuilder powerLinks = new StringBuilder("[");
                 boolean firstLink = true;
+                HashSet<Long> seenLinks = new HashSet<>();
                 StringBuilder convItems = new StringBuilder("[");
                 boolean firstConv = true;
                 int convCount = 0;
@@ -889,14 +891,19 @@ public class ArenaBridgePlugin extends Plugin {
                             powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
                         }
                         if (b.power.links != null && b.power.links.size > 0) {
+                            int ax = b.tileX(), ay = b.tileY();
+                            int aPos = Point2.pack(ax, ay);
                             for (int li = 0; li < b.power.links.size; li++) {
                                 int pos = b.power.links.get(li);
                                 int tx = Point2.x(pos);
                                 int ty = Point2.y(pos);
-                                if (b.tileX() < tx || (b.tileX() == tx && b.tileY() < ty)) {
+                                long lo = Math.min(aPos, pos) & 0xFFFFFFFFL;
+                                long hi = Math.max(aPos, pos) & 0xFFFFFFFFL;
+                                long edgeKey = (lo << 32) | hi;
+                                if (seenLinks.add(edgeKey)) {
                                     if (!firstLink) powerLinks.append(',');
                                     firstLink = false;
-                                    powerLinks.append('[').append(b.tileX()).append(',').append(b.tileY())
+                                    powerLinks.append('[').append(ax).append(',').append(ay)
                                               .append(',').append(tx).append(',').append(ty).append(']');
                                 }
                             }
@@ -1029,6 +1036,10 @@ public class ArenaBridgePlugin extends Plugin {
         }
         core.items.remove(block.requirements);
         tile.setNet(block, Team.sharded, r);
+        if (tile.build != null) {
+            // Trigger Mindustry's normal post-placement hook (auto-links power nodes and nearby consumers).
+            tile.build.placed();
+        }
         // Direct the AI builder drone to this build site with an active build beam
         droneTargetX = x * 8f;
         droneTargetY = y * 8f;

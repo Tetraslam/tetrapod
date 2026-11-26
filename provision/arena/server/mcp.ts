@@ -100,14 +100,15 @@ export function createMcpHandler(tools: McpToolDef[], serverName = "mindustry-ar
       }
       try {
         const result = await tool.handler((params?.arguments as Record<string, any>) || {});
-        const text = typeof result === "string" ? result : JSON.stringify(result);
+        const content =
+          result && typeof result === "object" && Array.isArray((result as any)._mcpContent)
+            ? (result as any)._mcpContent
+            : [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }];
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
             id,
-            result: {
-              content: [{ type: "text", text }],
-            },
+            result: { content },
           }),
           { status: 200, headers }
         );

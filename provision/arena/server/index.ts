@@ -4,6 +4,7 @@ import { join, normalize, sep } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { createMcpHandler } from "./mcp";
 import { factorioRcon } from "./rcon";
+import { renderBattlefieldSnapshot } from "./snapshot";
 
 const PORT = Number(process.env.ARENA_PORT || "6570");
 const MINDUSTRY_URL = (process.env.MINDUSTRY_URL || "http://127.0.0.1:6568").replace(/\/+$/, "");
@@ -132,6 +133,7 @@ for (const col of [
   "ALTER TABLE matches ADD COLUMN compactions INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN plan_json TEXT DEFAULT '[]'",
   "ALTER TABLE match_snapshots ADD COLUMN plan_json TEXT DEFAULT '[]'",
+  "ALTER TABLE match_snapshots ADD COLUMN power_links_json TEXT DEFAULT '[]'",
 ]) {
   try {
     db.exec(col);
@@ -436,8 +438,8 @@ function recordSnapshot(
   const seq = matchSnapshotSeq;
   db.prepare(
     `INSERT INTO match_snapshots
-      (match_id, seq, ts, kind, wave, enemies, core_hp, core_max_hp, items_json, power_json, buildings_json, units_json, player_drone_json, thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (match_id, seq, ts, kind, wave, enemies, core_hp, core_max_hp, items_json, power_json, buildings_json, units_json, player_drone_json, thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json, power_links_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     activeMatchId,
     seq,
@@ -457,7 +459,8 @@ function recordSnapshot(
     extra?.promptChars ?? 0,
     extra?.outputChars ?? 0,
     extra?.latencyMs ?? 0,
-    JSON.stringify(currentPlan)
+    JSON.stringify(currentPlan),
+    JSON.stringify(st.powerLinks || [])
   );
   return seq;
 }
@@ -813,7 +816,7 @@ function getMatchDetail(matchId: number) {
     .query(
       `SELECT id, seq, ts, kind, wave, enemies, core_hp, core_max_hp,
               items_json, power_json, buildings_json, units_json, player_drone_json,
-              thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json
+              thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json, power_links_json
        FROM match_snapshots
        WHERE match_id = ?
        ORDER BY seq ASC`
@@ -828,6 +831,7 @@ function getMatchDetail(matchId: number) {
     const playerDrone = s.player_drone_json ? JSON.parse(s.player_drone_json) : null;
     const actions = s.actions_json ? JSON.parse(s.actions_json) : [];
     const plan = s.plan_json ? JSON.parse(s.plan_json) : [];
+    const powerLinks = s.power_links_json ? JSON.parse(s.power_links_json) : [];
     return {
       id: s.id,
       seq: s.seq,
@@ -845,6 +849,7 @@ function getMatchDetail(matchId: number) {
       thought: s.thought,
       actions,
       plan,
+      powerLinks,
       promptChars: s.prompt_chars,
       outputChars: s.output_chars,
       latencyMs: s.latency_ms,
@@ -1223,6 +1228,59 @@ const handleMcp = createMcpHandler([
       }
       broadcast({ type: "plan", plan: currentPlan });
       return { ok: true, count: currentPlan.length, goals: currentPlan };
+    },
+  },
+  {
+    name: "snapshot",
+    description:
+      "Render an on-demand PNG visual image of the battlefield using the real Mindustry sprites, with optional coordinate rulers, turret firing ranges, power beams, ore overlays, labels, and custom framing ('base' | 'whole_map' | 'spawn_to_core' | 'region').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          enum: ["base", "whole_map", "spawn_to_core", "region"],
+          description: "Camera framing: 'base' (auto-fits your buildings), 'whole_map' (entire map), 'spawn_to_core' (core + enemy spawns), or 'region' (custom cx, cy, radius)",
+        },
+        cx: { type: "integer", description: "Center X tile (used when mode='region', defaults to core X)" },
+        cy: { type: "integer", description: "Center Y tile (used when mode='region', defaults to core Y)" },
+        radius: { type: "integer", description: "Half-width in tiles for mode='region' (8..90, default 28)" },
+        width: { type: "integer", description: "Max output PNG width in pixels (320..1280, default 768)" },
+        grid: { type: "boolean", description: "Draw coordinate ruler margins and gridlines (default true)" },
+        ranges: { type: "boolean", description: "Draw translucent turret firing range rings (default false)" },
+        labels: { type: "boolean", description: "Draw CORE and SPAWN tags (default true)" },
+        ores: { type: "boolean", description: "Render ore veins (default true)" },
+        power: { type: "boolean", description: "Render power link beams (default true)" },
+        enemies: { type: "boolean", description: "Render enemy units (default true)" },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const st = await mindustryJson<StatePayload>("/state");
+      if (!st.ready) return { ok: false, error: "game not ready" };
+      latestState = st;
+      if (!cachedTerrain || cachedTerrain.map !== st.map) {
+        cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
+      }
+      const rendered = await renderBattlefieldSnapshot(cachedTerrain, st, SPRITES_DIR, {
+        mode: args.mode,
+        cx: args.cx,
+        cy: args.cy,
+        radius: args.radius,
+        width: args.width,
+        grid: args.grid,
+        ranges: args.ranges,
+        labels: args.labels,
+        ores: args.ores,
+        power: args.power,
+        enemies: args.enemies,
+      });
+      return {
+        _mcpContent: [
+          { type: "image", data: rendered.pngBase64, mimeType: "image/png" },
+          { type: "text", text: rendered.summary },
+        ],
+      };
     },
   },
   {
