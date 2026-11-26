@@ -2,7 +2,7 @@ import { iconFor, iconURL } from "./atlas";
 import { isModelId, tickerEl } from "./lines";
 import type { Pick } from "./renderer";
 import { ORE_COLORS } from "./terrain";
-import type { Factorio, FeedAction, FeedItem, Leaderboard, MatchRow, Meta, State } from "./types";
+import type { Factorio, FeedAction, FeedItem, Leaderboard, MatchRow, Meta, PlanGoal, State } from "./types";
 import { $, ago, clamp, clock, duration, h, mmss, num, reducedMotion, setText } from "./util";
 import { HOME, type World } from "./world";
 
@@ -797,5 +797,101 @@ export function renderOffAir(
             ),
           )
       : [h("li", { class: "quiet" }, "nobody has played yet.")]),
+  );
+}
+
+// ---------- the plan ----------
+
+const PLAN_ROOM = 4;
+const hasSpot = (g: PlanGoal) => Number.isFinite(g.x) && Number.isFinite(g.y);
+const goalKey = (g: PlanGoal) => `${g.status}|${g.text}|${g.x},${g.y}`;
+
+/**
+ * The model's plan as rows: a filled mark for what it is doing, a hollow red one for what is
+ * stuck, struck through once done. A goal with a tile is a button that shows it on the map.
+ * `fresh` marks goals that were not on the board the step before.
+ */
+export function planList(
+  goals: PlanGoal[],
+  onJump: (targets: Target[]) => void,
+  fresh?: Set<string>,
+): HTMLElement {
+  return h(
+    "ol",
+    { class: "plan" },
+    ...goals.map((g) => {
+      const spot = hasSpot(g);
+      const body = [
+        h("i", null),
+        h("span", { class: "pt" }, g.text),
+        fresh?.has(g.text) ? h("em", null, "new") : null,
+        g.status === "blocked" ? h("em", { class: "stuck" }, "blocked") : null,
+        spot ? h("code", null, `${g.x},${g.y}`) : null,
+      ];
+      return h(
+        "li",
+        { class: g.status },
+        spot
+          ? h(
+              "button",
+              {
+                title: "show this on the map",
+                onclick: () => onJump([{ x: g.x as number, y: g.y as number, ok: g.status !== "blocked" }]),
+              },
+              ...body,
+            )
+          : h("div", null, ...body),
+      );
+    }),
+  );
+}
+
+let planKey = "";
+let planOpen = false;
+
+/** The pinned plan above the feed. Gone entirely when the model has not set one. */
+export function renderPlan(goals: PlanGoal[] | undefined, onJump: (targets: Target[]) => void): void {
+  const all = (goals || []).filter((g) => g?.text).slice(0, 8);
+  const key = `${planOpen}|${all.map(goalKey).join(";")}`;
+  if (key === planKey) return;
+  planKey = key;
+  const el = $("plan");
+  el.hidden = all.length === 0;
+  if (!all.length) {
+    planOpen = false;
+    el.replaceChildren();
+    return;
+  }
+  // Folded, the board keeps what is still in play: active first, then blocked, and done only if there is room.
+  const rank = { active: 0, blocked: 1, done: 2 } as const;
+  const shown =
+    planOpen || all.length <= PLAN_ROOM
+      ? all
+      : [...all].sort((a, b) => rank[a.status] - rank[b.status]).slice(0, PLAN_ROOM);
+  const left = all.filter((g) => g.status !== "done").length;
+  el.replaceChildren(
+    h(
+      "header",
+      null,
+      h("h3", null, "the plan"),
+      h("span", { class: "quiet" }, left ? `${left} of ${all.length} to go` : "all done"),
+    ),
+    planList(shown, onJump),
+    ...(all.length > PLAN_ROOM
+      ? [
+          h(
+            "button",
+            {
+              class: "plan-more",
+              "aria-expanded": String(planOpen),
+              onclick: () => {
+                planOpen = !planOpen;
+                renderPlan(goals, onJump);
+              },
+            },
+            planOpen ? "show fewer" : `show all (${all.length})`,
+          ),
+        ]
+      : []),
   );
 }

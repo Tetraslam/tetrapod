@@ -752,7 +752,7 @@ main {
 /* ---------- the brain ---------- */
 .brain {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
   border-left: 1px solid var(--rule);
   background: var(--panel);
@@ -2754,4 +2754,126 @@ a.cell[href]:hover .lbl {
 #mMap:focus-visible {
   outline: 1px solid var(--ink-3);
   outline-offset: -1px;
+}
+
+/* ---------- the plan board ---------- */
+.feed {
+  grid-row: 3;
+}
+
+.plan-pin {
+  grid-row: 2;
+  padding: 10px 16px 9px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--black);
+}
+
+.plan-pin header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.plan-pin h3 {
+  font: 700 18px / 1 var(--display);
+}
+
+.plan-pin header span {
+  font: 400 11.5px / 1 var(--mono);
+}
+
+.plan {
+  list-style: none;
+  display: grid;
+}
+
+.plan li > * {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 0 8px;
+  width: 100%;
+  padding: 3px 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.plan button:hover {
+  background: var(--raise);
+}
+
+.plan button:hover code {
+  color: var(--signal);
+}
+
+.plan i {
+  width: 7px;
+  height: 7px;
+  align-self: center;
+  background: var(--signal);
+}
+
+.plan .pt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan code {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.plan em {
+  font: 600 13px / 1 var(--display);
+  font-style: normal;
+  letter-spacing: 0.02em;
+  color: var(--signal);
+}
+
+.plan .blocked i {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--hostile);
+}
+
+.plan em.stuck {
+  color: var(--hostile);
+}
+
+.plan .done i {
+  background: var(--ink-3);
+}
+
+.plan .done .pt {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-3);
+}
+
+.plan-more {
+  margin-top: 3px;
+  padding: 2px 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.plan-more:hover {
+  color: var(--ink);
+}
+
+/* in the breakdown there is room, so a goal may wrap */
+.m-turn .plan .pt {
+  white-space: normal;
+}
+
+@media (max-width: 900px) {
+  .plan-pin {
+    border-top: 1px solid var(--rule);
+  }
 }

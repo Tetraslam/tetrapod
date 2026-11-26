@@ -3,7 +3,7 @@ import playIcon from "@phosphor-icons/core/fill/play-fill.svg?raw";
 import backIcon from "@phosphor-icons/core/fill/skip-back-fill.svg?raw";
 import forwardIcon from "@phosphor-icons/core/fill/skip-forward-fill.svg?raw";
 import { iconFor, iconURL } from "./atlas";
-import { actionList, actionTargets, ending, renderInspector, seconds, type Target } from "./hud";
+import { actionList, actionTargets, ending, planList, renderInspector, seconds, type Target } from "./hud";
 import { attachCamera } from "./input";
 import { lineColor, tickerEl } from "./lines";
 import { Renderer } from "./renderer";
@@ -61,6 +61,28 @@ const STRIPS: Strip[] = [
     unit: (v) => (v > 0 ? `${v.toFixed(1)}s` : "--"),
   },
 ];
+
+/** `vite dev` only (?plan=demo): give a recorded match a plan that grows and resolves, to work on the replay's plan view. */
+function demoPlans(detail: MatchDetail): void {
+  const core = detail.snapshots[0]?.buildings.find((b) => b.block.startsWith("core-"));
+  const cx = core?.x ?? 100;
+  const cy = core?.y ?? 100;
+  const goals = [
+    { text: "copper drills straight into the core", x: cx + 4, y: cy - 3 },
+    { text: "two duos on the spawn side, fed by one router", x: cx - 5, y: cy + 2 },
+    { text: "wall the approach before the next wave", x: cx - 8, y: cy + 4 },
+    { text: "lead income for a scatter" },
+    { text: "graphite for a hail battery", x: cx + 7, y: cy + 6 },
+  ];
+  const n = detail.snapshots.length;
+  detail.snapshots.forEach((s, i) => {
+    const t = i / Math.max(1, n - 1);
+    s.plan = goals.slice(0, Math.min(goals.length, 1 + Math.floor(t * 6))).map((g, k) => ({
+      ...g,
+      status: t > (k + 1.5) / 6 ? "done" : k === 3 && t > 0.6 && t < 0.85 ? "blocked" : "active",
+    }));
+  });
+}
 
 function svg<K extends keyof SVGElementTagNameMap>(
   tag: K,
@@ -210,6 +232,8 @@ export class MatchView {
             : `the arena answered ${res.status}.`,
         );
       const detail = (await res.json()) as MatchDetail;
+      if (import.meta.env.DEV && new URLSearchParams(location.search).get("plan") === "demo")
+        demoPlans(detail);
       if (id !== this.id || token !== this.loading) return;
       const first = !this.detail;
       this.detail = detail;
@@ -657,6 +681,22 @@ export class MatchView {
       h("p", { class: "thought" }, this.said(s)),
     ];
     if (s.actions.length) parts.push(actionList(s.actions, (targets) => this.focus(targets, true)));
+
+    // The plan as it stood at this step. Scrubbing shows goals arrive, get done and get stuck.
+    const plan = (s.plan || []).filter((g) => g?.text);
+    if (plan.length) {
+      const before = new Set((prev?.plan || []).map((g) => g.text));
+      const fresh = prev ? new Set(plan.filter((g) => !before.has(g.text)).map((g) => g.text)) : undefined;
+      const left = plan.filter((g) => g.status !== "done").length;
+      parts.push(
+        h(
+          "h3",
+          null,
+          left ? `the plan at this step, ${left} of ${plan.length} to go` : "the plan at this step, all done",
+        ),
+        planList(plan, (targets) => this.focus(targets, true), fresh),
+      );
+    }
 
     if (prev) {
       const chips: HTMLElement[] = [];

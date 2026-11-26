@@ -87,6 +87,7 @@ export type TokenUsage = {
 export type Meta = {
   contender: Contender;
   matchId: number | null;
+  plan?: PlanGoal[];
   /** live: a match is running. paused: it is frozen in place, game and model both. idle: off air, no match. */
   matchState?: "live" | "paused" | "idle";
   lastCompleted?: { id: number; model: string; map: string; peak_wave: number; ended_at: number } | null;
@@ -106,6 +107,9 @@ export type Meta = {
   actionsFail: number;
   spectators: number;
 };
+
+/** One line of the model's own plan board, set through its set_plan tool. */
+export type PlanGoal = { text: string; status: "active" | "done" | "blocked"; x?: number; y?: number };
 
 export type FeedAction = { label: string; ok: boolean; error?: string };
 
@@ -169,6 +173,7 @@ export type Snapshot = {
   units: Unit[];
   playerDrone: PlayerDrone | null;
   thought: string | null;
+  plan?: PlanGoal[];
   actions: FeedAction[];
   promptChars: number;
   outputChars: number;
@@ -260,12 +265,14 @@ export type ServerMessage =
       state: State | null;
       meta: Meta;
       feed?: FeedItem[];
+      plan?: PlanGoal[];
       leaderboard?: Leaderboard;
       factorio?: Factorio;
     }
   | { type: "terrain"; terrain: Terrain }
   | { type: "state"; state: State; meta: Meta }
   | { type: "feed"; item: FeedItem }
+  | { type: "plan"; plan: PlanGoal[] }
   | { type: "leaderboard"; leaderboard: Leaderboard }
   | { type: "factorio"; factorio: Factorio }
   | { type: "config"; config: ArenaConfig; meta: Meta; leaderboard?: Leaderboard };

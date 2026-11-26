@@ -21,6 +21,7 @@ import {
   renderLeaderboard,
   renderLegend,
   renderOffAir,
+  renderPlan,
   renderStock,
   setFeed,
   type Target,
@@ -31,7 +32,7 @@ import { MatchView } from "./match";
 import { Minimap } from "./minimap";
 import { Renderer } from "./renderer";
 import { TerrainModel } from "./terrain";
-import type { Factorio, FeedItem, Leaderboard, Meta, ServerMessage, State, Terrain } from "./types";
+import type { Factorio, FeedItem, Leaderboard, Meta, PlanGoal, ServerMessage, State, Terrain } from "./types";
 import { $, clock, reducedMotion, setText } from "./util";
 import { World } from "./world";
 
@@ -391,13 +392,30 @@ function onTerrain(t: Terrain | null): void {
 // In `vite dev`, ?state=idle or ?state=paused forces that match state, to work on those screens.
 const forced = import.meta.env.DEV ? new URLSearchParams(location.search).get("state") : null;
 
+// In `vite dev`, ?plan=demo pins a sample plan, to work on the plan board before a model sets one.
+const demoPlan: PlanGoal[] | null =
+  import.meta.env.DEV && new URLSearchParams(location.search).get("plan") === "demo"
+    ? [
+        { text: "double copper income off the north seam", status: "done", x: 96, y: 86 },
+        { text: "feed both duos from one router", status: "done" },
+        { text: "wall the southwest approach before wave 18", status: "active", x: 90, y: 92 },
+        { text: "get graphite going for the hail battery", status: "active", x: 104, y: 79 },
+        { text: "scatter by the core for the flares", status: "blocked", x: 99, y: 101 },
+        { text: "power grid: two combustion generators", status: "active" },
+        { text: "titanium conveyor on the main trunk", status: "active", x: 101, y: 95 },
+        { text: "second core feed from the east drills", status: "active" },
+      ]
+    : null;
+
 function onMeta(m: Meta | null): void {
   if (!m) return;
   if (forced === "idle" || forced === "paused") {
     m = { ...m, matchState: forced, matchId: forced === "idle" ? null : m.matchId, aiPaused: true };
   }
+  if (demoPlan) m = { ...m, plan: demoPlan };
   const was = meta?.matchState;
   meta = m;
+  renderPlan(m.plan, jumpTo);
   view.frozen = m.matchState === "paused";
   if (m.matchState !== was) {
     syncAir();
@@ -450,6 +468,13 @@ function handle(msg: ServerMessage): void {
       break;
     case "feed":
       onFeed(msg.item);
+      break;
+    case "plan":
+      // The model can rewrite its plan in the middle of a turn, so this arrives on its own.
+      if (meta && !demoPlan) {
+        meta = { ...meta, plan: msg.plan };
+        renderPlan(msg.plan, jumpTo);
+      }
       break;
     case "leaderboard":
       leaderboard = msg.leaderboard;
