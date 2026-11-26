@@ -10,6 +10,7 @@ import { mkdir, rename, stat, writeFile, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 const OPENCODE_URL = (process.env.OPENCODE_URL || "http://127.0.0.1:4096").replace(/\/+$/, "");
+const OPENCODE_PASSWORD = process.env.OPENCODE_PASSWORD || "";
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || "";
 const HEALTH_PORT = Number(process.env.HEALTH_PORT || "4097");
 const STATE_DIR = process.env.KESTREL_STATE_DIR || "/opt/tetrapod/kestrel";
@@ -69,10 +70,30 @@ function parseModelRef(spec: string): { providerID: string; id: string } | null 
   return { providerID: spec.slice(0, idx), id: spec.slice(idx + 1) };
 }
 
+async function getAuthHeader(): Promise<string | undefined> {
+  if (OPENCODE_PASSWORD) {
+    return "Basic " + Buffer.from(`opencode:${OPENCODE_PASSWORD}`).toString("base64");
+  }
+  try {
+    const home = process.env.HOME || "/home/tetraslam";
+    const reg = JSON.parse(await readFile(join(home, ".local/state/opencode/service.json"), "utf8"));
+    if (reg?.password) {
+      return "Basic " + Buffer.from(`opencode:${reg.password}`).toString("base64");
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 async function ocFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string> | undefined),
   };
+  const auth = await getAuthHeader();
+  if (auth && !headers.authorization && !headers.Authorization) {
+    headers.authorization = auth;
+  }
   if (init.body && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
@@ -283,7 +304,7 @@ async function startEventStream(): Promise<void> {
   while (true) {
     try {
       console.log("kestrel-discord: connecting to OpenCode SSE /api/event");
-      const resp = await fetch(`${OPENCODE_URL}/api/event`, {
+      const resp = await ocFetch("/api/event", {
         headers: { accept: "text/event-stream" },
       });
       if (!resp.ok || !resp.body) {

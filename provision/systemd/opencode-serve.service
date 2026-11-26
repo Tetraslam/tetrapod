@@ -12,7 +12,7 @@ Environment=HOME=/home/tetraslam
 Environment=AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chromium-agent
 Environment=PATH=/home/tetraslam/.opencode/bin:/home/tetraslam/.local/bin:/home/tetraslam/.local/share/mise/shims:/home/tetraslam/.local/share/pnpm:/home/tetraslam/.bun/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-/opt/tetrapod/opencode-serve.env
-ExecStart=/home/tetraslam/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 4096
+ExecStart=/home/tetraslam/.opencode/bin/opencode serve --service --hostname 127.0.0.1 --port 4096
 Restart=always
 RestartSec=3
 

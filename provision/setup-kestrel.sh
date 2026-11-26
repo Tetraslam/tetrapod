@@ -76,10 +76,13 @@ sudo cp "$HERE/systemd/opencode-serve.service" \
 sudo systemctl daemon-reload
 sudo systemctl enable --now opencode-serve.service
 for _ in $(seq 1 20); do
-  if curl -fsS http://127.0.0.1:4096/api/info >/dev/null 2>&1; then
+  if [ -f "$HOME/.local/state/opencode/service.json" ]; then
     break
   fi
   sleep 1
 done
+sudo systemctl restart opencode-serve.service
+sleep 2
 sudo systemctl enable --now kestrel-discord.service kestrel-kuma-push.timer
+sudo systemctl restart kestrel-discord.service
 echo "==> done! opencode-serve + kestrel-discord active."
