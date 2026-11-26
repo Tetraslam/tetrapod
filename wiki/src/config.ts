@@ -34,7 +34,6 @@ export const MIT_MAIL = {
 } as const;
 
 export const URLS = {
-  codeServer: `https://${HOSTS.tetrapod.fqdn}`,
   wiki: `https://${HOSTS.tetrapod.fqdn}/wiki`,
   wikiPublic: "https://wiki.tetraslam.world", // + wiki.tetraslam.com (vercel, kuma-api rewritten to the funnel)
   auth: "https://auth.tetraslam.world",
@@ -53,8 +52,6 @@ export const URLS = {
   ntfy: "https://ntfy.tetraslam.world",
   steel: `http://${HOSTS.tetrapod.fqdn}:3003`,
   zipline: "https://i.tetraslam.world",
-  shlink: "https://link.tetraslam.world",
-  shlinkWeb: "https://shlink.tetraslam.world",
 } as const;
 
 // uptime-kuma status page (create in kuma: Status Pages -> New -> slug below,

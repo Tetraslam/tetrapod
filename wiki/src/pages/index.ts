@@ -11,7 +11,6 @@ import {
   Globe,
   Home,
   KeyRound,
-  Link as LinkIcon,
   type LucideIcon,
   Mail,
   MonitorPlay,
@@ -46,7 +45,6 @@ import { RunbookPage } from "./runbook";
 import { SearxngPage } from "./searxng";
 import { SecretsPage } from "./secrets";
 import { ServicesPage } from "./services";
-import { ShlinkPage } from "./shlink";
 import { ZiplinePage } from "./zipline";
 
 export type WikiPage = {
@@ -101,7 +99,6 @@ export const groups: WikiGroup[] = [
     pages: [
       { slug: "ntfy", title: "ntfy", icon: BellRing, component: NtfyPage },
       { slug: "zipline", title: "zipline", icon: Upload, component: ZiplinePage },
-      { slug: "shlink", title: "shlink", icon: LinkIcon, component: ShlinkPage },
       { slug: "mit-mail", title: "MIT mail", icon: Mail, component: MitMailPage },
     ],
   },

@@ -3,7 +3,6 @@ set -euo pipefail
 
 state_dir=/var/lib/media-reconcile
 state="$state_dir/state.json"
-retry_seconds=3600
 fallback_seconds=300
 now="$(date +%s)"
 
@@ -14,6 +13,29 @@ last_search() {
   jq -r --arg app "$1" --arg id "$2" '.[$app][$id] // 0' "$state"
 }
 
+search_attempts() {
+  jq -r --arg app "$1" --arg id "$2" '.searchAttempts[$app][$id] // 0' "$state"
+}
+
+last_file_count() {
+  jq -r --arg app "$1" --arg id "$2" '.fileCounts[$app][$id] // -1' "$state"
+}
+
+backoff_seconds() {
+  local attempts="$1"
+  if [ "$attempts" -le 0 ]; then
+    echo 0
+  elif [ "$attempts" -eq 1 ]; then
+    echo 21600   # 6 hours
+  elif [ "$attempts" -eq 2 ]; then
+    echo 86400   # 24 hours
+  elif [ "$attempts" -eq 3 ]; then
+    echo 259200  # 3 days
+  else
+    echo 604800  # 7 days cap
+  fi
+}
+
 last_fallback() {
   jq -r --arg id "$1" '.sonarrFallback[$id] // 0' "$state"
 }
@@ -21,7 +43,21 @@ last_fallback() {
 mark_searched() {
   local tmp
   tmp="$(mktemp "$state_dir/state.XXXXXX")"
-  jq --arg app "$1" --arg id "$2" --argjson now "$now" '.[$app][$id] = $now' "$state" >"$tmp"
+  jq --arg app "$1" --arg id "$2" --argjson now "$now" --argjson files "$3" --argjson attempts "$4" '
+    .[$app][$id] = $now |
+    .fileCounts[$app][$id] = $files |
+    .searchAttempts[$app][$id] = $attempts
+  ' "$state" >"$tmp"
+  mv "$tmp" "$state"
+}
+
+reset_search_backoff() {
+  local tmp
+  tmp="$(mktemp "$state_dir/state.XXXXXX")"
+  jq --arg app "$1" --arg id "$2" --argjson files "$3" '
+    .fileCounts[$app][$id] = $files |
+    .searchAttempts[$app][$id] = 0
+  ' "$state" >"$tmp"
   mv "$tmp" "$state"
 }
 
@@ -134,6 +170,16 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
   fi
 
   previous="$(last_search sonarr "$id")"
+  prev_files="$(last_file_count sonarr "$id")"
+  attempts="$(search_attempts sonarr "$id")"
+  if [ "$prev_files" -ge 0 ] && [ "$files" -gt "$prev_files" ]; then
+    reset_search_backoff sonarr "$id" "$files"
+    attempts=0
+  elif [ "$previous" -gt 0 ] && [ "$attempts" -eq 0 ]; then
+    # Migrate legacy state entries that predate attempt tracking.
+    attempts=1
+  fi
+  cooldown="$(backoff_seconds "$attempts")"
   fallback_previous="$(last_fallback "$id")"
   has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$sonarr_downloading_series")"
   if [ "$archive_importing" = false ] &&
@@ -141,7 +187,7 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
      [ "$has_active_download" = false ] &&
      [ "$fallback_previous" -lt "$previous" ] &&
      [ $((now - previous)) -ge "$fallback_seconds" ] &&
-     [ $((now - previous)) -lt "$retry_seconds" ]; then
+     [ $((now - previous)) -lt "$cooldown" ]; then
     /usr/local/bin/media-release-fallback "$id" || true
     mark_fallback "$id"
   fi
@@ -150,13 +196,13 @@ while IFS=$'\t' read -r id title series_type monitored is_anime aired files; do
      [ "$monitored" = true ] && [ "$aired" -gt "$files" ] &&
      [ "$has_active_download" = false ] &&
      [ "$sonarr_search_active" = false ] && [ "$sonarr_search_started" = false ] &&
-     [ $((now - previous)) -ge "$retry_seconds" ]; then
+     [ $((now - previous)) -ge "$cooldown" ]; then
     sonarr_api -X POST -H 'Content-Type: application/json' \
       --data-binary "$(jq -cn --argjson id "$id" '{name:"SeriesSearch",seriesId:$id}')" \
       "$sonarr/command" >/dev/null
-    mark_searched sonarr "$id"
+    mark_searched sonarr "$id" "$files" $((attempts + 1))
     sonarr_search_started=true
-    echo "media-reconcile: searching missing episodes for $title"
+    echo "media-reconcile: searching missing episodes for $title (attempt $((attempts + 1)))"
   fi
   if [ -n "$archive_lock_fd" ]; then
     flock -u "$archive_lock_fd"
@@ -184,17 +230,22 @@ radarr_search_started=false
 
 while IFS=$'\t' read -r id title monitored has_file available; do
   previous="$(last_search radarr "$id")"
+  attempts="$(search_attempts radarr "$id")"
+  if [ "$previous" -gt 0 ] && [ "$attempts" -eq 0 ]; then
+    attempts=1
+  fi
+  cooldown="$(backoff_seconds "$attempts")"
   has_active_download="$(jq --argjson id "$id" 'index($id) != null' <<<"$radarr_downloading_movies")"
   if [ "$monitored" = true ] && [ "$has_file" = false ] && [ "$available" = true ] &&
      [ "$has_active_download" = false ] &&
      [ "$radarr_search_active" = false ] && [ "$radarr_search_started" = false ] &&
-     [ $((now - previous)) -ge "$retry_seconds" ]; then
+     [ $((now - previous)) -ge "$cooldown" ]; then
     radarr_api -X POST -H 'Content-Type: application/json' \
       --data-binary "$(jq -cn --argjson id "$id" '{name:"MoviesSearch",movieIds:[$id]}')" \
       "$radarr/command" >/dev/null
-    mark_searched radarr "$id"
+    mark_searched radarr "$id" 0 $((attempts + 1))
     radarr_search_started=true
-    echo "media-reconcile: searching releases for $title"
+    echo "media-reconcile: searching releases for $title (attempt $((attempts + 1)))"
   fi
 done < <(jq -r '.[] | [
   .id,

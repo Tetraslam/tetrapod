@@ -15,10 +15,8 @@ http://manga.tetraslam.world,
 http://pinchflat.tetraslam.world,
 http://searxng.tetraslam.world,
 http://ntfy.tetraslam.world,
-http://shlink.tetraslam.world,
 http://auth.tetraslam.world,
 http://kuma-api.tetraslam.world,
-http://link.tetraslam.world,
 http://i.tetraslam.world {
 	redir https://{host}{uri} permanent
 }
@@ -97,11 +95,6 @@ ntfy.tetraslam.world {
 	reverse_proxy 127.0.0.1:2586
 }
 
-shlink.tetraslam.world {
-	import private
-	reverse_proxy 127.0.0.1:8086
-}
-
 auth.tetraslam.world {
 	import security
 	reverse_proxy 127.0.0.1:9091
@@ -121,11 +114,6 @@ kuma-api.tetraslam.world {
 	}
 
 	respond 404
-}
-
-link.tetraslam.world {
-	import security
-	reverse_proxy 127.0.0.1:8085
 }
 
 i.tetraslam.world {

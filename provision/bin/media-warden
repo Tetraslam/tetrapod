@@ -23,6 +23,7 @@ STATE_DIR = Path("/var/lib/media-warden")
 HIGH_WATER = 80.0
 LOW_WATER = 65.0
 SEVEN_DAYS = 7 * 86400
+UNAVAILABLE_COOLDOWN = 30 * 86400
 GIB = 1024**3
 ACTIVE_DOWNLOAD_STATES = {
     "allocating",
@@ -246,16 +247,25 @@ class Warden:
         ):
             entities, _, tags = self.app_context(api, resource)
             keep_ids = {int(e["id"]) for e in entities if self.tagged(e, tags, "keep")}
-            history = api.request("/history?page=1&pageSize=1000&sortDirection=descending")
-            for record in history.get("records") or []:
-                if record.get("eventType") != "downloadFolderImported":
-                    continue
-                download_id = str(record.get("downloadId") or "").lower()
-                if not download_id:
-                    continue
-                imported.add(download_id)
-                if int(record.get(entity_key) or 0) in keep_ids:
-                    kept.add(download_id)
+            page = 1
+            page_size = 1000
+            while page <= 10:
+                history = api.request(
+                    f"/history?page={page}&pageSize={page_size}&sortDirection=descending"
+                )
+                records = history.get("records") or []
+                for record in records:
+                    if record.get("eventType") != "downloadFolderImported":
+                        continue
+                    download_id = str(record.get("downloadId") or "").lower()
+                    if not download_id:
+                        continue
+                    imported.add(download_id)
+                    if int(record.get(entity_key) or 0) in keep_ids:
+                        kept.add(download_id)
+                if len(records) < page_size:
+                    break
+                page += 1
         return imported, kept
 
     def manage_torrents(self, pressure: bool, relaxed: bool) -> None:
@@ -323,6 +333,15 @@ class Warden:
                     paused.discard(torrent_hash)
         self.state["paused"] = sorted(paused)
 
+    @staticmethod
+    def replacement_cooldown_active(previous: dict[str, Any], key: str, now: int) -> bool:
+        entry = previous.get(key)
+        if isinstance(entry, dict):
+            last = int(entry.get("time") or 0)
+            cooldown = UNAVAILABLE_COOLDOWN if entry.get("status") == "unavailable" else SEVEN_DAYS
+            return now - last < cooldown
+        return now - int(entry or 0) < SEVEN_DAYS
+
     def queue_replacement(self) -> None:
         now = int(time.time())
         previous = self.state.get("replacements") or {}
@@ -343,7 +362,7 @@ class Warden:
             profile = radarr_profiles.get(int(movie.get("qualityProfileId") or 0), "")
             limit = size_limit(profile, "movie", resolution)
             key = f"radarr:{movie['id']}"
-            if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and now - int(previous.get(key, 0)) >= SEVEN_DAYS:
+            if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and not self.replacement_cooldown_active(previous, key, now):
                 if not any(q.get("movieId") == movie["id"] for q in queues["radarr"]):
                     candidates.append((key, self.radarr, movie, "movieId", int(movie["id"]), limit))
 
@@ -360,7 +379,7 @@ class Warden:
                     continue
                 episode_id = episode_ids[0]
                 key = f"sonarr:{episode_id}"
-                if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and now - int(previous.get(key, 0)) >= SEVEN_DAYS:
+                if limit and int(media_file.get("size") or 0) > limit and resolution >= 1080 and not self.replacement_cooldown_active(previous, key, now):
                     if not any(q.get("episodeId") == episode_id for q in queues["sonarr"]):
                         candidates.append((key, self.sonarr, media_file, "episodeId", episode_id, limit))
 
@@ -370,11 +389,13 @@ class Warden:
             release = choose_release(releases, limit)
             if not release:
                 self.log("replacement_unavailable", item=key, limit=limit)
+                if not self.dry_run:
+                    previous[key] = {"time": now, "status": "unavailable"}
                 continue
             self.log("queue_replacement", item=key, title=release.get("title"), size=release.get("size"))
             if not self.dry_run:
                 api.request("/release", "POST", release)
-                previous[key] = now
+                previous[key] = {"time": now, "status": "queued"}
             break
         self.state["replacements"] = previous
 

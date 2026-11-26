@@ -146,8 +146,6 @@ cp "$HERE/dotfiles/gitconfig" ~/.config/git/config
 cp "$HERE/dotfiles/mise/config.toml" ~/.config/mise/config.toml
 sudo install -m755 "$HERE/bin/opa" /usr/local/bin/opa
 sudo install -m755 "$HERE/bin/restic-backup" /usr/local/bin/restic-backup
-sudo install -m755 "$HERE/bin/shlink" /usr/local/bin/shlink
-sudo install -m755 "$HERE/bin/shlink-provision" /usr/local/bin/shlink-provision
 sudo install -m755 "$HERE/bin/zipline" /usr/local/bin/zipline
 sudo install -m755 "$HERE/bin/media-provision" /usr/local/bin/media-provision
 sudo install -m755 "$HERE/bin/media-prefer-english" /usr/local/bin/media-prefer-english
@@ -297,10 +295,9 @@ sudo chown -R 845:845 /opt/tetrapod/factorio # factoriotools runs as uid 845
 sudo mkdir -p /opt/tetrapod/searxng
 sudo chown -R 977:977 /opt/tetrapod/searxng # searxng container uid
 # media stack state dirs (uid 1000 across the board)
-sudo mkdir -p /opt/tetrapod/{authelia/{data,redis,secrets},caddy/{data,config},jellyfin/config,jellyfin/cache,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy} /opt/tetrapod/{zipline/{uploads,public,db},shlink,media-reconcile,recyclarr}
+sudo mkdir -p /opt/tetrapod/{authelia/{data,redis,secrets},caddy/{data,config},jellyfin/config,jellyfin/cache,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy} /opt/tetrapod/{zipline/{uploads,public,db},media-reconcile,recyclarr}
 sudo mkdir -p /srv/media/library/manga
 sudo chown 1000:1000 /opt/tetrapod/authelia/data
-sudo chown -R 1001:1001 /opt/tetrapod/shlink # shlink container uid
 sudo chown -R 1000:1000 /opt/tetrapod/{jellyfin,seerr,qbittorrent,prowlarr,sonarr,radarr,bazarr,pinchflat,suwayomi,ntfy,recyclarr} /srv/media/library/manga /srv/media/recycle
 sudo chown -R 1000:1000 /opt/tetrapod/media-reconcile
 sudo install -m644 "$HERE/recyclarr/recyclarr.yml" /opt/tetrapod/recyclarr/recyclarr.yml
@@ -323,22 +320,10 @@ if [ ! -f /opt/tetrapod/searxng.env ]; then
   echo "SEARXNG_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/searxng.env >/dev/null
   sudo chmod 600 /opt/tetrapod/searxng.env
 fi
-# zipline + shlink secrets: same pattern
+# zipline secret: same pattern
 if [ ! -f /opt/tetrapod/zipline.env ]; then
   echo "CORE_SECRET=$(openssl rand -hex 32)" | sudo tee /opt/tetrapod/zipline.env >/dev/null
   sudo chmod 600 /opt/tetrapod/zipline.env
-fi
-if [ ! -f /opt/tetrapod/shlink.env ]; then
-  echo "INITIAL_API_KEY=$(openssl rand -hex 24)" | sudo tee /opt/tetrapod/shlink.env >/dev/null
-  sudo chmod 600 /opt/tetrapod/shlink.env
-fi
-# The web client expects the same key under its own variable name. It is exposed
-# only on the tailnet; like every browser-only Shlink client, it serves the key
-# to authenticated network users.
-if ! sudo grep -q '^SHLINK_SERVER_API_KEY=' /opt/tetrapod/shlink.env; then
-  SHLINK_KEY="$(sudo sed -n 's/^INITIAL_API_KEY=//p' /opt/tetrapod/shlink.env)"
-  printf 'SHLINK_SERVER_API_KEY=%s\n' "$SHLINK_KEY" | sudo tee -a /opt/tetrapod/shlink.env >/dev/null
-  unset SHLINK_KEY
 fi
 # mindustry server jar (pinned release, re-download by deleting the jar)
 sudo mkdir -p /opt/tetrapod/mindustry
@@ -363,14 +348,10 @@ sudo systemctl enable --now recyclarr-sync.timer media-warden.timer storage-tele
 sudo systemctl start recyclarr-sync.service
 media-provision
 bazarr-provision || echo "WARN: Bazarr provisioning failed"
-shlink-provision || echo "WARN: service short-link provisioning failed"
 sudo cp "$HERE/systemd/media-reconcile.service" "$HERE/systemd/media-reconcile.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now media-reconcile.timer
 media-reconcile || echo "WARN: media reconciliation failed"
-
-# code-server at https://tetrapod.<tailnet>.ts.net
-sudo tailscale serve --bg 8443 || true
 
 # kuma status api, same-origin for the wiki dashboard (kuma has no CORS)
 sudo tailscale serve --bg --set-path /kuma-api http://127.0.0.1:3002 || true
@@ -382,14 +363,10 @@ if [ -d "$REPO/wiki" ]; then
   (cd "$REPO/wiki" && pnpm install --silent && pnpm build >/dev/null) &&
     sudo tailscale serve --bg --set-path /wiki "$REPO/wiki/dist" ||
     echo "WARN: wiki build/serve failed"
-  # public copy via funnel on :8443. NEVER funnel 443 — code-server (auth
-  # none) lives there and would become a public root shell.
+  # public copy via funnel on :8443.
   sudo tailscale funnel --bg --https=8443 --set-path /wiki "$REPO/wiki/dist" || true
   sudo tailscale funnel --bg --https=8443 --set-path /kuma-api http://127.0.0.1:3002 || true
   sudo tailscale funnel --bg --https=8443 --set-path /storage-api http://127.0.0.1:3005 || true
-  # zipline + shlink behind i./link.tetraslam.world: vercel host-rewrites to
-  # :10000, share-proxy nginx routes by x-forwarded-host
-  sudo tailscale funnel --bg --https=10000 http://127.0.0.1:3004 || true
 fi
 
 # -------------------------------------------------------------------- agents
@@ -443,7 +420,6 @@ check() { # <label> <command...>
   else printf '  \033[1;31mFAIL\033[0m    %s\n' "$label"; MISSING+=("$label"); fi
 }
 check "docker: factorio running" sh -c 'sudo docker ps --filter name=factorio --filter status=running -q | grep -q .'
-check "docker: code-server running" sh -c 'sudo docker ps --filter name=code-server --filter status=running -q | grep -q .'
 check "systemd: restic-backup.timer enabled" systemctl is-enabled restic-backup.timer
 check "systemd: recyclarr-sync.timer enabled" systemctl is-enabled recyclarr-sync.timer
 check "systemd: media-warden.timer enabled" systemctl is-enabled media-warden.timer
@@ -481,7 +457,7 @@ cat <<'EOF'
   4. gog auth:       source ~/.bashrc && gog-env
                      gog auth credentials && gog auth add <email> --services gmail,calendar,drive
   5. kuma:           https://lighthouse.<tailnet>.ts.net — add tetrapod ping +
-                     factorio rcon-tcp (27015) + code-server http monitors, discord webhook,
+                     factorio rcon-tcp (27015) monitor, discord webhook,
                      and a push monitor for restic (url into the op item above)
   6. re-login (or `newgrp docker`) for the docker group to apply
   7. agents:         provision/setup-agents.sh (if it was skipped above), then

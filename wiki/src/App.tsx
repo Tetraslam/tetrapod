@@ -32,7 +32,6 @@ import { href, navigate, useRoute } from "@/lib/route";
 import { allPages, groups, pages, rulesPage } from "@/pages";
 
 const externalLinks = [
-  { title: "code-server", url: URLS.codeServer },
   { title: "uptime-kuma", url: URLS.kuma },
   { title: "repo", url: URLS.repo },
 ];

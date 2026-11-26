@@ -18,12 +18,6 @@ const services = [
     purpose: "persistent multiplayer factory",
   },
   {
-    name: "code-server",
-    url: URLS.codeServer,
-    address: HOSTS.tetrapod.fqdn,
-    purpose: "VS Code in the browser",
-  },
-  {
     name: "this wiki",
     url: URLS.wikiPublic,
     address: "wiki.tetraslam.world",
@@ -117,13 +111,7 @@ const services = [
     name: "zipline",
     url: URLS.zipline,
     address: "i.tetraslam.world",
-    purpose: "upload and share files + screenshots",
-  },
-  {
-    name: "shlink",
-    url: URLS.shlinkWeb,
-    address: "shlink.tetraslam.world",
-    purpose: "short links and visit analytics",
+    purpose: "upload and share files + screenshots + artifacts",
   },
   {
     name: "mindustry",

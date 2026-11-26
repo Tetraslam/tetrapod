@@ -15,7 +15,6 @@ import { FACTORIO, HOSTS, KUMA_API_BASE, KUMA_STATUS_SLUG, URLS } from "@/config
 const monitors = [
   { name: "tetrapod", type: "ping", target: "tetrapod" },
   { name: "factorio", type: "tcp", target: `tetrapod:${FACTORIO.rconPort} (rcon)` },
-  { name: "code-server", type: "http", target: URLS.codeServer },
   { name: "restic backups", type: "push", target: "25h heartbeat from the backup script" },
   { name: "nullclaw", type: "push", target: "minutely timer (gateway is loopback-only)" },
   { name: "everything else", type: "http/tcp", target: "scripted — see below" },

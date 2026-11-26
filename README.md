@@ -23,7 +23,7 @@ IAM, since claude models run from there.
 - **network:** tailscale with tailscale-ssh; public ingress is web/game ports plus
   tcp+udp 6881 for BitTorrent peers (ssh 22 is behind a Pulumi flag, default
   off; break-glass via SSM/serial console)
-- **services:** docker compose — factorio (`factoriotools/factorio`, arm64 via box64, tailnet-only, pinned tag), code-server (localhost + `tailscale serve`)
+- **services:** docker compose — factorio (`factoriotools/factorio`, arm64 via box64, tailnet-only, pinned tag), media stack, zipline, ntfy, authelia, caddy
 - **MIT mail:** tailnet-only, implicit-TLS IMAP proxy plus Graph-backed SMTP bridge translate local LOGIN authentication to delegated Microsoft 365 OAuth2; Tailscale certificates renew automatically
 - **hermes agent:** on the host, not docker (it wants the filesystem)
 - **backups:** restic → tigris nightly (ported from rice) with healthcheck ping, plus EBS snapshots
@@ -224,7 +224,6 @@ where they live (repos? gists?):
 ### services
 
 - [x] factorio — `factoriotools/factorio` on tetrapod, arm64 (box64 emulation; fine for normal factories, a megabase would want an amd64 resize), udp 34197 tailnet-only, 4G memory cap
-- [x] code-server on tetrapod (localhost + tailscale serve)
 - [x] uptime-kuma on **lighthouse** (separate t4g.micro, cloud-init only, tailscale serve) → discord webhook alerts
 - [x] suwayomi — manga sources, automatic CBZ downloads, web reader, AniList/MAL tracking
 - [x] seerr + Jellyfin Enhanced — discover and request missing media inside Jellyfin

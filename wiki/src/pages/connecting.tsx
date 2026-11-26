@@ -21,8 +21,8 @@ mosh tetraslam@tetrapod       # survives roaming and sleep`}</CodeBlock>
 
       <Doc title="browser">
         <P>
-          <Ext url={URLS.codeServer}>code-server</Ext> is vscode against the box's real filesystem.
-          works from the ipad. this wiki lives at <InlineCode>{URLS.wiki}</InlineCode>.
+          this wiki lives at <InlineCode>{URLS.wiki}</InlineCode> (and publicly at{" "}
+          <Ext url={URLS.wikiPublic}>{URLS.wikiPublic}</Ext>).
         </P>
         <P>
           public administrative apps redirect through <Ext url={URLS.auth}>Authelia</Ext>. sign in

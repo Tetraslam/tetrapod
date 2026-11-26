@@ -7,11 +7,7 @@ import { URLS } from "@/config";
 const quick = [
   {
     title: "make",
-    links: [
-      ["code", URLS.codeServer],
-      ["upload", URLS.zipline],
-      ["shorten", URLS.shlinkWeb],
-    ],
+    links: [["upload", URLS.zipline]],
   },
   {
     title: "media",

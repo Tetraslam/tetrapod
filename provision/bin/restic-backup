@@ -49,6 +49,9 @@ restic backup \
   --exclude '**/target/release' \
   --exclude '**/.cache' \
   --exclude '**/logs.db*' \
+  --exclude '**/*.db-wal' \
+  --exclude '**/*.db-shm' \
+  --exclude '**/core.*' \
   /home/tetraslam \
   /opt/tetrapod
 

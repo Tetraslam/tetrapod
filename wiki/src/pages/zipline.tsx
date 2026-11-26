@@ -52,7 +52,7 @@ zipline --stdin note.txt < note.txt`}</CodeBlock>
             <TableRow>
               <TableCell className="text-muted-foreground">public route</TableCell>
               <TableCell className="font-mono text-xs">
-                vercel host-route → funnel :10000/zip/ → share-proxy → zipline
+                Caddy (i.tetraslam.world → 127.0.0.1:3200; /a/* serves script-enabled artifacts)
               </TableCell>
             </TableRow>
             <TableRow>

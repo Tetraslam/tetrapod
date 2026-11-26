@@ -68,6 +68,20 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(warden.path_within(root / "library/../../etc/passwd", root))
         self.assertFalse(warden.path_within(Path("relative/movie.mkv"), root))
 
+    def test_replacement_cooldown(self):
+        now = int(time.time())
+        prev = {
+            "radarr:1": now - 100,
+            "radarr:2": now - warden.SEVEN_DAYS - 1,
+            "radarr:3": {"time": now - warden.SEVEN_DAYS - 1, "status": "unavailable"},
+            "radarr:4": {"time": now - warden.UNAVAILABLE_COOLDOWN - 1, "status": "unavailable"},
+        }
+        self.assertTrue(warden.Warden.replacement_cooldown_active(prev, "radarr:1", now))
+        self.assertFalse(warden.Warden.replacement_cooldown_active(prev, "radarr:2", now))
+        self.assertTrue(warden.Warden.replacement_cooldown_active(prev, "radarr:3", now))
+        self.assertFalse(warden.Warden.replacement_cooldown_active(prev, "radarr:4", now))
+        self.assertFalse(warden.Warden.replacement_cooldown_active(prev, "radarr:missing", now))
+
 
 if __name__ == "__main__":
     unittest.main()
