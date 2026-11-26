@@ -32,6 +32,7 @@ if (!DISCORD_TOKEN) {
 type ChannelState = {
   sessionID: string;
   lastDeliveredMessageID?: string;
+  lastSeenDiscordMessageID?: string;
   model?: string;
 };
 
@@ -261,7 +262,9 @@ async function deliverPendingReplies(sessionID: string, errorMsg?: string): Prom
           ? res.messages
           : [];
 
-    const assistantMsgs = messages.filter((m) => m.type === "assistant");
+    const assistantMsgs = messages
+      .filter((m) => m.type === "assistant")
+      .sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
     let startIdx = 0;
     if (entry.lastDeliveredMessageID) {
       const lastIdx = assistantMsgs.findIndex((m) => m.id === entry.lastDeliveredMessageID);
@@ -486,6 +489,30 @@ client.on("ready", () => {
   console.log(`kestrel-discord: logged in as ${client.user?.tag}`);
 });
 
+async function fetchRecentHistory(message: Message, afterDiscordId?: string): Promise<string> {
+  try {
+    const fetched = await message.channel.messages.fetch({ limit: 15, before: message.id });
+    let items = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    if (afterDiscordId) {
+      const idx = items.findIndex((m) => m.id === afterDiscordId);
+      if (idx >= 0) items = items.slice(idx + 1);
+    }
+    if (items.length === 0) return "";
+    const lines = items
+      .map((m) => {
+        const who = m.author.id === client.user?.id ? "kestrel" : `@${m.author.username}`;
+        const body = (m.content || "").replace(/\s+/g, " ").trim().slice(0, 280);
+        const att = m.attachments.size > 0 ? ` [${m.attachments.size} attachment(s)]` : "";
+        return body || att ? `${who}: ${body}${att}` : "";
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    return `[recent discord messages in this channel]\n${lines.join("\n")}\n[end recent history]\n`;
+  } catch {
+    return "";
+  }
+}
+
 client.on("messageCreate", async (message) => {
   if (!shouldRespond(message)) return;
 
@@ -505,6 +532,9 @@ client.on("messageCreate", async (message) => {
           : message.channelId;
 
     const entry = await ensureChannelSession(message.channelId, channelLabel);
+    const historyBlock = await fetchRecentHistory(message, entry.lastSeenDiscordMessageID);
+    entry.lastSeenDiscordMessageID = message.id;
+    await saveState();
     const attachments = await downloadAttachments(message);
 
     let replyQuote = "";
@@ -520,7 +550,7 @@ client.on("messageCreate", async (message) => {
         ? `\n[attached files saved locally: ${attachments.join(", ")}]`
         : "";
 
-    const promptText = `[discord ${channelLabel} | @${message.author.username}]: ${replyQuote}${text}${attachmentNote}`.trim();
+    const promptText = `${historyBlock}[discord ${channelLabel} | @${message.author.username}]: ${replyQuote}${text}${attachmentNote}`.trim();
     if (!promptText) return;
 
     if (message.channel.isTextBased() && "sendTyping" in message.channel) {
