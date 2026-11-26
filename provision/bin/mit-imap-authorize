@@ -1,69 +1,103 @@
 #!/usr/bin/env python3
-"""Hold an IMAP login connection open long enough to complete Microsoft 365 device auth.
+"""Direct Microsoft 365 OAuth2 device-code authorization for email-oauth2-proxy (IMAP).
 
-email-oauth2-proxy aborts its device-code poll if the IMAP client disconnects.
-Mail clients like Omamail time out after ~30 seconds, so this script holds a
-10-minute IMAP login open while printing the live device-code prompt from the
-email-oauth2-proxy journal.
+Bypasses email-oauth2-proxy's IMAP-coupled device flow (which aborts when mail
+clients like Omamail time out after ~30 seconds), polls Microsoft directly for
+the full device-code lifetime, writes the tokens into emailproxy.cache, and
+restarts email-oauth2-proxy.service.
 """
 
 from __future__ import annotations
 
-import imaplib
+import configparser
+import json
+import os
 import subprocess
 import sys
-import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
-HOST = "tetrapod.tailc27667.ts.net"
-PORT = 1993
 ACCOUNT = "shresht@mit.edu"
-PASSWORD_REF = "op://Agents/MIT Mail Proxy/password"
+CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+DEVICE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
+TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+CACHE_PATH = Path("/var/lib/email-oauth2-proxy/emailproxy.cache")
 
 
-def tail_device_code(stop: threading.Event, since: str) -> None:
-    seen: set[str] = set()
-    while not stop.is_set():
-        out = subprocess.run(
-            [
-                "journalctl",
-                "-u",
-                "email-oauth2-proxy.service",
-                "--since",
-                since,
-                "--no-pager",
-                "-o",
-                "cat",
-            ],
-            capture_output=True,
-            text=True,
-        ).stdout
-        for line in out.splitlines():
-            if "Visit https://login.microsoft.com/device" in line and line not in seen:
-                seen.add(line)
-                print(line, flush=True)
-        stop.wait(1.0)
+def post_form(url: str, data: dict[str, str]) -> tuple[int, dict]:
+    body = urllib.parse.urlencode(data).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        try:
+            return err.code, json.loads(raw)
+        except Exception:
+            return err.code, {"error": raw}
 
 
 def main() -> int:
-    password = subprocess.run(
-        ["opa", "read", PASSWORD_REF], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    since = time.strftime("%Y-%m-%d %H:%M:%S")
-    stop = threading.Event()
-    watcher = threading.Thread(target=tail_device_code, args=(stop, since), daemon=True)
-    watcher.start()
-    try:
-        imap = imaplib.IMAP4_SSL(HOST, PORT, timeout=600)
-        typ, data = imap.login(ACCOUNT, password)
-        print(f"authorized IMAP for {ACCOUNT}: {typ}", flush=True)
-        imap.logout()
-        return 0
-    except Exception as exc:
-        print(f"mit-imap-authorize failed: {exc}", file=sys.stderr)
+    status, dc = post_form(DEVICE_URL, {"client_id": CLIENT_ID, "scope": SCOPE})
+    if status != 200 or "device_code" not in dc:
+        print(f"failed to start device code flow ({status}): {dc}", file=sys.stderr)
         return 1
-    finally:
-        stop.set()
+
+    print(dc.get("message") or f"Visit {dc['verification_uri']} and enter code {dc['user_code']}", flush=True)
+
+    interval = int(dc.get("interval", 5))
+    deadline = time.time() + int(dc.get("expires_in", 900))
+    while time.time() < deadline:
+        time.sleep(interval)
+        st, tok = post_form(
+            TOKEN_URL,
+            {
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": CLIENT_ID,
+                "device_code": dc["device_code"],
+            },
+        )
+        if st == 200 and "access_token" in tok:
+            cfg = configparser.ConfigParser(interpolation=None)
+            if CACHE_PATH.exists():
+                cfg.read(CACHE_PATH)
+            if ACCOUNT not in cfg:
+                cfg[ACCOUNT] = {}
+            expiry = int(time.time()) + int(tok.get("expires_in", 3600))
+            cfg[ACCOUNT]["access_token"] = tok["access_token"]
+            cfg[ACCOUNT]["access_token_expiry"] = str(expiry)
+            if tok.get("refresh_token"):
+                cfg[ACCOUNT]["refresh_token"] = tok["refresh_token"]
+            CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = CACHE_PATH.with_suffix(".tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                cfg.write(f)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, CACHE_PATH)
+            subprocess.run(["sudo", "systemctl", "restart", "email-oauth2-proxy.service"], check=True)
+            print(f"authorized IMAP for {ACCOUNT} and restarted email-oauth2-proxy.service", flush=True)
+            return 0
+        err = tok.get("error")
+        if err == "authorization_pending":
+            continue
+        if err == "slow_down":
+            interval += 5
+            continue
+        print(f"device flow failed ({err}): {tok.get('error_description', tok)}", file=sys.stderr)
+        return 1
+
+    print("device code expired before sign-in completed", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

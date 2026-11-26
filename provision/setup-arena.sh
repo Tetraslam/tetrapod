@@ -7,6 +7,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 echo "==> building Mindustry arena-bridge.jar"
 "$HERE/arena/mindustry-plugin/build.sh"
 
+echo "==> extracting official Mindustry v159.7 sprite atlas"
+"$HERE/arena/mindustry-plugin/extract-sprites.sh"
+
 echo "==> restarting Mindustry container with arena-bridge"
 sudo docker compose -f "$HERE/docker-compose.yml" up -d mindustry
 sudo docker restart provision-mindustry-1

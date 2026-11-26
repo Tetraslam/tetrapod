@@ -1,6 +1,7 @@
 package arena;
 
 import arc.Core;
+import arc.math.geom.Point2;
 import arc.util.Log;
 import arc.util.serialization.JsonReader;
 import arc.util.serialization.JsonValue;
@@ -21,7 +22,9 @@ import mindustry.type.ItemStack;
 import mindustry.world.Block;
 import mindustry.world.Build;
 import mindustry.world.Tile;
+import mindustry.world.blocks.defense.turrets.BaseTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
+import mindustry.world.blocks.distribution.Conveyor;
 import mindustry.world.blocks.storage.CoreBlock;
 
 import java.io.IOException;
@@ -305,7 +308,10 @@ public class ArenaBridgePlugin extends Plugin {
 
                 HashMap<String, Integer> paletteIdx = new HashMap<>();
                 List<String> palette = new ArrayList<>();
+                HashMap<String, Integer> nameIdx = new HashMap<>();
+                List<String> tileNames = new ArrayList<>();
                 int[] cells = new int[w * h];
+                int[] nameCells = new int[w * h];
                 StringBuilder ores = new StringBuilder("[");
                 boolean firstOre = true;
 
@@ -313,11 +319,20 @@ public class ArenaBridgePlugin extends Plugin {
                     for (int x = 0; x < w; x++) {
                         Tile t = Vars.world.tile(x, y);
                         String col = biomeColor(t);
-                        if (t != null && t.overlay() != null && t.overlay().itemDrop != null) {
-                            if (!firstOre) ores.append(',');
-                            firstOre = false;
-                            ores.append("[").append(x).append(',').append(y).append(",\"")
-                                .append(esc(t.overlay().itemDrop.name)).append("\"]");
+                        String tname = "stone";
+                        if (t != null) {
+                            Block b = t.block();
+                            if (b != null && b.solid && t.build == null && b.name != null) {
+                                tname = "W:" + b.name;
+                            } else if (t.floor() != null && t.floor().name != null) {
+                                tname = t.floor().name;
+                            }
+                            if (t.overlay() != null && t.overlay().itemDrop != null) {
+                                if (!firstOre) ores.append(',');
+                                firstOre = false;
+                                ores.append("[").append(x).append(',').append(y).append(",\"")
+                                    .append(esc(t.overlay().itemDrop.name)).append("\"]");
+                            }
                         }
                         Integer idx = paletteIdx.get(col);
                         if (idx == null) {
@@ -326,11 +341,19 @@ public class ArenaBridgePlugin extends Plugin {
                             paletteIdx.put(col, idx);
                         }
                         cells[y * w + x] = idx;
+
+                        Integer nIdx = nameIdx.get(tname);
+                        if (nIdx == null) {
+                            nIdx = tileNames.size();
+                            tileNames.add(tname);
+                            nameIdx.put(tname, nIdx);
+                        }
+                        nameCells[y * w + x] = nIdx;
                     }
                 }
                 ores.append(']');
 
-                StringBuilder sb = new StringBuilder(w * h * 3 + 2048);
+                StringBuilder sb = new StringBuilder(w * h * 4 + 4096);
                 sb.append("{\"ready\":true,\"map\":\"").append(esc(mapName))
                   .append("\",\"width\":").append(w)
                   .append(",\"height\":").append(h);
@@ -364,7 +387,7 @@ public class ArenaBridgePlugin extends Plugin {
                 }
                 sb.append(']');
 
-                // RLE encoded cells: [colorIdx, count, ...]
+                // RLE encoded color cells: [colorIdx, count, ...]
                 sb.append(",\"rle\":[");
                 int i = 0;
                 boolean firstRun = true;
@@ -376,6 +399,28 @@ public class ArenaBridgePlugin extends Plugin {
                     firstRun = false;
                     sb.append(val).append(',').append(run);
                     i += run;
+                }
+                sb.append(']');
+
+                // Exact Mindustry floor/wall tile names + RLE for authentic sprite rendering
+                sb.append(",\"tileNames\":[");
+                for (int j = 0; j < tileNames.size(); j++) {
+                    if (j > 0) sb.append(',');
+                    sb.append('"').append(esc(tileNames.get(j))).append('"');
+                }
+                sb.append(']');
+
+                sb.append(",\"tileRle\":[");
+                int k = 0;
+                boolean firstNRun = true;
+                while (k < nameCells.length) {
+                    int val = nameCells[k];
+                    int run = 1;
+                    while (k + run < nameCells.length && nameCells[k + run] == val) run++;
+                    if (!firstNRun) sb.append(',');
+                    firstNRun = false;
+                    sb.append(val).append(',').append(run);
+                    k += run;
                 }
                 sb.append(']');
 
@@ -440,9 +485,15 @@ public class ArenaBridgePlugin extends Plugin {
                 }
                 sb.append(']');
 
-                // Buildings
+                // Buildings + power links + live conveyor items
                 float powerProd = 0f;
                 float powerCons = 0f;
+                StringBuilder powerLinks = new StringBuilder("[");
+                boolean firstLink = true;
+                StringBuilder convItems = new StringBuilder("[");
+                boolean firstConv = true;
+                int convCount = 0;
+
                 sb.append(",\"buildings\":[");
                 boolean firstB = true;
                 for (Building b : Groups.build) {
@@ -450,24 +501,65 @@ public class ArenaBridgePlugin extends Plugin {
                     if (!firstB) sb.append(',');
                     firstB = false;
                     int ammo = 0;
+                    int aimRot = b.rotation * 90;
                     if (b instanceof Turret.TurretBuild tb) {
                         ammo = tb.totalAmmo;
+                        aimRot = Math.round(tb.rotation);
+                    } else if (b instanceof BaseTurret.BaseTurretBuild bt) {
+                        aimRot = Math.round(bt.rotation);
                     }
-                    if (b.team == Team.sharded && b.power != null && b.power.graph != null) {
-                        powerProd = Math.max(powerProd, b.power.graph.getPowerProduced() * 60f);
-                        powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
+                    if (b.team == Team.sharded && b.power != null) {
+                        if (b.power.graph != null) {
+                            powerProd = Math.max(powerProd, b.power.graph.getPowerProduced() * 60f);
+                            powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
+                        }
+                        if (b.power.links != null && b.power.links.size > 0) {
+                            for (int li = 0; li < b.power.links.size; li++) {
+                                int pos = b.power.links.get(li);
+                                int tx = Point2.x(pos);
+                                int ty = Point2.y(pos);
+                                if (b.tileX() < tx || (b.tileX() == tx && b.tileY() < ty)) {
+                                    if (!firstLink) powerLinks.append(',');
+                                    firstLink = false;
+                                    powerLinks.append('[').append(b.tileX()).append(',').append(b.tileY())
+                                              .append(',').append(tx).append(',').append(ty).append(']');
+                                }
+                            }
+                        }
+                    }
+                    if (convCount < 350 && b instanceof Conveyor.ConveyorBuild cb && cb.len > 0 && cb.ids != null) {
+                        int dx = cb.rotation == 0 ? 1 : cb.rotation == 2 ? -1 : 0;
+                        int dy = cb.rotation == 1 ? 1 : cb.rotation == 3 ? -1 : 0;
+                        for (int ci = 0; ci < cb.len && convCount < 350; ci++) {
+                            Item it = cb.ids[ci];
+                            if (it == null) continue;
+                            float prog = cb.ys[ci] - 0.5f;
+                            float ix = cb.tileX() + 0.5f + dx * prog;
+                            float iy = cb.tileY() + 0.5f + dy * prog;
+                            if (!firstConv) convItems.append(',');
+                            firstConv = false;
+                            convCount++;
+                            convItems.append('[').append(Math.round(ix * 10f) / 10f).append(',')
+                                     .append(Math.round(iy * 10f) / 10f).append(",\"")
+                                     .append(esc(it.name)).append("\"]");
+                        }
                     }
                     sb.append("{\"x\":").append(b.tileX())
                       .append(",\"y\":").append(b.tileY())
                       .append(",\"block\":\"").append(esc(b.block.name))
                       .append("\",\"size\":").append(b.block.size)
                       .append(",\"rot\":").append(b.rotation)
+                      .append(",\"aimRot\":").append(aimRot)
                       .append(",\"hp\":").append(Math.round(b.health))
                       .append(",\"maxHp\":").append(Math.round(b.maxHealth))
                       .append(",\"team\":\"").append(esc(b.team.name))
                       .append("\",\"ammo\":").append(ammo).append('}');
                 }
                 sb.append(']');
+                powerLinks.append(']');
+                convItems.append(']');
+                sb.append(",\"powerLinks\":").append(powerLinks);
+                sb.append(",\"conveyorItems\":").append(convItems);
                 sb.append(",\"power\":{\"produced\":").append(Math.round(powerProd))
                   .append(",\"consumed\":").append(Math.round(powerCons)).append('}');
 

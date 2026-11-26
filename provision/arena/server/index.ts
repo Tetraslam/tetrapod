@@ -9,14 +9,31 @@ const MINDUSTRY_URL = (process.env.MINDUSTRY_URL || "http://127.0.0.1:6568").rep
 const OPENCODE_URL = (process.env.OPENCODE_URL || "http://127.0.0.1:4096").replace(/\/+$/, "");
 const DATA_DIR = process.env.ARENA_DATA_DIR || "/opt/tetrapod/arena";
 const WEB_DIR = process.env.ARENA_WEB_DIR || join(import.meta.dir, "../web");
-const TURN_INTERVAL_MS = Number(process.env.ARENA_TURN_MS || "14000");
+const SPRITES_DIR = process.env.ARENA_SPRITES_DIR || join(DATA_DIR, "sprites");
+const TURN_INTERVAL_MS = Number(process.env.ARENA_TURN_MS || "13000");
 
-const ROSTER = [
-  { id: "claude-agent/sonnet", label: "Claude Sonnet", color: "#f59e0b" },
-  { id: "claude-agent/opus[1m]", label: "Claude Opus 1M", color: "#fb7185" },
-  { id: "openrouter/google/gemini-4-neon", label: "Gemini 4 Neon", color: "#38bdf8" },
-  { id: "claude-agent/haiku", label: "Claude Haiku", color: "#34d399" },
+type Contender = {
+  id: string;
+  provider: string;
+  ticker: string;
+  label: string;
+  color: string;
+};
+
+// Strictly subscription-backed models (ChatGPT OAuth + personal Claude Agent).
+// Never spends metered OpenRouter credits.
+const CANDIDATE_ROSTER: Contender[] = [
+  { id: "openai/gpt-6.2-astra", provider: "openai", ticker: "gpt-6.2-astra", label: "openai/gpt-6.2-astra", color: "#38bdf8" },
+  { id: "openai/gpt-6.1-terra", provider: "openai", ticker: "gpt-6.1-terra", label: "openai/gpt-6.1-terra", color: "#34d399" },
+  { id: "openai/gpt-6.2-sol", provider: "openai", ticker: "gpt-6.2-sol", label: "openai/gpt-6.2-sol", color: "#a78bfa" },
+  { id: "openai/gpt-6-luna", provider: "openai", ticker: "gpt-6-luna", label: "openai/gpt-6-luna", color: "#2dd4bf" },
+  { id: "claude-agent/claude-sonnet-5", provider: "claude-agent", ticker: "claude-sonnet-5", label: "claude-agent/claude-sonnet-5", color: "#f59e0b" },
+  { id: "claude-agent/claude-opus-5", provider: "claude-agent", ticker: "claude-opus-5", label: "claude-agent/claude-opus-5", color: "#fb7185" },
+  { id: "claude-agent/claude-fable-5-2", provider: "claude-agent", ticker: "claude-fable-5-2", label: "claude-agent/claude-fable-5-2", color: "#f472b6" },
+  { id: "claude-agent/claude-haiku-4-5-20251001", provider: "claude-agent", ticker: "claude-haiku-4-5", label: "claude-agent/claude-haiku-4-5-20251001", color: "#fbbf24" },
 ];
+
+let ROSTER: Contender[] = CANDIDATE_ROSTER.filter((c) => c.provider === "openai");
 
 const MAP_ROTATION = [
   "Ancient Caldera",
@@ -219,6 +236,42 @@ async function getOcAuthHeader(): Promise<string | undefined> {
 function parseModelRef(spec: string): { providerID: string; id: string } {
   const idx = spec.indexOf("/");
   return { providerID: spec.slice(0, idx), id: spec.slice(idx + 1) };
+}
+
+function makeContender(modelId: string): Contender {
+  const existing = CANDIDATE_ROSTER.find((c) => c.id === modelId);
+  if (existing) return existing;
+  const idx = modelId.indexOf("/");
+  const provider = idx > 0 ? modelId.slice(0, idx) : "unknown";
+  const ticker = idx > 0 ? modelId.slice(idx + 1) : modelId;
+  return { id: modelId, provider, ticker, label: modelId, color: "#a78bfa" };
+}
+
+async function refreshActiveRoster(): Promise<void> {
+  try {
+    const auth = await getOcAuthHeader();
+    const headers: Record<string, string> = {};
+    if (auth) headers.authorization = auth;
+    const resp = await fetch(`${OPENCODE_URL}/api/credential`, { headers, signal: AbortSignal.timeout(4000) });
+    if (!resp.ok) return;
+    const raw = (await resp.json()) as any;
+    const creds: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+    const activeProviders = new Set(
+      creds
+        .filter((c) => c?.active && (c?.integrationID === "openai" || c?.integrationID === "claude-agent"))
+        .map((c) => String(c.integrationID))
+    );
+    const next = CANDIDATE_ROSTER.filter((c) => activeProviders.has(c.provider));
+    if (next.length > 0) {
+      ROSTER = next;
+      if (!ROSTER.some((c) => c.id === activeContender.id)) {
+        rosterIdx = 0;
+        activeContender = ROSTER[0];
+      }
+    }
+  } catch {
+    // keep current roster
+  }
 }
 
 async function callOpenCodeGenerate(modelSpec: string, prompt: string): Promise<string> {
@@ -591,6 +644,8 @@ async function pollFactorio(): Promise<void> {
 }
 
 // Start polling loops
+void refreshActiveRoster();
+setInterval(() => void refreshActiveRoster(), 60_000);
 setInterval(() => void pollMindustry(), 300);
 setInterval(() => void pollFactorio(), 10_000);
 void pollMindustry();
@@ -636,6 +691,25 @@ const server = Bun.serve({
       });
     }
 
+    if (url.pathname === "/api/terrain") {
+      return Response.json(cachedTerrain || { ready: false });
+    }
+
+    if (url.pathname.startsWith("/sprites/")) {
+      const name = url.pathname.slice("/sprites/".length);
+      if (/^[a-zA-Z0-9._-]+$/.test(name)) {
+        const file = Bun.file(join(SPRITES_DIR, name));
+        if (await file.exists()) {
+          return new Response(file, {
+            headers: {
+              "cache-control": "public, max-age=86400, immutable",
+            },
+          });
+        }
+      }
+      return new Response("Sprite not found", { status: 404 });
+    }
+
     if (url.pathname === "/api/leaderboard") {
       return Response.json(getLeaderboard());
     }
@@ -651,16 +725,14 @@ const server = Bun.serve({
         pushFeed("system", "AI runner resumed", undefined, "ARENA");
         void runAiTurn();
       } else if (body.action === "set_model" && body.model) {
-        const found = ROSTER.find((r) => r.id === body.model);
-        activeContender = found || { id: body.model, label: body.model, color: "#a78bfa" };
-        pushFeed("system", `switched active contender to ${activeContender.label}`, undefined, "ARENA");
+        activeContender = makeContender(String(body.model));
+        pushFeed("system", `switched active contender to ${activeContender.id}`, undefined, "ARENA");
       } else if (body.action === "send_wave") {
         await mindustryJson("/action", { type: "send_wave" });
         pushFeed("system", "manually sent next wave!", undefined, "ARENA");
       } else if (body.action === "new_match") {
         if (body.model) {
-          const found = ROSTER.find((r) => r.id === body.model);
-          activeContender = found || { id: body.model, label: body.model, color: "#a78bfa" };
+          activeContender = makeContender(String(body.model));
         } else {
           rosterIdx = (rosterIdx + 1) % ROSTER.length;
           activeContender = ROSTER[rosterIdx];

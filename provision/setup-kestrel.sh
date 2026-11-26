@@ -57,7 +57,7 @@ fi
 {
   printf 'DISCORD_TOKEN=%s\n' "$DISCORD_TOKEN"
   printf 'MENTION_EXEMPT_CHANNELS=1475401568173162578\n'
-  printf 'KESTREL_DEFAULT_MODEL=claude-agent/opus[1m]\n'
+  printf 'KESTREL_DEFAULT_MODEL=openai/gpt-6.2-astra\n'
 } | sudo tee /opt/tetrapod/kestrel-discord.env >/dev/null
 sudo chown tetraslam:tetraslam /opt/tetrapod/kestrel-discord.env
 sudo chmod 600 /opt/tetrapod/kestrel-discord.env
