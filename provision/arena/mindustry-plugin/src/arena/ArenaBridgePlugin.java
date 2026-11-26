@@ -12,6 +12,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import mindustry.Vars;
 import mindustry.content.UnitTypes;
+import mindustry.core.GameState;
 import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
@@ -530,6 +531,7 @@ public class ArenaBridgePlugin extends Plugin {
                   .append(",\"waveTime\":").append(Math.round(Vars.state.wavetime / 60f * 10f) / 10f)
                   .append(",\"enemies\":").append(Vars.state.enemies)
                   .append(",\"gameOver\":").append(Vars.state.gameOver)
+                  .append(",\"paused\":").append(Vars.state.isPaused())
                   .append(",\"playing\":").append(Vars.state.isPlaying());
 
                 CoreBlock.CoreBuild core = Team.sharded.core();
@@ -839,8 +841,18 @@ public class ArenaBridgePlugin extends Plugin {
                         }
                         return "{\"ok\":true}";
                     }
+                    case "set_paused" -> {
+                        boolean wantPaused = req.getBoolean("paused", false);
+                        if (Vars.state != null && Vars.state.isGame()) {
+                            Vars.state.set(wantPaused ? GameState.State.paused : GameState.State.playing);
+                        }
+                        return "{\"ok\":true,\"paused\":" + (Vars.state != null && Vars.state.isPaused()) + "}";
+                    }
                     case "new_game" -> {
                         String mapName = req.getString("map", "").trim();
+                        if (Vars.state != null && Vars.state.isPaused()) {
+                            Vars.state.set(GameState.State.playing);
+                        }
                         if (!mapName.isEmpty() && ServerControl.instance != null) {
                             ServerControl.instance.handler.handleMessage("nextmap " + mapName);
                         }

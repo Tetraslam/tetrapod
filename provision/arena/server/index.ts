@@ -211,6 +211,7 @@ type StatePayload = {
   waveTime: number;
   enemies: number;
   gameOver: boolean;
+  paused?: boolean;
   playing: boolean;
   core: { x: number; y: number; hp: number; maxHp: number; block: string } | null;
   items: Record<string, number>;
@@ -291,6 +292,7 @@ let aiPaused = config.mode === "paused";
 let aiBusy = false;
 let lastTurnAt = 0;
 let lastGameOverAt = 0;
+let lastPauseSyncAt = 0;
 let lastSpectatorSeenAt = Date.now();
 let matchBlocksBuilt = 0;
 let matchActionsOk = 0;
@@ -977,17 +979,25 @@ async function pollMindustry(): Promise<void> {
       await advanceAfterMatchEnd();
     }
 
+    const emptyPaused =
+      config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+    const desiredPaused = aiPaused || emptyPaused;
+
+    // Keep Mindustry simulation strictly synchronized with runner pause state
+    if (!st.gameOver && typeof st.paused === "boolean" && st.paused !== desiredPaused && Date.now() - lastPauseSyncAt > 800) {
+      lastPauseSyncAt = Date.now();
+      await mindustryJson("/action", { type: "set_paused", paused: desiredPaused }).catch(() => {});
+      st.paused = desiredPaused;
+    }
+
     broadcast({
       type: "state",
       state: st,
       meta: getMetaPayload(),
     });
 
-    const emptyPaused =
-      config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
     if (
-      !aiPaused &&
-      !emptyPaused &&
+      !desiredPaused &&
       !aiBusy &&
       !st.gameOver &&
       Date.now() - lastTurnAt >= config.turnIntervalMs &&
