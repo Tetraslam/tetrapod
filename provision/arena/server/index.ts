@@ -130,6 +130,8 @@ for (const col of [
   "ALTER TABLE matches ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE matches ADD COLUMN compactions INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN plan_json TEXT DEFAULT '[]'",
+  "ALTER TABLE match_snapshots ADD COLUMN plan_json TEXT DEFAULT '[]'",
 ]) {
   try {
     db.exec(col);
@@ -255,6 +257,13 @@ type StatePayload = {
   playerDrone: PlayerDrone | null;
 };
 
+type PlanGoal = {
+  text: string;
+  status: "active" | "done" | "blocked";
+  x?: number;
+  y?: number;
+};
+
 type FeedItem = {
   id: number;
   ts: number;
@@ -301,6 +310,7 @@ let activeMatchId: number | null = null;
 let activeSessionId: string | null = null;
 let lastSessionDeliveredMsgId: string | null = null;
 let currentTurnActions: NonNullable<FeedItem["actions"]> = [];
+let currentPlan: PlanGoal[] = [];
 let prevTurnItems: Record<string, number> = {};
 let prevTurnCoreHp = 0;
 let lastSteeredWave = 1;
@@ -369,6 +379,7 @@ function getMetaPayload() {
           : 0,
     },
     compactions: matchCompactions,
+    plan: currentPlan,
     spectators: wsClients.size,
     queueLength: getQueue().length,
     lastCompleted: lastCompleted || null,
@@ -425,8 +436,8 @@ function recordSnapshot(
   const seq = matchSnapshotSeq;
   db.prepare(
     `INSERT INTO match_snapshots
-      (match_id, seq, ts, kind, wave, enemies, core_hp, core_max_hp, items_json, power_json, buildings_json, units_json, player_drone_json, thought, actions_json, prompt_chars, output_chars, latency_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (match_id, seq, ts, kind, wave, enemies, core_hp, core_max_hp, items_json, power_json, buildings_json, units_json, player_drone_json, thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     activeMatchId,
     seq,
@@ -445,7 +456,8 @@ function recordSnapshot(
     extra?.actions ? JSON.stringify(extra.actions) : null,
     extra?.promptChars ?? 0,
     extra?.outputChars ?? 0,
-    extra?.latencyMs ?? 0
+    extra?.latencyMs ?? 0,
+    JSON.stringify(currentPlan)
   );
   return seq;
 }
@@ -672,6 +684,8 @@ function startNewMatchRecord(mapName: string, st?: StatePayload): void {
   activeSessionId = null;
   lastSessionDeliveredMsgId = null;
   currentTurnActions = [];
+  currentPlan = [];
+  broadcast({ type: "plan", plan: currentPlan });
   prevTurnItems = { ...(st?.items || {}) };
   prevTurnCoreHp = st?.core?.hp ?? 0;
   lastSteeredWave = st?.wave ?? 1;
@@ -784,17 +798,22 @@ function getMatchDetail(matchId: number) {
               peak_wave, blocks_built, actions_ok, actions_fail, turns,
               avg_latency_ms, prompt_chars, output_chars,
               input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, compactions,
-              session_id, status, end_reason, last_thought
+              plan_json, session_id, status, end_reason, last_thought
        FROM matches WHERE id = ?`
     )
     .get(matchId) as any;
   if (!match) return null;
+  try {
+    match.plan = JSON.parse(match.plan_json || "[]");
+  } catch {
+    match.plan = [];
+  }
 
   const rawSnaps = db
     .query(
       `SELECT id, seq, ts, kind, wave, enemies, core_hp, core_max_hp,
               items_json, power_json, buildings_json, units_json, player_drone_json,
-              thought, actions_json, prompt_chars, output_chars, latency_ms
+              thought, actions_json, prompt_chars, output_chars, latency_ms, plan_json
        FROM match_snapshots
        WHERE match_id = ?
        ORDER BY seq ASC`
@@ -808,6 +827,7 @@ function getMatchDetail(matchId: number) {
     const units = JSON.parse(s.units_json || "[]");
     const playerDrone = s.player_drone_json ? JSON.parse(s.player_drone_json) : null;
     const actions = s.actions_json ? JSON.parse(s.actions_json) : [];
+    const plan = s.plan_json ? JSON.parse(s.plan_json) : [];
     return {
       id: s.id,
       seq: s.seq,
@@ -824,6 +844,7 @@ function getMatchDetail(matchId: number) {
       playerDrone,
       thought: s.thought,
       actions,
+      plan,
       promptChars: s.prompt_chars,
       outputChars: s.output_chars,
       latencyMs: s.latency_ms,
@@ -1154,6 +1175,57 @@ const handleMcp = createMcpHandler([
     },
   },
   {
+    name: "set_plan",
+    description:
+      "Update your high-level plan board (allows up to 8 short items). Each item has text, optional status ('active' | 'done' | 'blocked'), and optional map tile coordinates (x, y). Persists across turns and survives compaction.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goals: {
+          type: "array",
+          maxItems: 8,
+          items: {
+            type: "object",
+            properties: {
+              text: { type: "string", description: "Short 1-line goal description (<= 120 chars)" },
+              status: { type: "string", enum: ["active", "done", "blocked"] },
+              x: { type: "integer", description: "Optional map X coordinate associated with this goal" },
+              y: { type: "integer", description: "Optional map Y coordinate associated with this goal" },
+            },
+            required: ["text"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["goals"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const raw = Array.isArray(args.goals) ? args.goals : [];
+      const next: PlanGoal[] = [];
+      for (const item of raw.slice(0, 8)) {
+        if (!item || typeof item !== "object") continue;
+        const text = String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 120);
+        if (!text) continue;
+        const stRaw = String(item.status || "active");
+        const status: PlanGoal["status"] =
+          stRaw === "done" || stRaw === "blocked" ? stRaw : "active";
+        const goal: PlanGoal = { text, status };
+        if (typeof item.x === "number" && Number.isFinite(item.x) && typeof item.y === "number" && Number.isFinite(item.y)) {
+          goal.x = Math.round(item.x);
+          goal.y = Math.round(item.y);
+        }
+        next.push(goal);
+      }
+      currentPlan = next;
+      if (activeMatchId !== null) {
+        db.prepare("UPDATE matches SET plan_json = ? WHERE id = ?").run(JSON.stringify(currentPlan), activeMatchId);
+      }
+      broadcast({ type: "plan", plan: currentPlan });
+      return { ok: true, count: currentPlan.length, goals: currentPlan };
+    },
+  },
+  {
     name: "send_wave",
     description: "Trigger the next enemy wave immediately.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -1179,10 +1251,17 @@ async function buildPostCompactionGrounding(st: StatePayload): Promise<string> {
     .map((b) => `${b.block}@(${b.x},${b.y})${b.ammo > 0 ? `[ammo:${b.ammo}]` : ""}`)
     .join(", ");
   const scan = await mindustryJson<any>("/scan?r=16").catch(() => null);
+  const planLines =
+    currentPlan.length > 0
+      ? `your saved plan:\n${currentPlan
+          .map((g) => `- [${g.status}] ${g.text}${g.x !== undefined && g.y !== undefined ? ` @(${g.x},${g.y})` : ""}`)
+          .join("\n")}`
+      : "";
   return [
     `[post-compaction re-grounding] your earlier conversation was compacted. here is the exact live state of your base on ${st.map} (${st.width}x${st.height}):`,
     `core: (${core?.x},${core?.y}) ${core?.hp}/${core?.maxHp} hp | spawns: ${spawns || "unknown"}`,
     `key structures (${friendly.length} total buildings): ${keyBuildings || "core only"}`,
+    planLines,
     scan?.ascii
       ? `33x33 scan around core (x=${scan.bounds?.minX}..${scan.bounds?.maxX}, y=${scan.bounds?.minY}..${scan.bounds?.maxY}):\n${scan.ascii}`
       : "",
@@ -1847,6 +1926,7 @@ const server = Bun.serve({
           terrain: cachedTerrain,
           state: latestState,
           meta: getMetaPayload(),
+          plan: currentPlan,
           config,
           feed: recentFeed.slice(-35),
           leaderboard: getLeaderboard(),
