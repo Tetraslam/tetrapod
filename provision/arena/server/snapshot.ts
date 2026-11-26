@@ -1,6 +1,28 @@
-import { createCanvas, loadImage, type Image } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, loadImage, type Image } from "@napi-rs/canvas";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+
+let fontRegistered = false;
+function ensureFont(): string {
+  if (!fontRegistered) {
+    fontRegistered = true;
+    for (const [path, alias] of [
+      ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "ArenaMono"],
+      ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", "ArenaMonoBold"],
+      ["/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", "ArenaMono"],
+    ]) {
+      if (existsSync(path)) {
+        try {
+          GlobalFonts.registerFromPath(path, alias);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+  return GlobalFonts.has("ArenaMono") ? "ArenaMono" : "monospace";
+}
 
 type AtlasData = {
   pages: string[];
@@ -179,6 +201,7 @@ export async function renderBattlefieldSnapshot(
 
   const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext("2d");
+  const fontFamily = ensureFont();
   ctx.imageSmoothingEnabled = tilePx < 24;
 
   // Background
@@ -427,7 +450,7 @@ export async function renderBattlefieldSnapshot(
       ctx.fillStyle = "rgba(12,11,9,0.82)";
       ctx.fillRect(sx - 24, sy - 10, 48, 14);
       ctx.fillStyle = "#fb7185";
-      ctx.font = "bold 10px monospace";
+      ctx.font = `bold 10px ${fontFamily}`;
       ctx.textAlign = "center";
       ctx.fillText("SPAWN", sx, sy);
     }
@@ -454,7 +477,7 @@ export async function renderBattlefieldSnapshot(
     const cx = toPxX(core.x) + tilePx * 0.5;
     const cy = toPxY(core.y) - 6;
     const txt = `CORE (${core.x},${core.y})`;
-    ctx.font = "bold 10px monospace";
+    ctx.font = `bold 10px ${fontFamily}`;
     const tw = ctx.measureText(txt).width + 8;
     ctx.fillStyle = "rgba(12,11,9,0.85)";
     ctx.fillRect(cx - tw / 2, cy - 10, tw, 13);
@@ -479,7 +502,7 @@ export async function renderBattlefieldSnapshot(
     ctx.stroke();
 
     ctx.fillStyle = "#9d9689";
-    ctx.font = "10px monospace";
+    ctx.font = `10px ${fontFamily}`;
     ctx.textAlign = "center";
     for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
       const px = toPxX(x) + tilePx * 0.5;
