@@ -1477,3 +1477,13 @@ main {
     }
   }
 }
+
+@media (max-width: 520px) {
+  .mark span {
+    display: none;
+  }
+
+  .band {
+    gap: 8px;
+  }
+}

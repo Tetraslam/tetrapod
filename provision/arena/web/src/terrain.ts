@@ -21,7 +21,7 @@ type Chunk = { canvas: HTMLCanvasElement; used: number };
 const MID: Level = { tpc: 32, ppt: 16 };
 const HI: Level = { tpc: 16, ppt: 32 };
 const MAX_CHUNKS = 140;
-const DARK_ALPHA = [0, 0, 0, 0.3, 0.56, 0.78, 0.92];
+const DARK_ALPHA = [0, 0, 0, 0.3, 0.56, 0.78, 0.92, 1];
 
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
