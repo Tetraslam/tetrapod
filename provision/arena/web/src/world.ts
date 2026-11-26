@@ -1,5 +1,5 @@
 import type { TerrainModel } from "./terrain";
-import type { Building, Point, State, Unit } from "./types";
+import type { Building, PlayerDrone, Point, State, Unit } from "./types";
 import { clamp, lerp, lerpAngle } from "./util";
 
 export type Kind = "core" | "turret" | "drill" | "conveyor" | "router" | "wall" | "power" | "other";
@@ -149,6 +149,10 @@ export class World {
   /** Bumps whenever the set of buildings changes. */
   layout = 0;
   events: WorldEvents = {};
+  droneId = -1;
+  build: { x: number; y: number; block: string; cx: number; cy: number; size: number; since: number } | null =
+    null;
+  private weldAt = 0;
   private tiles = new Map<number, BView>();
   private lastWave = -1;
   private wasOver = false;
@@ -173,10 +177,17 @@ export class World {
     this.terrain = t;
   }
 
-  apply(next: State, now: number): void {
+  /**
+   * Take a new snapshot. A replay passes `gap` (how long to glide to it) and `fresh` (a jump:
+   * no glide, no effects) itself. Live play works both out from the clock.
+   */
+  apply(next: State, now: number, opts?: { fresh?: boolean; gap?: number }): void {
     const prev = this.state;
-    const fresh = !prev || prev.map !== next.map || now - this.at > 4000 || (prev.gameOver && !next.gameOver);
-    if (prev && !fresh) this.gap = clamp(lerp(this.gap, now - this.at, 0.25), 150, 900);
+    const fresh =
+      opts?.fresh ??
+      (!prev || prev.map !== next.map || now - this.at > 4000 || (prev.gameOver && !next.gameOver));
+    if (opts?.gap) this.gap = opts.gap;
+    else if (prev && !fresh) this.gap = clamp(lerp(this.gap, now - this.at, 0.25), 150, 900);
     const t = prev ? this.phase(now) : 1;
     this.at = now;
     this.state = next;
@@ -195,6 +206,7 @@ export class World {
     this.applyUnits(next, now, t, fresh);
     this.applyItems(next, now, t);
     if (!fresh) this.applyBullets(next, now);
+    this.applyDrone(next.playerDrone || null, now, fresh);
 
     if (next.wave !== this.lastWave) {
       if (!fresh && next.wave > this.lastWave) this.events.wave?.(next.wave, next);
@@ -274,6 +286,32 @@ export class World {
     }
     if (built.length) this.events.built?.(built);
     if (lost.length) this.events.lost?.(lost);
+  }
+
+  /** The model's own builder ship: which unit it is, and the tile it is welding right now. */
+  private applyDrone(d: PlayerDrone | null, now: number, fresh: boolean): void {
+    this.droneId = d ? d.id : -1;
+    const t = d?.buildTarget || null;
+    if (!t) {
+      this.build = null;
+      return;
+    }
+    const at = this.buildingAt(t.x, t.y);
+    const prev = this.build;
+    const same = prev && prev.x === t.x && prev.y === t.y;
+    this.build = {
+      x: t.x,
+      y: t.y,
+      block: t.block,
+      cx: at ? at.cx : t.x + 0.5,
+      cy: at ? at.cy : t.y + 0.5,
+      size: at ? at.b.size : 1,
+      since: same && prev ? prev.since : now,
+    };
+    if (!fresh && now - this.weldAt > 240) {
+      this.weldAt = now;
+      this.sparks(this.build.cx, this.build.cy, 3, "#c9ffd0", now);
+    }
   }
 
   private underFire(v: BView, next: State): boolean {

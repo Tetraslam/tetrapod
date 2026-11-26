@@ -3,7 +3,7 @@ import { isModelId, tickerEl } from "./lines";
 import type { Pick } from "./renderer";
 import { ORE_COLORS } from "./terrain";
 import type { Factorio, FeedAction, FeedItem, Leaderboard, MatchRow, Meta, State } from "./types";
-import { $, ago, clamp, clock, duration, h, mmss, num, setText } from "./util";
+import { $, ago, clamp, clock, duration, h, mmss, num, reducedMotion, setText } from "./util";
 import { HOME, type World } from "./world";
 
 /** Set a board value and flip it over if it changed. */
@@ -13,9 +13,16 @@ function flap(el: HTMLElement, text: string): void {
   el.dataset.set = "1";
   el.textContent = text;
   if (first) return;
-  el.classList.remove("flap");
-  void el.offsetWidth;
-  el.classList.add("flap");
+  // The Web Animations API restarts the flip without forcing a layout, unlike toggling a class.
+  if (!reducedMotion()) {
+    el.animate(
+      [
+        { clipPath: "inset(0 0 100% 0)", transform: "translateY(-18%)" },
+        { clipPath: "inset(0)", transform: "none" },
+      ],
+      { duration: 300, easing: "steps(5, end)" },
+    );
+  }
 }
 
 const meter = (el: HTMLElement, frac: number) => {
@@ -82,6 +89,12 @@ export function renderBoard(state: State | null, meta: Meta | null): void {
   }
   setText($("bMap"), state.map);
   setText($("bMatch"), meta?.matchId ? `match ${meta.matchId} on` : "map");
+  const matchCell = $<HTMLAnchorElement>("bMatchCell");
+  const href = meta?.matchId ? `#match/${meta.matchId}` : "";
+  if ((matchCell.getAttribute("href") || "") !== href) {
+    if (href) matchCell.setAttribute("href", href);
+    else matchCell.removeAttribute("href");
+  }
   setText($("bLineLabel"), over ? "just played" : "now playing");
 }
 
@@ -199,10 +212,9 @@ export function renderLegend(world: World, on: boolean): void {
 
 // ---------- inspector ----------
 
-let inspectKey = "";
+const inspectKeys = new WeakMap<HTMLElement, string>();
 
-export function renderInspector(world: World, pick: Pick | null): void {
-  const el = $("inspect");
+export function renderInspector(world: World, pick: Pick | null, el: HTMLElement = $("inspect")): void {
   const row = (label: string, value: string, bad = false) =>
     h("p", bad ? { class: "bad" } : null, h("span", null, label), value);
   let key = "";
@@ -216,7 +228,13 @@ export function renderInspector(world: World, pick: Pick | null): void {
       build = () => [
         icon(u.type),
         h("h3", null, u.type),
-        h("p", null, `${u.team} unit at ${Math.round(v.x)}, ${Math.round(v.y)}`),
+        h(
+          "p",
+          null,
+          u.id === world.droneId
+            ? `the model's builder ship, at ${Math.round(v.x)}, ${Math.round(v.y)}`
+            : `${u.team} unit at ${Math.round(v.x)}, ${Math.round(v.y)}`,
+        ),
         hpBar(u.hp, u.maxHp, u.team !== HOME),
         h(
           "div",
@@ -270,8 +288,8 @@ export function renderInspector(world: World, pick: Pick | null): void {
   }
 
   el.toggleAttribute("data-empty", !build);
-  if (!build || key === inspectKey) return;
-  inspectKey = key;
+  if (!build || key === inspectKeys.get(el)) return;
+  inspectKeys.set(el, key);
   el.replaceChildren(...build());
 }
 
@@ -345,10 +363,46 @@ const shortError = (err: string) =>
 
 const seenFeed = new Set<number>();
 
-function entry(item: FeedItem, onJump: (targets: Target[]) => void): HTMLElement {
+/** A turn's actions as rows. A row with coordinates is a button that shows them on the map. */
+export function actionList(actions: FeedAction[], onJump: (targets: Target[]) => void): HTMLElement {
+  return h(
+    "ul",
+    { class: "acts" },
+    ...actions.map((a) => {
+      const targets = actionTargets(a);
+      return h(
+        "li",
+        { class: a.ok ? "ok" : "fail" },
+        h(
+          "button",
+          {
+            disabled: targets.length ? null : "",
+            title: targets.length ? "show this on the map" : null,
+            onclick: () => onJump(targets),
+          },
+          h("i", null),
+          h("code", null, a.label),
+          !a.ok && a.error ? h("em", { title: a.error }, shortError(a.error)) : null,
+        ),
+      );
+    }),
+  );
+}
+
+export const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
+
+export type FeedHooks = {
+  jump: (targets: Target[]) => void;
+  /** Where a turn's full breakdown lives, or null if its match has no replay. */
+  turnHref: (item: FeedItem) => string | null;
+};
+
+function entry(item: FeedItem, hooks: FeedHooks): HTMLElement {
   const time = h("time", { datetime: new Date(item.ts).toISOString() }, clock(item.ts));
   const body = h("div", null);
   if (item.kind === "thought") {
+    const href = item.seq ? hooks.turnHref(item) : null;
+    const facts = item.latencyMs ? `thought for ${seconds(item.latencyMs)}` : "";
     body.append(
       h(
         "div",
@@ -360,56 +414,42 @@ function entry(item: FeedItem, onJump: (targets: Target[]) => void): HTMLElement
       ),
       h("p", null, item.text),
     );
-    if (item.actions?.length) {
+    if (item.actions?.length) body.append(actionList(item.actions, hooks.jump));
+    if (facts || href) {
       body.append(
         h(
-          "ul",
-          { class: "acts" },
-          ...item.actions.map((a) => {
-            const targets = actionTargets(a);
-            return h(
-              "li",
-              { class: a.ok ? "ok" : "fail" },
-              h(
-                "button",
-                {
-                  disabled: targets.length ? null : "",
-                  title: targets.length ? "show this on the map" : null,
-                  onclick: () => onJump(targets),
-                },
-                h("i", null),
-                h("code", null, a.label),
-                !a.ok && a.error ? h("em", { title: a.error }, shortError(a.error)) : null,
-              ),
-            );
-          }),
+          "div",
+          { class: "turnfoot" },
+          h("span", null, facts),
+          href ? h("a", { href, title: "this turn in the match breakdown" }, "breakdown") : null,
         ),
       );
     }
   } else {
-    body.append(h("p", null, item.text), time);
+    // The arena's own notes get the board's voice: no shouting, no dashes.
+    body.append(h("p", null, item.text.replace(/!+/g, "").replace(/\s+\u2014\s+/g, ", ")), time);
   }
   const kind = item.kind === "thought" ? "thought" : `note ${item.kind}`;
   return h("li", { class: `entry ${kind}`, "data-id": item.id }, body);
 }
 
-export function setFeed(items: FeedItem[], onJump: (targets: Target[]) => void): void {
+export function setFeed(items: FeedItem[], hooks: FeedHooks): void {
   seenFeed.clear();
   const list = $("feed");
   const nodes: HTMLElement[] = [];
   for (const item of [...items].sort((a, b) => b.id - a.id)) {
     if (seenFeed.has(item.id)) continue;
     seenFeed.add(item.id);
-    nodes.push(entry(item, onJump));
+    nodes.push(entry(item, hooks));
   }
   list.replaceChildren(...nodes);
 }
 
-export function addFeed(item: FeedItem, onJump: (targets: Target[]) => void): boolean {
+export function addFeed(item: FeedItem, hooks: FeedHooks): boolean {
   if (seenFeed.has(item.id)) return false;
   seenFeed.add(item.id);
   const list = $("feed");
-  const el = entry(item, onJump);
+  const el = entry(item, hooks);
   // Someone reading older entries keeps their place. At the top, the new one unfolds in.
   const reading = list.scrollTop > 12;
   if (!reading) el.classList.add("enter");
@@ -435,7 +475,19 @@ const accuracy = (ok: number, fail: number): HTMLElement => {
 
 const th = (label: string, left = false) => h("th", left ? { class: "l" } : null, label);
 
-export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null): void {
+/** How a match ended, in the board's words. */
+export function ending(m: MatchRow, liveId: number | null | undefined): string {
+  if (m.id === liveId) return "on now";
+  const why = m.end_reason || "";
+  if (why.includes("core")) return "core lost";
+  if (why.includes("admin") || why.includes("manual")) return "called off";
+  if (why === "superseded" || !m.ended_at) return "cut short";
+  return why;
+}
+
+export type BoardHooks = { admin: boolean; remove: (m: MatchRow) => void };
+
+export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null, hooks?: BoardHooks): void {
   if (!lb) return;
   const live = meta?.contender.id;
   const standings = $("standings");
@@ -491,15 +543,18 @@ export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null): vo
     ),
   );
 
-  const status = (m: MatchRow): HTMLElement => {
-    if (m.id === meta?.matchId) return h("span", { class: "now" }, "on now");
-    if (!m.ended_at)
-      return h(
-        "span",
-        { class: "quiet", title: "the arena restarted before this one finished" },
-        "cut short",
-      );
-    return h("span", { title: new Date(m.ended_at).toLocaleString() }, ago(m.ended_at));
+  const admin = !!hooks?.admin;
+  const ended = (m: MatchRow): HTMLElement => {
+    const text = ending(m, meta?.matchId);
+    if (text === "on now") return h("span", { class: "now" }, text);
+    return h(
+      "span",
+      {
+        class: text === "cut short" ? "quiet" : null,
+        title: m.ended_at ? new Date(m.ended_at).toLocaleString() : null,
+      },
+      m.ended_at && text !== "cut short" ? [text, ago(m.ended_at)].filter(Boolean).join(", ") : text,
+    );
   };
   $("matches").replaceChildren(
     h(
@@ -512,25 +567,43 @@ export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null): vo
         th("model", true),
         th("map", true),
         th("wave"),
-        th("blocks"),
+        th("turns"),
         th("actions landed"),
         th("lasted"),
         th("ended"),
+        admin ? th("") : null,
       ),
     ),
     h(
       "tbody",
       null,
       ...(lb.recentMatches.length
-        ? lb.recentMatches.map((m) =>
-            h(
+        ? lb.recentMatches.map((m) => {
+            const href = `#match/${m.id}`;
+            const replay = (m.snapshot_count || 0) > 0;
+            return h(
               "tr",
-              null,
+              { class: "go", "data-href": href },
               h("td", { class: "l quiet" }, String(m.id)),
-              h("td", { class: "l" }, tickerEl(m.model, "s")),
+              h(
+                "td",
+                { class: "l" },
+                h(
+                  "a",
+                  { href, class: "rowlink", "aria-label": `match ${m.id} breakdown` },
+                  tickerEl(m.model, "s"),
+                ),
+              ),
               h("td", { class: "l" }, m.map),
               h("td", null, String(m.peak_wave)),
-              h("td", null, num(m.blocks_built)),
+              h(
+                "td",
+                {
+                  class: replay ? null : "quiet",
+                  title: replay ? "has a replay" : "played before replays were recorded",
+                },
+                replay ? String(m.turns ?? 0) : "--",
+              ),
               h("td", null, accuracy(m.actions_ok, m.actions_fail)),
               h(
                 "td",
@@ -541,11 +614,38 @@ export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null): vo
                     ? duration((Date.now() - m.started_at) / 1000)
                     : "--",
               ),
-              h("td", null, status(m)),
-            ),
-          )
+              h("td", null, ended(m)),
+              admin
+                ? h(
+                    "td",
+                    null,
+                    m.id === meta?.matchId
+                      ? null
+                      : h(
+                          "button",
+                          {
+                            class: "del",
+                            "aria-label": `delete match ${m.id}`,
+                            title: "delete this match",
+                            onclick: (e: Event) => {
+                              e.stopPropagation();
+                              hooks?.remove(m);
+                            },
+                          },
+                          "delete",
+                        ),
+                  )
+                : null,
+            );
+          })
         : [h("tr", { class: "empty" }, h("td", { colspan: 8 }, "no matches yet."))]),
     ),
+  );
+
+  const queue = lb.queue || [];
+  $("queueWrap").hidden = queue.length === 0;
+  $("queue").replaceChildren(
+    ...queue.map((q) => h("li", null, tickerEl(q.model, "m"), h("span", { class: "quiet" }, `on ${q.map}`))),
   );
 
   $("roster").replaceChildren(

@@ -1,0 +1,505 @@
+import "@ui-sdk/web/drawer";
+import "@ui-sdk/web/alert-dialog";
+import "@ui-sdk/web/segmented-control";
+import "@ui-sdk/web/slider";
+import "@ui-sdk/web/switch";
+import "@ui-sdk/web/checkbox";
+import "@ui-sdk/web/select";
+import closeIcon from "@phosphor-icons/core/bold/x-bold.svg?raw";
+import { lineLetter, tickerEl } from "./lines";
+import type { AdminState, ArenaConfig, Meta, RunnerMode } from "./types";
+import { $, h, num, setText } from "./util";
+
+const SIGN_IN = "https://auth.tetraslam.world/?rd=https://arena.tetraslam.world";
+
+const MODES: Array<{ id: RunnerMode; says: string }> = [
+  { id: "rotation", says: "models take turns in roster order, one match each." },
+  { id: "pinned", says: "one model plays every match." },
+  { id: "single", says: "the current match plays out, then everything stops." },
+  { id: "paused", says: "nothing takes a turn until you resume." },
+];
+
+type Api = { open: (o?: unknown) => Promise<{ returnValue?: string }>; close: () => void };
+type UiEl<T = unknown> = HTMLElement & {
+  api: Api;
+  value: T;
+  checked: boolean;
+  items: unknown;
+  disabled: boolean;
+};
+
+const ui = <T = unknown>(id: string) => $(id) as UiEl<T>;
+
+/** Give a select its options: the data on the root (for the trigger's label) and an item element for each. */
+function fill(id: string, options: Array<{ value: string; label: string }>, value: string): void {
+  const el = ui<string>(id);
+  const key = options.map((o) => o.value).join("|");
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.items = options;
+    el.querySelector("ui-select-content")!.replaceChildren(
+      ...options.map((o) => {
+        const item = document.createElement("ui-select-item");
+        item.setAttribute("value", o.value);
+        item.className = "sel-item";
+        item.textContent = o.label;
+        return item;
+      }),
+    );
+  }
+  el.value = value;
+}
+
+/**
+ * The control deck. It only exists for someone signed in through Authelia: everyone else
+ * gets a quiet sign-in link and none of this markup.
+ */
+export class AdminDeck {
+  on = false;
+  private state: AdminState | null = null;
+  private meta: Meta | null = null;
+  private model = "";
+  private map = "";
+  private busy = false;
+
+  constructor(
+    private changed: () => void,
+    private liveMatchId: () => number | null,
+  ) {}
+
+  /** Ask the protected endpoint who we are. Anonymous visitors get a redirect, which we never follow. */
+  async probe(): Promise<void> {
+    const link = $<HTMLAnchorElement>("adminLink");
+    link.href = SIGN_IN;
+    try {
+      const res = await fetch("/api/admin/me", { redirect: "manual", credentials: "include" });
+      if (res.status !== 200) return;
+      const me = (await res.json()) as { admin?: boolean; user?: string };
+      if (!me.admin) return;
+      this.on = true;
+      this.mount(me.user || "admin");
+      await this.refresh();
+      this.changed();
+    } catch {
+      // offline or blocked: stay a spectator
+    }
+  }
+
+  setMeta(meta: Meta | null): void {
+    this.meta = meta;
+    if (this.on) this.renderNow();
+  }
+
+  /** The server pushed new config (someone changed it, here or in another tab). */
+  onConfig(config: ArenaConfig): void {
+    if (!this.on || !this.state) return;
+    this.state.config = config;
+    void this.refresh();
+  }
+
+  // ---------- requests ----------
+
+  private async call(method: string, path: string, body?: unknown): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch(path, {
+        method,
+        credentials: "include",
+        redirect: "manual",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status === 0 || res.status === 401 || res.status === 302) {
+        this.say("your sign-in ran out. sign in again and retry.", true);
+        return null;
+      }
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok || json.ok === false) {
+        this.say(String(json.error || `the arena answered ${res.status}.`).toLowerCase(), true);
+        return null;
+      }
+      return json;
+    } catch {
+      this.say("couldn't reach the arena.", true);
+      return null;
+    }
+  }
+
+  /** Run one admin request with the deck locked, then say what happened and resync. */
+  private async act(done: string, method: string, path: string, body?: unknown): Promise<boolean> {
+    if (this.busy) return false;
+    this.busy = true;
+    $("deck").toggleAttribute("data-busy", true);
+    const res = await this.call(method, path, body);
+    if (res) {
+      this.say(done);
+      await this.refresh();
+      this.changed();
+    }
+    this.busy = false;
+    $("deck").toggleAttribute("data-busy", false);
+    return !!res;
+  }
+
+  private say(text: string, bad = false): void {
+    const el = $("deckSay");
+    el.textContent = text;
+    el.toggleAttribute("data-bad", bad);
+  }
+
+  async refresh(): Promise<void> {
+    const res = await this.call("GET", "/api/admin/config");
+    if (!res) return;
+    this.state = res as unknown as AdminState;
+    this.render();
+  }
+
+  private async confirm(title: string, detail: string, yes: string): Promise<boolean> {
+    setText($("confirmTitle"), title);
+    setText($("confirmDetail"), detail);
+    setText($("confirmYes"), yes);
+    const { returnValue } = await ui("confirm").api.open();
+    return returnValue === "confirm";
+  }
+
+  /** Delete a finished match from the board, after asking. */
+  async remove(id: number, label: string): Promise<void> {
+    if (
+      !(await this.confirm(
+        `delete match ${id}?`,
+        `${label}. its replay and feed go with it, and it can't be brought back.`,
+        "delete",
+      ))
+    )
+      return;
+    await this.act(`match ${id} deleted.`, "DELETE", `/api/admin/matches/${id}`);
+  }
+
+  // ---------- markup ----------
+
+  private mount(user: string): void {
+    const host = $("adminHost");
+    host.innerHTML = `
+      <ui-drawer id="deckDrawer" side="right" prevent-edge-swipe>
+        <ui-drawer-backdrop class="scrim" hidden></ui-drawer-backdrop>
+        <ui-drawer-content class="deck-sheet" id="deck" initial-focus="content" hidden>
+          <header class="deck-head">
+            <div>
+              <ui-drawer-title class="deck-title">control deck</ui-drawer-title>
+              <ui-drawer-description class="quiet" id="deckUser"></ui-drawer-description>
+            </div>
+            <ui-drawer-close><button class="iconbtn" aria-label="close the control deck">${closeIcon}</button></ui-drawer-close>
+          </header>
+          <p class="deck-say" id="deckSay" role="status" aria-live="polite"></p>
+          <div class="deck-scroll">
+            <section>
+              <h3>right now</h3>
+              <div id="deckNow" class="deck-now"></div>
+              <div class="btnrow">
+                <button id="aPause" class="btn"></button>
+                <button id="aStep" class="btn" title="take one turn now, even while paused">step one turn</button>
+                <button id="aWave" class="btn" title="call the next wave in early">send wave</button>
+                <button id="aEnd" class="btn danger">end match</button>
+              </div>
+            </section>
+
+            <section>
+              <h3>how it runs</h3>
+              <ui-segmented-control id="cMode" aria-label="runner mode" class="seg">
+                <ui-segmented-control-indicator class="seg-ind"></ui-segmented-control-indicator>
+                ${MODES.map((m) => `<ui-segmented-control-item value="${m.id}" class="seg-item">${m.id}</ui-segmented-control-item>`).join("")}
+              </ui-segmented-control>
+              <p class="hint" id="cModeSays"></p>
+              <div id="cPinnedWrap" hidden>
+                <ui-select id="cPinned" class="sel">
+                  <ui-select-label class="lbl">the pinned model</ui-select-label>
+                  <ui-select-trigger><button class="sel-btn"><ui-select-value></ui-select-value></button></ui-select-trigger>
+                  <ui-select-content class="sel-list"></ui-select-content>
+                </ui-select>
+              </div>
+            </section>
+
+            <section>
+              <h3>turn cadence</h3>
+              <ui-slider id="cTurn" min="5" max="60" step="1" class="slider">
+                <div class="slider-top"><span class="lbl">a turn every</span><b id="cTurnVal"></b></div>
+                <ui-slider-control class="slider-ctl">
+                  <ui-slider-track class="slider-track">
+                    <ui-slider-indicator class="slider-fill"></ui-slider-indicator>
+                    <ui-slider-thumb class="slider-thumb" aria-label="seconds between turns"></ui-slider-thumb>
+                  </ui-slider-track>
+                </ui-slider-control>
+              </ui-slider>
+              <label class="toggle">
+                <span><b>pause when nobody's watching</b><span class="hint">after ten minutes with no spectators. it saves the subscriptions for an audience.</span></span>
+                <ui-switch id="cEmpty" class="switch"><ui-switch-thumb class="switch-thumb"></ui-switch-thumb></ui-switch>
+              </label>
+            </section>
+
+            <section>
+              <h3>roster</h3>
+              <p class="hint">which signed-in models rotation draws from.</p>
+              <div id="cRoster" class="checks"></div>
+            </section>
+
+            <section>
+              <h3>start a match</h3>
+              <div class="pair2">
+                <ui-select id="lModel" class="sel">
+                  <ui-select-label class="lbl">model</ui-select-label>
+                  <ui-select-trigger><button class="sel-btn"><ui-select-value></ui-select-value></button></ui-select-trigger>
+                  <ui-select-content class="sel-list"></ui-select-content>
+                </ui-select>
+                <ui-select id="lMap" class="sel">
+                  <ui-select-label class="lbl">map</ui-select-label>
+                  <ui-select-trigger><button class="sel-btn"><ui-select-value></ui-select-value></button></ui-select-trigger>
+                  <ui-select-content class="sel-list"></ui-select-content>
+                </ui-select>
+              </div>
+              <div class="btnrow">
+                <button id="lLaunch" class="btn solid">launch now</button>
+                <button id="lQueue" class="btn">add to queue</button>
+                <button id="lSwitch" class="btn" title="hand the match in progress to this model">switch model</button>
+              </div>
+              <h4>up next</h4>
+              <ol id="lQueueList" class="queue"></ol>
+            </section>
+
+            <section>
+              <h3>usage so far</h3>
+              <dl id="deckUsage" class="usage"></dl>
+            </section>
+          </div>
+        </ui-drawer-content>
+      </ui-drawer>
+
+      <ui-alert-dialog id="confirm">
+        <ui-alert-dialog-backdrop class="scrim" hidden></ui-alert-dialog-backdrop>
+        <ui-alert-dialog-content class="confirm" hidden>
+          <ui-alert-dialog-title class="deck-title" id="confirmTitle"></ui-alert-dialog-title>
+          <ui-alert-dialog-description id="confirmDetail"></ui-alert-dialog-description>
+          <div class="btnrow end">
+            <ui-alert-dialog-close><button class="btn">keep it</button></ui-alert-dialog-close>
+            <ui-alert-dialog-close value="confirm"><button class="btn danger" id="confirmYes"></button></ui-alert-dialog-close>
+          </div>
+        </ui-alert-dialog-content>
+      </ui-alert-dialog>`;
+    setText($("deckUser"), `signed in as ${user}`);
+
+    const link = $("adminLink");
+    const open = h(
+      "button",
+      { class: "decklink", id: "deckOpen", onclick: () => void ui("deckDrawer").api.open() },
+      "control deck",
+    );
+    link.replaceWith(open);
+
+    const value = (e: Event) => (e as unknown as CustomEvent<{ value: unknown }>).detail.value;
+    const patch = (done: string, body: Partial<ArenaConfig> & { aiPaused?: boolean }) =>
+      void this.act(done, "PATCH", "/api/admin/config", body);
+
+    $("aPause").addEventListener("click", () => {
+      const paused = this.meta?.aiPaused ?? this.state?.aiPaused;
+      void this.act(paused ? "resumed." : "paused.", "POST", "/api/admin/action", {
+        action: paused ? "resume" : "pause",
+      });
+    });
+    $("aStep").addEventListener(
+      "click",
+      () => void this.act("one turn requested.", "POST", "/api/admin/action", { action: "step" }),
+    );
+    $("aWave").addEventListener(
+      "click",
+      () =>
+        void this.act("the next wave is on its way.", "POST", "/api/admin/action", { action: "send_wave" }),
+    );
+    $("aEnd").addEventListener("click", async () => {
+      const id = this.liveMatchId();
+      if (
+        await this.confirm(
+          `end match ${id ?? ""} now?`,
+          "it is scored as it stands, and whatever is next in the queue or the mode takes over.",
+          "end it",
+        )
+      )
+        void this.act("match ended.", "POST", "/api/admin/action", { action: "end_match" });
+    });
+
+    $("cMode").addEventListener("valuechange", (e) => {
+      const mode = String(value(e)) as RunnerMode;
+      if (mode && mode !== this.state?.config.mode) patch(`mode is now ${mode}.`, { mode });
+    });
+    $("cPinned").addEventListener("valuechange", (e) => {
+      const pinnedModel = String(value(e) || "");
+      if (pinnedModel && pinnedModel !== this.state?.config.pinnedModel)
+        patch(`${pinnedModel} is pinned.`, { pinnedModel });
+    });
+    $("cTurn").addEventListener("valuechange", (e) => setText($("cTurnVal"), `${Number(value(e))}s`));
+    $("cTurn").addEventListener("valuecommit", (e) => {
+      const turnIntervalMs = Number(value(e)) * 1000;
+      if (turnIntervalMs !== this.state?.config.turnIntervalMs)
+        patch(`a turn every ${turnIntervalMs / 1000}s.`, { turnIntervalMs });
+    });
+    $("cEmpty").addEventListener("checkedchange", (e) => {
+      const autoPauseEmpty = value(e) === true;
+      if (autoPauseEmpty !== this.state?.config.autoPauseEmpty)
+        patch(
+          autoPauseEmpty ? "it will pause when the room is empty." : "it keeps playing to an empty room.",
+          { autoPauseEmpty },
+        );
+    });
+    $("lModel").addEventListener("valuechange", (e) => {
+      this.model = String(value(e) || this.model);
+    });
+    $("lMap").addEventListener("valuechange", (e) => {
+      this.map = String(value(e) || this.map);
+    });
+    $("lLaunch").addEventListener("click", async () => {
+      if (
+        await this.confirm(
+          `launch ${this.model} on ${this.map}?`,
+          "the match in progress ends now and is scored as it stands.",
+          "launch",
+        )
+      )
+        void this.act(`${this.model} is dropping onto ${this.map}.`, "POST", "/api/admin/matches", {
+          model: this.model,
+          map: this.map,
+        });
+    });
+    $("lQueue").addEventListener(
+      "click",
+      () =>
+        void this.act(`queued ${this.model} on ${this.map}.`, "POST", "/api/admin/matches", {
+          model: this.model,
+          map: this.map,
+          enqueue: true,
+        }),
+    );
+    $("lSwitch").addEventListener(
+      "click",
+      () =>
+        void this.act(`${this.model} has the controls.`, "POST", "/api/admin/action", {
+          action: "switch_model",
+          model: this.model,
+        }),
+    );
+  }
+
+  private render(): void {
+    const s = this.state;
+    if (!s) return;
+    const models = s.availableRoster.map((c) => ({ value: c.id, label: c.id }));
+    if (!this.model || !models.some((m) => m.value === this.model)) this.model = s.contender.id;
+    if (!this.map) this.map = s.maps[0] || "";
+
+    ui<string>("cMode").value = s.config.mode;
+    setText($("cModeSays"), MODES.find((m) => m.id === s.config.mode)?.says || "");
+    $("cPinnedWrap").hidden = s.config.mode !== "pinned";
+    fill(
+      "cPinned",
+      models.some((m) => m.value === s.config.pinnedModel)
+        ? models
+        : [...models, { value: s.config.pinnedModel, label: s.config.pinnedModel }],
+      s.config.pinnedModel,
+    );
+
+    ui<number>("cTurn").value = Math.round(s.config.turnIntervalMs / 1000);
+    setText($("cTurnVal"), `${Math.round(s.config.turnIntervalMs / 1000)}s`);
+    ui("cEmpty").checked = s.config.autoPauseEmpty;
+
+    const enabled = new Set(s.config.enabledModels);
+    $("cRoster").replaceChildren(
+      ...s.availableRoster.map((c) => {
+        const box = document.createElement("ui-checkbox");
+        box.className = "check";
+        box.innerHTML = `<ui-checkbox-indicator class="check-mark" aria-hidden="true"></ui-checkbox-indicator>`;
+        box.setAttribute("aria-label", c.id);
+        if (enabled.has(c.id)) box.setAttribute("default-checked", "");
+        box.addEventListener("checkedchange", (e) => {
+          const next = new Set(this.state?.config.enabledModels || []);
+          if (e.detail.value === true) next.add(c.id);
+          else next.delete(c.id);
+          const kept = s.availableRoster.filter((r) => next.has(r.id)).map((r) => r.id);
+          if (!kept.length) {
+            this.say("the roster needs at least one model.", true);
+            void this.refresh();
+            return;
+          }
+          void this.act(
+            `${kept.length} model${kept.length === 1 ? "" : "s"} in rotation.`,
+            "PATCH",
+            "/api/admin/config",
+            {
+              enabledModels: kept,
+            },
+          );
+        });
+        return h("label", { class: "checkrow" }, box, tickerEl(c.id, "m"));
+      }),
+    );
+
+    fill("lModel", models, this.model);
+    fill(
+      "lMap",
+      s.maps.map((m) => ({ value: m, label: m })),
+      this.map,
+    );
+
+    $("lQueueList").replaceChildren(
+      ...(s.queue.length
+        ? s.queue.map((q) =>
+            h(
+              "li",
+              null,
+              tickerEl(q.model, "s"),
+              h("span", { class: "quiet" }, `on ${q.map}`),
+              h(
+                "button",
+                {
+                  class: "del",
+                  "aria-label": `remove ${q.model} on ${q.map} from the queue`,
+                  onclick: () =>
+                    void this.act("removed from the queue.", "DELETE", `/api/admin/queue/${q.id}`),
+                },
+                "remove",
+              ),
+            ),
+          )
+        : [h("li", { class: "quiet none" }, "nothing queued. the mode above decides what plays next.")]),
+    );
+
+    const u = s.usage;
+    const row = (k: string, v: string) => h("div", null, h("dt", null, k), h("dd", null, v));
+    $("deckUsage").replaceChildren(
+      row("matches", num(u.total_matches)),
+      row("turns taken", num(u.total_turns)),
+      row("blocks built", num(u.total_blocks)),
+      row("characters read", num(u.total_prompt_chars)),
+      row("characters written", num(u.total_output_chars)),
+      row("chars read per turn", u.total_turns ? num(u.total_prompt_chars / u.total_turns) : "--"),
+    );
+    this.renderNow();
+  }
+
+  private renderNow(): void {
+    const m = this.meta;
+    const s = this.state;
+    if (!s || !document.getElementById("deckNow")) return;
+    const id = m?.contender.id || s.contender.id;
+    const paused = m?.aiPaused ?? s.aiPaused;
+    const now = $("deckNow");
+    const key = `${id}|${paused}|${m?.matchId}|${m?.turns}|${m?.avgLatencyMs}|${m?.emptyPaused}`;
+    if (now.dataset.key !== key) {
+      now.dataset.key = key;
+      const facts = [
+        m?.matchId ? `match ${m.matchId}` : "no match",
+        paused ? "paused" : m?.emptyPaused ? "waiting for a spectator" : "playing",
+        m?.turns ? `${m.turns} turns` : "",
+        m?.avgLatencyMs ? `${(m.avgLatencyMs / 1000).toFixed(1)}s a turn` : "",
+      ].filter(Boolean);
+      now.replaceChildren(tickerEl(id, "m"), h("span", { class: "quiet" }, facts.join(", ")));
+      now.title = `${lineLetter(id)} line`;
+    }
+    setText($("aPause"), paused ? "resume" : "pause");
+  }
+}

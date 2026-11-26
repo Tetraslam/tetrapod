@@ -19,9 +19,10 @@
           <button role="tab" id="tab-factorio" data-tab="factorio" aria-controls="view-factorio">factorio</button>
         </nav>
         <div class="present">
+          <span id="trouble" class="trouble" role="status" hidden></span>
           <span id="watching" class="quiet"></span>
-          <span id="link" class="lamp" data-state="wait">connecting</span>
           <time id="clock">--:--:--</time>
+          <a id="adminLink" class="decklink" href="https://auth.tetraslam.world/?rd=https://arena.tetraslam.world">admin</a>
         </div>
       </header>
 
@@ -50,10 +51,10 @@
               <b id="bCore" class="big">--</b>
               <i class="meter"><i id="bCoreFill"></i></i>
             </div>
-            <div class="cell cell-map">
+            <a class="cell cell-map" id="bMatchCell" title="open this match's breakdown and replay">
               <span class="lbl" id="bMatch">match</span>
               <b id="bMap" class="mid">--</b>
-            </div>
+            </a>
           </div>
 
           <div class="stage" id="stage">
@@ -111,6 +112,10 @@
             <div class="scroll-x"><table class="tbl standings" id="standings"></table></div>
             <h2>recent matches</h2>
             <div class="scroll-x"><table class="tbl" id="matches"></table></div>
+            <section id="queueWrap" hidden>
+              <h2>up next</h2>
+              <ol id="queue" class="rotation"></ol>
+            </section>
             <div class="pair">
               <section>
                 <h2>rotation</h2>
@@ -121,6 +126,46 @@
                 <ol id="maps" class="rotation maps"></ol>
               </section>
             </div>
+          </div>
+        </section>
+
+        <section class="view match" id="view-match" aria-label="match breakdown" hidden>
+          <header class="m-head">
+            <a class="back" href="#leaderboard">standings</a>
+            <div class="m-title">
+              <span class="lbl" id="mId">match</span>
+              <div id="mTicker" class="slot-ticker"></div>
+            </div>
+            <div class="m-facts" id="mFacts"></div>
+          </header>
+          <div class="m-body" id="mBody" data-state="loading">
+            <div class="m-stage">
+              <canvas id="mMap" tabindex="0" aria-label="match replay. drag to pan, scroll to zoom."></canvas>
+              <div id="mInspect" class="inspect m-inspect" data-empty></div>
+            </div>
+            <aside class="m-side">
+              <article id="mTurn" class="m-turn"></article>
+              <ol id="mTurns" class="m-turns" aria-label="every step of the match"></ol>
+            </aside>
+            <div class="m-timeline">
+              <div class="m-controls">
+                <div class="keys">
+                  <button id="mBack" class="key sq" aria-label="one step back"></button>
+                  <button id="mPlay" class="key sq play"></button>
+                  <button id="mFwd" class="key sq" aria-label="one step forward"></button>
+                  <span class="gap"></span>
+                  <span id="mSpeeds" class="speeds" role="group" aria-label="playback speed"></span>
+                </div>
+                <span class="quiet m-keys">space plays, the arrow keys step, and a click anywhere below jumps there</span>
+              </div>
+              <div class="m-lanes">
+                <div id="mLabels" class="m-labels"></div>
+                <div id="mLane" class="m-lane"></div>
+              </div>
+            </div>
+            <p class="m-msg m-loading">loading the replay</p>
+            <p class="m-msg m-empty">this match was played before replays were recorded, so the scoreline above is all there is.</p>
+            <p class="m-msg m-error" id="mError"></p>
           </div>
         </section>
 
@@ -154,6 +199,7 @@
         </section>
       </main>
     </div>
+    <div id="adminHost"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

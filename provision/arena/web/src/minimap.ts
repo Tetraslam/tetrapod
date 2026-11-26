@@ -8,6 +8,8 @@ export class Minimap {
   private lastDraw = 0;
   private scale = 1;
   private size = { w: 0, h: 0 };
+  private bg: HTMLCanvasElement | null = null;
+  private bgKey = "";
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -39,6 +41,25 @@ export class Minimap {
     canvas.addEventListener("pointercancel", up);
   }
 
+  /** The terrain at minimap size, drawn once. Scaling the big picture down every tick is slow. */
+  private background(): HTMLCanvasElement {
+    const t = this.world.terrain!;
+    const key = `${t.map}|${t.lowReady}|${this.canvas.width}x${this.canvas.height}`;
+    if (this.bg && this.bgKey === key) return this.bg;
+    const c = this.bg || document.createElement("canvas");
+    c.width = this.canvas.width;
+    c.height = this.canvas.height;
+    const x = c.getContext("2d")!;
+    x.imageSmoothingEnabled = true;
+    x.drawImage(t.lowReady ? t.low : t.base, 0, 0, c.width, c.height);
+    if (!t.lowReady) x.drawImage(t.dark, 0, 0, c.width, c.height);
+    x.fillStyle = "rgba(6,5,4,0.28)";
+    x.fillRect(0, 0, c.width, c.height);
+    this.bg = c;
+    this.bgKey = key;
+    return c;
+  }
+
   /** Size the canvas to the map's proportions inside its box. */
   private layout(): void {
     const { world, canvas } = this;
@@ -66,11 +87,7 @@ export class Minimap {
     this.layout();
     const k = this.scale;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(t.lowReady ? t.low : t.base, 0, 0, canvas.width, canvas.height);
-    ctx.drawImage(t.dark, 0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(6,5,4,0.28)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(this.background(), 0, 0);
 
     const dot = Math.max(1.6, k);
     for (const v of world.buildings.values()) {

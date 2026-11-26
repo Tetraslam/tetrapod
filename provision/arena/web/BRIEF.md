@@ -32,9 +32,16 @@ principles borrowed:
 - motion: `flap` (300ms, stepped) for a board value that changed, `slide` (260ms, cubic-bezier(.2,.8,.2,1)) for rows entering the feed, and a critically damped camera, slow under the director and quick under the hand. reduced motion snaps all three.
 - voice: discord (tetrastack `voices/discord.md`). it's shresht's own arena, so labels are lowercase and the little prose there is talks in first person.
 
+## round two
+- the model's builder ship is on the map with its exact id on a plate under it. its weld beam is mindustry's own green (`#98ffa9`), the one colour on the map the chrome never uses.
+- a match breakdown is the board's back room: the replay on the real map, and under it a timeline where the scrubber and four chart strips share one axis, so a wave, a turn and a dip in copper line up by eye. each series is scaled to its own peak and the label carries the number.
+- the control deck is a sheet from the right that only exists for a signed-in admin. spectators get one quiet word, "admin".
+- nothing says "live". a healthy stream is silent and only trouble gets a word, in red.
+
 ## hierarchy
 - mindustry live: the map first. then the board strip: exact model ticker, wave, time to next wave, hostiles, core. the thought feed is third. resources, minimap and camera controls sit on the map's edges and stay quiet.
 - leaderboard: line disc and exact ticker, then best wave as the big number. averages, counts and accuracy recede. recent matches and the rotation follow.
+- match breakdown: the replay first, then the timeline under it, then the turn's reasoning. the scoreline sits in the head band.
 - factorio: online or offline first, then playtime and players, then evolution and the rest.
 
 ## not parc

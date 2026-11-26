@@ -6,12 +6,14 @@ import "@fontsource/barlow-condensed/latin-600.css";
 import "@fontsource/barlow-condensed/latin-700.css";
 import "./style.css";
 
+import { TextMorph } from "torph";
 import { loadAtlas, onAtlas } from "./atlas";
 import { Director } from "./director";
 import {
   actionTargets,
   addFeed,
   announce,
+  type FeedHooks,
   renderBoard,
   renderBrainStatus,
   renderFactorio,
@@ -22,11 +24,14 @@ import {
   setFeed,
   type Target,
 } from "./hud";
+import { attachCamera } from "./input";
+import { lineColor } from "./lines";
+import { MatchView } from "./match";
 import { Minimap } from "./minimap";
-import { type Pick, Renderer } from "./renderer";
+import { Renderer } from "./renderer";
 import { TerrainModel } from "./terrain";
 import type { Factorio, FeedItem, Leaderboard, Meta, ServerMessage, State, Terrain } from "./types";
-import { $, clock, setText } from "./util";
+import { $, clock, reducedMotion, setText } from "./util";
 import { World } from "./world";
 
 const world = new World();
@@ -42,7 +47,13 @@ let leaderboard: Leaderboard | null = null;
 let factorio: Factorio | null = null;
 let lastStateAt = 0;
 let socketUp = false;
+let everUp = false;
 let framed = false;
+
+const matchView = new MatchView(
+  () => world.terrain,
+  () => meta?.matchId ?? null,
+);
 
 const store = {
   get: (k: string, fallback: boolean) => {
@@ -62,38 +73,93 @@ const store = {
   },
 };
 
-// ---------- tabs ----------
+// ---------- the admin deck loads only for an admin ----------
 
-type Tab = "live" | "leaderboard" | "factorio";
+type Deck = import("./admin").AdminDeck;
+let deck: Deck | null = null;
+
+const boardHooks = () => ({
+  admin: !!deck?.on,
+  remove: (m: { id: number; model: string; map: string }) =>
+    void deck?.remove(m.id, `${m.model} on ${m.map}`),
+});
+const drawBoard = () => renderLeaderboard(leaderboard, meta, boardHooks());
+
+async function probeAdmin(): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/me", { redirect: "manual", credentials: "include" });
+    if (res.status !== 200) return;
+    const { AdminDeck } = await import("./admin");
+    deck = new AdminDeck(
+      () => {
+        void refreshLeaderboard();
+      },
+      () => meta?.matchId ?? null,
+    );
+    await deck.probe();
+    deck.setMeta(meta);
+    if (tab === "leaderboard") drawBoard();
+  } catch {
+    // stay a spectator
+  }
+}
+
+// ---------- views ----------
+
+type Tab = "live" | "leaderboard" | "factorio" | "match";
 const TABS: Tab[] = ["live", "leaderboard", "factorio"];
 let tab: Tab = "live";
 
-function showTab(next: Tab, push = true): void {
-  tab = next;
-  for (const t of TABS) {
-    $(`view-${t}`).hidden = t !== next;
-    $(`tab-${t}`).setAttribute("aria-selected", String(t === next));
+function route(): void {
+  const hash = location.hash.slice(1);
+  const m = hash.match(/^match\/(\d+)(?:\/(\d+))?$/);
+  if (m) {
+    show("match");
+    void matchView.show(Number(m[1]), m[2] ? Number(m[2]) : undefined);
+    return;
   }
-  if (push && location.hash !== `#${next}`) history.replaceState(null, "", `#${next}`);
+  show(TABS.includes(hash as Tab) ? (hash as Tab) : "live");
+}
+
+function show(next: Tab): void {
+  const was = tab;
+  tab = next;
+  for (const t of [...TABS, "match"] as Tab[]) $(`view-${t}`).hidden = t !== next;
+  // A match breakdown lives under the leaderboard, so that tab stays lit.
+  for (const t of TABS)
+    $(`tab-${t}`).setAttribute(
+      "aria-selected",
+      String(t === next || (next === "match" && t === "leaderboard")),
+    );
+  if (was === "match" && next !== "match") matchView.hide();
   if (next === "leaderboard") {
-    renderLeaderboard(leaderboard, meta);
+    drawBoard();
     void refreshLeaderboard();
   }
   if (next === "factorio") renderFactorio(factorio, Date.now());
   if (next === "live") view.resize();
 }
 
-for (const t of TABS) $(`tab-${t}`).addEventListener("click", () => showTab(t));
-window.addEventListener("hashchange", () => {
-  const want = location.hash.slice(1) as Tab;
-  if (TABS.includes(want) && want !== tab) showTab(want, false);
-});
+for (const t of TABS) {
+  $(`tab-${t}`).addEventListener("click", () => {
+    location.hash = t;
+  });
+}
+window.addEventListener("hashchange", route);
 $("tab-leaderboard").addEventListener("pointerenter", () => void refreshLeaderboard(), { passive: true });
+
+// A row in the match table is one big link to its breakdown.
+$("matches").addEventListener("click", (e) => {
+  const target = e.target as HTMLElement;
+  if (target.closest("button, a")) return;
+  const href = target.closest<HTMLElement>("tr[data-href]")?.dataset.href;
+  if (href) location.hash = href.slice(1);
+});
 
 async function refreshLeaderboard(): Promise<void> {
   try {
     leaderboard = (await (await fetch("/api/leaderboard")).json()) as Leaderboard;
-    if (tab === "leaderboard") renderLeaderboard(leaderboard, meta);
+    if (tab === "leaderboard") drawBoard();
   } catch {
     // the socket will bring the next one
   }
@@ -157,88 +223,22 @@ $("btnOut").addEventListener(
   manual(() => view.zoomAt(view.width / 2, view.height / 2, 1 / 1.45)),
 );
 
-const canvas = view.canvas;
-const pointers = new Map<number, { x: number; y: number }>();
-let dragged = 0;
-let pinch = 0;
-
-const local = (e: { clientX: number; clientY: number }) => {
-  const r = canvas.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-};
-
-canvas.addEventListener("pointerdown", (e) => {
-  canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, local(e));
-  dragged = 0;
-  pinch = 0;
-});
-
-canvas.addEventListener("pointermove", (e) => {
-  const p = local(e);
-  const prev = pointers.get(e.pointerId);
-  if (!prev) {
-    view.hover = view.pick(p.x, p.y);
-    return;
-  }
-  pointers.set(e.pointerId, p);
-  if (pointers.size === 1) {
-    dragged += Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y);
-    if (dragged > 4) {
-      canvas.classList.add("dragging");
-      director.touch(performance.now());
-      view.panBy(p.x - prev.x, p.y - prev.y);
-      view.hover = null;
-    }
-  } else if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    director.touch(performance.now());
-    if (pinch > 0) view.zoomAt(mid.x, mid.y, dist / pinch);
-    view.panBy((p.x - prev.x) / 2, (p.y - prev.y) / 2);
-    pinch = dist;
-    dragged = 99;
-  }
-});
-
-const release = (e: PointerEvent) => {
-  if (!pointers.delete(e.pointerId)) return;
-  canvas.classList.remove("dragging");
-  if (dragged <= 4 && e.type === "pointerup") {
-    const p = local(e);
-    const hit = view.pick(p.x, p.y);
-    view.selected = hit && hit.kind !== "tile" ? hit : samePick(hit, view.selected) ? null : hit;
-  }
-  pinch = 0;
-};
-canvas.addEventListener("pointerup", release);
-canvas.addEventListener("pointercancel", release);
-canvas.addEventListener("pointerleave", () => {
-  if (!pointers.size) view.hover = null;
-});
-
-function samePick(a: Pick | null, b: Pick | null): boolean {
-  return !!a && !!b && a.kind === "tile" && b.kind === "tile" && a.x === b.x && a.y === b.y;
-}
-
-canvas.addEventListener(
-  "wheel",
-  (e) => {
-    e.preventDefault();
-    director.touch(performance.now());
-    const p = local(e);
-    const step = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
-    view.zoomAt(p.x, p.y, Math.exp(-step * (e.ctrlKey ? 0.01 : 0.0016)));
-  },
-  { passive: false },
-);
+attachCamera(view, () => director.touch(performance.now()));
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  const el = e.target as HTMLElement;
+  if (el.closest("input, textarea, select, [role=dialog], [role=alertdialog], [role=listbox]")) return;
   const key = e.key.toLowerCase();
-  if (key >= "1" && key <= "3") return showTab(TABS[Number(key) - 1]);
+  if (key >= "1" && key <= "3") {
+    location.hash = TABS[Number(key) - 1];
+    return;
+  }
+  if (tab === "match") {
+    if (el.closest("button") && key === " ") return;
+    if (matchView.key(e)) e.preventDefault();
+    return;
+  }
   if (tab !== "live") return;
   const pan = 90;
   const moves: Record<string, () => void> = {
@@ -278,10 +278,22 @@ function jumpTo(targets: Target[]): void {
     $("stage").scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
+const feedHooks: FeedHooks = {
+  jump: jumpTo,
+  // The feed can hold the tail of the last match too, so a turn is matched to its match by time.
+  turnHref: (item) => {
+    const rows = leaderboard?.recentMatches || [];
+    const row = rows.find((m) => m.started_at <= item.ts && (!m.ended_at || item.ts <= m.ended_at + 3000));
+    const id = row?.id ?? (item.ts >= (rows[0]?.started_at ?? 0) ? meta?.matchId : null);
+    return id && item.seq ? `#match/${id}/${item.seq}` : null;
+  },
+};
+
 function onFeed(item: FeedItem): void {
-  if (!addFeed(item, jumpTo)) return;
+  if (!addFeed(item, feedHooks)) return;
   const now = performance.now();
   for (const a of item.actions || []) for (const t of actionTargets(a)) world.ping(t.x, t.y, t.ok, now);
+  if (item.seq) matchView.refresh();
 }
 
 // ---------- match events ----------
@@ -297,6 +309,7 @@ world.events.newMap = (state) => {
   director.reset();
   framed = false;
   announce(state.map, `${ticker()} drops in`, "plain");
+  void refreshLeaderboard();
 };
 
 // ---------- data in ----------
@@ -309,8 +322,16 @@ function onTerrain(t: Terrain | null): void {
   renderLegend(world, view.tactical);
 }
 
+function onMeta(m: Meta | null): void {
+  if (!m) return;
+  meta = m;
+  view.callsign = m.contender.id;
+  view.callsignColor = lineColor(m.contender.id);
+  deck?.setMeta(m);
+}
+
 function onState(state: State | null, m: Meta | null): void {
-  if (m) meta = m;
+  onMeta(m);
   if (!state?.ready) return;
   lastStateAt = performance.now();
   world.apply(state, lastStateAt);
@@ -320,20 +341,23 @@ function onState(state: State | null, m: Meta | null): void {
     frameBase(true);
     $("waiting").setAttribute("data-gone", "");
   }
-  renderBoard(state, meta);
-  renderStock(state);
+  if (tab === "live") {
+    renderBoard(state, meta);
+    renderStock(state);
+  }
 }
 
 function handle(msg: ServerMessage): void {
   switch (msg.type) {
     case "init":
       onTerrain(msg.terrain);
-      if (msg.feed) setFeed(msg.feed, jumpTo);
       if (msg.leaderboard) leaderboard = msg.leaderboard;
+      if (msg.feed) setFeed(msg.feed, feedHooks);
       if (msg.factorio) factorio = msg.factorio;
       onState(msg.state, msg.meta);
       renderBoard(world.state, meta);
-      if (tab === "leaderboard") renderLeaderboard(leaderboard, meta);
+      renderStock(world.state);
+      if (tab === "leaderboard") drawBoard();
       break;
     case "terrain":
       onTerrain(msg.terrain);
@@ -346,10 +370,16 @@ function handle(msg: ServerMessage): void {
       break;
     case "leaderboard":
       leaderboard = msg.leaderboard;
-      if (tab === "leaderboard") renderLeaderboard(leaderboard, meta);
+      if (tab === "leaderboard") drawBoard();
       break;
     case "factorio":
       factorio = msg.factorio;
+      break;
+    case "config":
+      onMeta(msg.meta);
+      if (msg.leaderboard) leaderboard = msg.leaderboard;
+      deck?.onConfig(msg.config);
+      if (tab === "leaderboard") drawBoard();
       break;
   }
 }
@@ -359,11 +389,14 @@ function connect(): void {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`);
   ws.onopen = () => {
     socketUp = true;
+    everUp = true;
     retry = 0;
   };
   ws.onmessage = (ev) => {
+    const t = performance.now();
     try {
       handle(JSON.parse(ev.data) as ServerMessage);
+      spent("data", t);
     } catch (err) {
       console.error("bad arena message", err);
     }
@@ -377,59 +410,118 @@ function connect(): void {
 }
 
 // ---------- the loop ----------
+// One requestAnimationFrame loop draws whichever map is on screen. DOM updates ride a slow
+// 4hz tick (or arrive with data at 3hz), so the canvas never waits on layout.
 
+const caption = $("directorLabel");
+const captionText = caption.appendChild(document.createElement("span"));
+const morph = reducedMotion()
+  ? null
+  : new TextMorph({ element: captionText, duration: 320, ease: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+let captionNow = "";
 let slowAt = 0;
+let inspectAt = 0;
+
+// Worst time spent in each part of the page since the last arena.perf() call, in ms.
+const worst = { sim: 0, draw: 0, minimap: 0, dom: 0, data: 0 };
+const spent = (key: keyof typeof worst, since: number) => {
+  const ms = performance.now() - since;
+  if (ms > worst[key]) worst[key] = ms;
+};
 
 function loop(now: number): void {
-  if (tab === "live" && !document.hidden) {
-    world.terrain?.stepLow(4);
-    world.tick(now);
-    director.update(now);
-    view.frame(now);
-    minimap.draw(now);
-    renderInspector(world, view.hover || view.selected);
+  if (!document.hidden) {
+    if (tab === "live") {
+      let t = performance.now();
+      world.terrain?.stepLow(4);
+      world.tick(now);
+      director.update(now);
+      spent("sim", t);
+      t = performance.now();
+      view.frame(now);
+      spent("draw", t);
+      t = performance.now();
+      minimap.draw(now);
+      spent("minimap", t);
+      if (now - inspectAt > 100) {
+        inspectAt = now;
+        t = performance.now();
+        renderInspector(world, view.hover || view.selected);
+        spent("dom", t);
+      }
+    } else if (tab === "match") {
+      const t = performance.now();
+      matchView.frame(now);
+      spent("draw", t);
+    }
   }
   if (now - slowAt > 250) {
     slowAt = now;
-    setText($("clock"), clock(Date.now()));
-    const lamp = $("link");
-    const age = lastStateAt ? (now - lastStateAt) / 1000 : 0;
-    const state = !socketUp ? "down" : !lastStateAt ? "wait" : age > 3 ? "stale" : "live";
-    lamp.dataset.state = state;
-    setText(
-      lamp,
-      state === "live"
-        ? "live"
-        : state === "stale"
-          ? `no data for ${Math.round(age)}s`
-          : state === "down"
-            ? "reconnecting"
-            : "connecting",
-    );
-    renderBrainStatus(world.state, meta, now);
-    const label = $("directorLabel");
-    if (director.label)
-      label.replaceChildren(
-        Object.assign(document.createElement("b"), { textContent: "director " }),
-        director.label,
-      );
-    else label.replaceChildren();
-    if (tab === "factorio") renderFactorio(factorio, Date.now());
-    if (tab === "live" && world.state) renderBoard(world.state, meta);
+    const t = performance.now();
+    slowTick(now);
+    spent("dom", t);
   }
   requestAnimationFrame(loop);
 }
 
-// A handle for poking at the live match from the console.
-Object.assign(window, { arena: { world, view, director } });
+function slowTick(now: number): void {
+  setText($("clock"), clock(Date.now()));
+  // Nothing is said while the stream is healthy. Only trouble gets a word.
+  const age = lastStateAt ? (now - lastStateAt) / 1000 : 0;
+  const trouble =
+    !socketUp && everUp
+      ? "reconnecting"
+      : socketUp && lastStateAt && age > 4
+        ? `no data for ${Math.round(age)}s`
+        : "";
+  const el = $("trouble");
+  el.hidden = !trouble;
+  setText(el, trouble);
+
+  if (tab === "live") {
+    renderBrainStatus(world.state, meta, now);
+    // The countdown that "yours for 0:39" runs is plain text. Shot names morph.
+    const label = director.label;
+    if (label !== captionNow) {
+      captionNow = label;
+      caption.hidden = !label;
+      if (morph && !/^yours for/.test(label)) morph.update(label);
+      else captionText.textContent = label;
+    }
+  } else if (tab === "factorio") renderFactorio(factorio, Date.now());
+  else if (tab === "match") matchView.tick();
+}
+
+// A handle for poking at the live match from the console. arena.perf() reports frame times.
+const perf = () => {
+  const out = {
+    ...view.perf(),
+    worst: {
+      ...Object.fromEntries(Object.entries(worst).map(([k, v]) => [k, +v.toFixed(1)])),
+      terrain: +view.terrainWorst.toFixed(1),
+      bake: +(world.terrain?.bakeWorst ?? 0).toFixed(1),
+    },
+  };
+  for (const k of Object.keys(worst) as Array<keyof typeof worst>) worst[k] = 0;
+  view.terrainWorst = 0;
+  if (world.terrain) world.terrain.bakeWorst = 0;
+  return out;
+};
+Object.assign(window, { arena: { world, view, director, perf } });
+
+// ?perf=<url> posts frame-time stats there every few seconds, for measuring a browser from outside it.
+const perfSink = new URLSearchParams(location.search).get("perf");
+if (perfSink) {
+  setInterval(() => {
+    navigator.sendBeacon(perfSink, JSON.stringify({ ua: navigator.userAgent, tab, ...perf() }));
+  }, 4000);
+}
 
 setDirector(store.get("director", true));
 setTactical(store.get("tactical", false));
-const startTab = location.hash.slice(1) as Tab;
-showTab(TABS.includes(startTab) ? startTab : "live", false);
-onAtlas(() => {
-  renderStock(world.state);
-});
+route();
+onAtlas(() => renderStock(world.state));
 void loadAtlas();
 connect();
+void probeAdmin();
 requestAnimationFrame(loop);

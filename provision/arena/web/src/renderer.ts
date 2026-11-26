@@ -1,4 +1,4 @@
-import { atlasReady, has, sprite, tinted } from "./atlas";
+import { atlasReady, glow, has, setBase, sprite, tinted } from "./atlas";
 import { ORE_COLORS } from "./terrain";
 import { clamp, reducedMotion } from "./util";
 import { type BView, HOME, teamColor, type UView, type World } from "./world";
@@ -39,10 +39,23 @@ export class Renderer {
   tactical = false;
   hover: Pick | null = null;
   selected: Pick | null = null;
+  /** The exact model id, shown as the builder ship's callsign, and its line colour. */
+  callsign = "";
+  callsignColor = "#ffd37f";
+  /** Frame times in ms, newest last, for the perf readout on window.arena. */
+  readonly frames = new Float32Array(240);
+  frameCount = 0;
+  /** Longest terrain pass since it was last read, in ms. */
+  terrainWorst = 0;
   private vw = 1;
   private vh = 1;
   private dpr = 1;
   private last = 0;
+  /** Render scale under the display's pixel ratio. Drops a step if frames run long. */
+  private quality = 1;
+  private slow = 0;
+  private vis: BView[] = [];
+  private tag: { key: string; canvas: HTMLCanvasElement } | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -63,7 +76,7 @@ export class Renderer {
 
   resize(): void {
     const rect = this.canvas.parentElement!.getBoundingClientRect();
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2) * this.quality;
     this.vw = Math.max(1, rect.width);
     this.vh = Math.max(1, rect.height);
     const w = Math.round(this.vw * this.dpr);
@@ -160,8 +173,10 @@ export class Renderer {
   }
 
   frame(now: number): void {
-    const dt = Math.min(0.1, (now - (this.last || now)) / 1000);
+    const raw = now - (this.last || now);
+    const dt = Math.min(0.1, raw / 1000);
     this.last = now;
+    this.measure(raw);
     const k = reducedMotion() ? 1 : 1 - Math.exp(-dt / this.ease);
     this.cam.x += (this.goal.x - this.cam.x) * k;
     this.cam.y += (this.goal.y - this.cam.y) * k;
@@ -181,13 +196,20 @@ export class Renderer {
     const s = this.cam.z * this.dpr;
     const ox = W / 2 - this.cam.x * s;
     const oy = H / 2 - this.cam.y * s;
+    const t0 = performance.now();
     terrain.draw(ctx, ox, oy, s, W, H);
+    this.terrainWorst = Math.max(this.terrainWorst, performance.now() - t0);
 
     // Between matches the new state can arrive a beat before its terrain. Draw nothing on the wrong map.
     if (world.state && world.state.map !== terrain.map) return;
 
     // From here on: tile units, y down, origin at the map's north-west corner.
-    ctx.setTransform(s, 0, 0, s, ox, oy);
+    setBase(ctx, s, ox, oy);
+    // Chunks for where the camera is going get baked on the way there.
+    if (this.goal.z !== this.cam.z || this.goal.x !== this.cam.x || this.goal.y !== this.cam.y) {
+      const gs = this.goal.z * this.dpr;
+      terrain.warm(W / 2 - this.goal.x * gs, H / 2 - this.goal.y * gs, gs, W, H);
+    }
     const mh = world.h;
     const Y = (wy: number) => mh - wy;
     const px = 1 / s;
@@ -216,7 +238,9 @@ export class Renderer {
     if (this.tactical) this.drawTacticalGround(now, px);
     this.drawSpawns(now, px, seen);
 
-    const all = [...world.buildings.values()].filter((v) => seen(v.cx, Y(v.cy), v.b.size));
+    const all = this.vis;
+    all.length = 0;
+    for (const v of world.buildings.values()) if (seen(v.cx, Y(v.cy), v.b.size)) all.push(v);
     const sel = this.selected?.kind === "building" ? this.selected.key : null;
     const hov = this.hover?.kind === "building" ? this.hover.key : null;
 
@@ -314,6 +338,7 @@ export class Renderer {
     this.drawFx(now, px, Y, seen);
     this.drawUnits(now, px, Y, seen, true);
     this.drawMarks(now, px, Y);
+    this.drawCallsign();
   }
 
   private flat(v: BView, Y: (wy: number) => number): void {
@@ -491,6 +516,8 @@ export class Renderer {
       if (!seen(x, y, 3)) continue;
       const home = v.u.team === HOME;
       const col = teamColor(v.u.team);
+      const drone = v.u.id === world.droneId;
+      if (drone) this.drawBeam(v, now, px, Y);
 
       if (v.trail.length > 1 && this.cam.z >= 6) {
         ctx.lineCap = "round";
@@ -542,6 +569,24 @@ export class Renderer {
           sprite(ctx, `${v.u.type}-leg`, x - fx * stride, y - fy * stride, v.rot + 90);
           sprite(ctx, `${v.u.type}-base`, x, y, v.rot - 90);
         }
+        if (drone) {
+          // Engine glow behind the ship, brighter the faster it is travelling.
+          const a = (v.rot * Math.PI) / 180;
+          const speed = Math.min(1, Math.hypot(v.u.x - v.x0, v.u.y - v.y0) / 1.2);
+          const flick = reducedMotion() ? 1 : 0.85 + 0.15 * Math.sin(now / 45);
+          const r = (0.42 + speed * 0.5) * flick;
+          ctx.globalCompositeOperation = "lighter";
+          ctx.globalAlpha = 0.55 + speed * 0.4;
+          ctx.drawImage(
+            glow("#ffc56e"),
+            x - Math.cos(a) * 0.55 - r,
+            y + Math.sin(a) * 0.55 - r,
+            r * 2,
+            r * 2,
+          );
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = "source-over";
+        }
         sprite(ctx, v.u.type, x, y, v.rot - 90);
         const hit = now - v.hitAt;
         if (hit < 160) {
@@ -557,6 +602,111 @@ export class Renderer {
         this.bar(x, y - 0.95, 1.3, v.u.hp / v.u.maxHp, home, px);
       }
     }
+  }
+
+  /** The builder ship's weld beam: Mindustry's fan of light from the ship to the block it is placing. */
+  private drawBeam(v: UView, now: number, px: number, Y: (wy: number) => number): void {
+    const b = this.world.build;
+    if (!b || this.cam.z < 5) return;
+    const { ctx } = this;
+    const x = v.x;
+    const y = Y(v.y);
+    const tx = b.cx;
+    const ty = Y(b.cy);
+    const len = Math.hypot(tx - x, ty - y);
+    if (len < 0.01 || len > 60) return;
+    // The fan opens to the block's width, square to the line of sight.
+    const nx = (-(ty - y) / len) * b.size * 0.5;
+    const ny = ((tx - x) / len) * b.size * 0.5;
+    const pulse = reducedMotion() ? 0.8 : 0.7 + 0.3 * Math.sin(now / 90);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "#98ffa9";
+    ctx.globalAlpha = 0.16 * pulse;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(tx + nx, ty + ny);
+    ctx.lineTo(tx - nx, ty - ny);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.75 * pulse;
+    ctx.strokeStyle = "#98ffa9";
+    ctx.lineWidth = Math.max(px, 0.06);
+    ctx.beginPath();
+    ctx.moveTo(tx + nx, ty + ny);
+    ctx.lineTo(x, y);
+    ctx.lineTo(tx - nx, ty - ny);
+    ctx.stroke();
+    const half = b.size / 2 + 0.06;
+    ctx.globalAlpha = 0.22 * pulse;
+    ctx.fillRect(tx - half, ty - half, half * 2, half * 2);
+    ctx.globalAlpha = pulse;
+    ctx.lineWidth = Math.max(px * 1.5, 0.08);
+    ctx.strokeRect(tx - half, ty - half, half * 2, half * 2);
+    const r = 0.7 * pulse;
+    ctx.globalAlpha = 0.6;
+    ctx.drawImage(glow("#98ffa9"), tx - r, ty - r, r * 2, r * 2);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /** The callsign plate under the builder ship: line colour bar and the exact model id. */
+  private drawCallsign(): void {
+    const v = this.world.units.get(this.world.droneId);
+    if (!v || !this.callsign || this.cam.z < 9) return;
+    const key = `${this.callsign}|${this.callsignColor}|${this.dpr}`;
+    if (this.tag?.key !== key) {
+      const k = this.dpr;
+      const c = document.createElement("canvas");
+      const x = c.getContext("2d")!;
+      const font = `700 ${11 * k}px "Commit Mono", ui-monospace, monospace`;
+      x.font = font;
+      const w = Math.ceil(x.measureText(this.callsign).width + 15 * k);
+      c.width = w;
+      c.height = Math.ceil(17 * k);
+      x.fillStyle = "rgba(13,12,10,0.92)";
+      x.fillRect(0, 0, c.width, c.height);
+      x.fillStyle = this.callsignColor;
+      x.fillRect(0, 0, 3 * k, c.height);
+      x.font = font;
+      x.textBaseline = "middle";
+      x.fillStyle = "#efe9dc";
+      x.fillText(this.callsign, 9 * k, c.height / 2 + 0.5 * k);
+      this.tag = { key, canvas: c };
+    }
+    const { ctx } = this;
+    const s = this.cam.z * this.dpr;
+    const sx = this.canvas.width / 2 + (v.x - this.cam.x) * s;
+    const sy = this.canvas.height / 2 + (this.world.h - v.y - this.cam.y) * s;
+    const tag = this.tag.canvas;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(tag, Math.round(sx - tag.width / 2), Math.round(sy + Math.max(0.9 * s, 16 * this.dpr)));
+  }
+
+  /** Keep the last few seconds of frame times, and trade resolution for smoothness if they run long. */
+  private measure(ms: number): void {
+    if (ms <= 0 || ms > 250) return;
+    this.frames[this.frameCount++ % this.frames.length] = ms;
+    this.slow = this.slow * 0.97 + (ms > 22 ? 1 : 0) * 0.03;
+    if (this.slow > 0.45 && this.quality > 0.5 && this.frameCount > 180) {
+      this.quality -= 0.25;
+      this.slow = 0;
+      this.frameCount = 0;
+      this.resize();
+    }
+  }
+
+  /** p50, p95 and worst frame time over the last few seconds. */
+  perf(): { p50: number; p95: number; max: number; long: number; quality: number } {
+    const n = Math.min(this.frameCount, this.frames.length);
+    const sorted = Array.from(this.frames.subarray(0, n)).sort((a, b) => a - b);
+    const at = (q: number) => +(sorted[Math.min(n - 1, Math.floor(n * q))] || 0).toFixed(1);
+    return {
+      p50: at(0.5),
+      p95: at(0.95),
+      max: at(1),
+      long: sorted.filter((v) => v > 25).length,
+      quality: this.quality,
+    };
   }
 
   private bar(cx: number, y: number, w: number, frac: number, home: boolean, px: number): void {
@@ -614,14 +764,8 @@ export class Renderer {
         const y = Y(f.y);
         if (!seen(f.x, y, 3)) continue;
         const r = f.size * (0.5 + t * 0.6);
-        const g = ctx.createRadialGradient(f.x, y, 0, f.x, y, r);
-        g.addColorStop(0, f.color);
-        g.addColorStop(1, "rgba(255,180,90,0)");
         ctx.globalAlpha = 1 - t;
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(f.x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.drawImage(glow(f.color), f.x - r, y - r, r * 2, r * 2);
       } else if (f.t === "ring") {
         const y = Y(f.y);
         if (!seen(f.x, y, 6)) continue;
@@ -649,17 +793,20 @@ export class Renderer {
         const home = f.team === HOME;
         ctx.globalAlpha = f.speed ? 1 : 1 - t;
         if (f.speed) {
-          const tx = f.x + f.dx * tail;
-          const ty = Y(f.y + f.dy * tail);
-          const g = ctx.createLinearGradient(tx, ty, hx, hy);
-          g.addColorStop(0, "rgba(255,160,70,0)");
-          g.addColorStop(1, home ? "#ffe2a0" : "#ff7a66");
-          ctx.strokeStyle = g;
-          ctx.lineWidth = Math.max(px * 1.5, f.big ? 0.24 : 0.15);
-          ctx.beginPath();
-          ctx.moveTo(tx, ty);
-          ctx.lineTo(hx, hy);
-          ctx.stroke();
+          // The tail is three strokes of falling brightness: the look of a gradient without building one.
+          const ex = Y(f.y + f.dy * tail) - hy;
+          const dx = f.x + f.dx * tail - hx;
+          ctx.strokeStyle = home ? "#ffe2a0" : "#ff7a66";
+          const wide = Math.max(px * 1.5, f.big ? 0.24 : 0.15);
+          for (let k = 0; k < 3; k++) {
+            ctx.globalAlpha = 1 - k * 0.36;
+            ctx.lineWidth = wide * (1 - k * 0.22);
+            ctx.beginPath();
+            ctx.moveTo(hx + (dx * k) / 3, hy + (ex * k) / 3);
+            ctx.lineTo(hx + (dx * (k + 1)) / 3, hy + (ex * (k + 1)) / 3);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
         }
         ctx.fillStyle = home ? "#fff6dc" : "#ffd0c4";
         ctx.beginPath();

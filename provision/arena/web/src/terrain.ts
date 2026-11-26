@@ -18,9 +18,10 @@ type TileInfo = { wall: boolean; sprites: string[]; large: string | null };
 type Level = { tpc: number; ppt: number };
 type Chunk = { canvas: HTMLCanvasElement; used: number };
 
-const MID: Level = { tpc: 32, ppt: 16 };
-const HI: Level = { tpc: 16, ppt: 32 };
-const MAX_CHUNKS = 140;
+// Chunks are 256px squares. Small ones bake in about a millisecond, so one never costs a frame.
+const MID: Level = { tpc: 16, ppt: 16 };
+const HI: Level = { tpc: 8, ppt: 32 };
+const MAX_CHUNKS = 420;
 const DARK_ALPHA = [0, 0, 0, 0.3, 0.56, 0.78, 0.92, 1];
 
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
@@ -68,8 +69,12 @@ export class TerrainModel {
   private readonly wall: Uint8Array;
   private infos: TileInfo[] = [];
   private readonly names: string[];
-  private readonly chunks = new Map<string, Chunk>();
+  private readonly chunks = new Map<number, Chunk>();
   private lowRow = 0;
+  private lowDark = false;
+  private bakeUntil = 0;
+  /** Longest single chunk bake since it was last read, in ms. */
+  bakeWorst = 0;
   private spritesBound = false;
   private frame = 0;
 
@@ -259,6 +264,10 @@ export class TerrainModel {
       for (let x = 0; x < this.w; x++) this.drawTile(ctx, x, y, x * p, this.lowRow * p, p);
       this.lowRow++;
     }
+    if (this.lowRow >= this.h) {
+      ctx.drawImage(this.dark, 0, 0, this.low.width, this.low.height);
+      this.lowDark = true;
+    }
     return this.lowRow >= this.h;
   }
 
@@ -308,6 +317,7 @@ export class TerrainModel {
     }
     // Contact shadow where open floor meets rock, so walls read as raised.
     const band = Math.round(ppt * 0.34);
+    const [top, bottom, left, right] = this.shadeStrips(ppt, band);
     for (let ly = 0; ly < tpc; ly++) {
       const y = this.h - 1 - (my0 + ly);
       if (y < 0 || y >= this.h) continue;
@@ -316,34 +326,76 @@ export class TerrainModel {
         if (x >= this.w || this.wall[y * this.w + x]) continue;
         const px = lx * ppt;
         const py = ly * ppt;
-        if (this.isWall(x, y + 1)) this.shade(ctx, px, py, ppt, band, 0, 1);
-        if (this.isWall(x, y - 1)) this.shade(ctx, px, py + ppt - band, ppt, band, 0, -1);
-        if (this.isWall(x - 1, y)) this.shade(ctx, px, py, band, ppt, 1, 0);
-        if (this.isWall(x + 1, y)) this.shade(ctx, px + ppt - band, py, band, ppt, -1, 0);
+        if (this.isWall(x, y + 1)) ctx.drawImage(top, px, py);
+        if (this.isWall(x, y - 1)) ctx.drawImage(bottom, px, py + ppt - band);
+        if (this.isWall(x - 1, y)) ctx.drawImage(left, px, py);
+        if (this.isWall(x + 1, y)) ctx.drawImage(right, px + ppt - band, py);
       }
     }
+    this.stampDark(ctx, mx0, my0, tpc, ppt);
     return c;
   }
 
-  private shade(
+  private strips = new Map<number, HTMLCanvasElement[]>();
+
+  /** Four pre-drawn shadow strips (top, bottom, left, right) for one tile size. */
+  private shadeStrips(ppt: number, band: number): HTMLCanvasElement[] {
+    let set = this.strips.get(ppt);
+    if (set) return set;
+    set = [0, 1, 2, 3].map((side) => {
+      const flat = side < 2;
+      const c = makeCanvas(flat ? ppt : band, flat ? band : ppt);
+      const x = c.getContext("2d")!;
+      const g = flat ? x.createLinearGradient(0, 0, 0, band) : x.createLinearGradient(0, 0, band, 0);
+      const from = side === 0 || side === 2 ? 0 : 1;
+      g.addColorStop(from, "rgba(0,0,0,0.42)");
+      g.addColorStop(1 - from, "rgba(0,0,0,0)");
+      x.fillStyle = g;
+      x.fillRect(0, 0, c.width, c.height);
+      return c;
+    });
+    this.strips.set(ppt, set);
+    return set;
+  }
+
+  /** Stamp the smooth darkness into a baked picture, sampled a tile wide of the edge so chunks meet without seams. */
+  private stampDark(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    gx: number,
-    gy: number,
+    mx0: number,
+    my0: number,
+    tiles: number,
+    ppt: number,
   ): void {
-    const g = ctx.createLinearGradient(
-      gx < 0 ? x + w : x,
-      gy < 0 ? y + h : y,
-      gx > 0 ? x + w : gx < 0 ? x : x,
-      gy > 0 ? y + h : gy < 0 ? y : y,
+    const sx0 = Math.max(0, mx0 - 1);
+    const sy0 = Math.max(0, my0 - 1);
+    const sx1 = Math.min(this.w, mx0 + tiles + 1);
+    const sy1 = Math.min(this.h, my0 + tiles + 1);
+    if (sx1 <= sx0 || sy1 <= sy0) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(
+      this.dark,
+      sx0,
+      sy0,
+      sx1 - sx0,
+      sy1 - sy0,
+      (sx0 - mx0) * ppt,
+      (sy0 - my0) * ppt,
+      (sx1 - sx0) * ppt,
+      (sy1 - sy0) * ppt,
     );
-    g.addColorStop(0, "rgba(0,0,0,0.42)");
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(x, y, w, h);
+  }
+
+  private chunkAt(level: Level, cx: number, cy: number, mayBake: boolean): Chunk | undefined {
+    const key = level.ppt * 1048576 + cy * 1024 + cx;
+    let chunk = this.chunks.get(key);
+    if (!chunk && mayBake && performance.now() < this.bakeUntil) {
+      const t = performance.now();
+      chunk = { canvas: this.bakeChunk(level, cx, cy), used: this.frame };
+      this.bakeWorst = Math.max(this.bakeWorst, performance.now() - t);
+      this.chunks.set(key, chunk);
+    }
+    if (chunk) chunk.used = this.frame;
+    return chunk;
   }
 
   /**
@@ -352,87 +404,96 @@ export class TerrainModel {
    */
   draw(ctx: CanvasRenderingContext2D, ox: number, oy: number, s: number, vw: number, vh: number): void {
     this.frame++;
+    // Baking gets a few milliseconds a frame, so a camera move never costs a long frame.
+    this.bakeUntil = performance.now() + 2.5;
     const x0 = Math.max(0, Math.floor(-ox / s));
     const y0 = Math.max(0, Math.floor(-oy / s));
     const x1 = Math.min(this.w, Math.ceil((vw - ox) / s));
     const y1 = Math.min(this.h, Math.ceil((vh - oy) / s));
     if (x1 <= x0 || y1 <= y0) return;
-    const whole = (img: HTMLCanvasElement, ppt: number) => {
-      ctx.drawImage(
-        img,
-        x0 * ppt,
-        y0 * ppt,
-        (x1 - x0) * ppt,
-        (y1 - y0) * ppt,
-        Math.round(ox + x0 * s),
-        Math.round(oy + y0 * s),
-        Math.round((x1 - x0) * s),
-        Math.round((y1 - y0) * s),
-      );
-    };
 
     const detailed = atlasReady() && this.names.length > 0;
     if (detailed && !this.spritesBound) this.bindSprites();
 
     if (!detailed || s <= this.lowPpt * 1.6) {
-      ctx.imageSmoothingEnabled = false;
-      whole(this.base, 1);
-      ctx.imageSmoothingEnabled = s < this.lowPpt;
-      whole(this.low, this.lowPpt);
-    } else {
-      const level = s <= 20 ? MID : HI;
-      const { tpc, ppt } = level;
-      let budget = 3;
-      for (let cy = Math.floor(y0 / tpc); cy * tpc < y1; cy++) {
-        for (let cx = Math.floor(x0 / tpc); cx * tpc < x1; cx++) {
-          const key = `${ppt}:${cx}:${cy}`;
-          let chunk = this.chunks.get(key);
-          if (!chunk && budget > 0) {
-            budget--;
-            chunk = { canvas: this.bakeChunk(level, cx, cy), used: this.frame };
-            this.chunks.set(key, chunk);
-          }
-          const dx0 = Math.round(ox + cx * tpc * s);
-          const dy0 = Math.round(oy + cy * tpc * s);
-          const dx1 = Math.round(ox + (cx + 1) * tpc * s);
-          const dy1 = Math.round(oy + (cy + 1) * tpc * s);
-          if (chunk) {
-            chunk.used = this.frame;
-            ctx.imageSmoothingEnabled = s < ppt;
-            ctx.drawImage(chunk.canvas, dx0, dy0, dx1 - dx0, dy1 - dy0);
-          } else {
-            // Not baked yet this frame: stand in with the low-detail picture.
-            const sx = cx * tpc;
-            const sy = cy * tpc;
-            const sw = Math.min(tpc, this.w - sx);
-            const sh = Math.min(tpc, this.h - sy);
-            if (sw <= 0 || sh <= 0) continue;
-            ctx.imageSmoothingEnabled = false;
-            const src = this.lowReady ? this.low : this.base;
-            const p = this.lowReady ? this.lowPpt : 1;
-            ctx.drawImage(src, sx * p, sy * p, sw * p, sh * p, dx0, dy0, sw * s, sh * s);
-          }
-        }
+      const dx = Math.round(ox + x0 * s);
+      const dy = Math.round(oy + y0 * s);
+      const dw = Math.round((x1 - x0) * s);
+      const dh = Math.round((y1 - y0) * s);
+      if (this.lowDark) {
+        ctx.imageSmoothingEnabled = s < this.lowPpt;
+        const p = this.lowPpt;
+        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, dx, dy, dw, dh);
+      } else {
+        // Still baking: flat colour underneath, finished rows on top, darkness live.
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(this.base, x0, y0, x1 - x0, y1 - y0, dx, dy, dw, dh);
+        const p = this.lowPpt;
+        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, dx, dy, dw, dh);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(this.dark, x0, y0, x1 - x0, y1 - y0, dx, dy, dw, dh);
       }
-      if (this.chunks.size > MAX_CHUNKS) this.evict();
+      return;
     }
 
-    ctx.imageSmoothingEnabled = true;
-    const px0 = Math.max(0, x0 - 1);
-    const py0 = Math.max(0, y0 - 1);
-    const px1 = Math.min(this.w, x1 + 1);
-    const py1 = Math.min(this.h, y1 + 1);
-    ctx.drawImage(
-      this.dark,
-      px0,
-      py0,
-      px1 - px0,
-      py1 - py0,
-      ox + px0 * s,
-      oy + py0 * s,
-      (px1 - px0) * s,
-      (py1 - py0) * s,
-    );
+    const level = s <= 20 ? MID : HI;
+    const { tpc, ppt } = level;
+    ctx.imageSmoothingEnabled = s < ppt;
+    const cx0 = Math.floor(x0 / tpc);
+    const cy0 = Math.floor(y0 / tpc);
+    for (let cy = cy0; cy * tpc < y1; cy++) {
+      for (let cx = cx0; cx * tpc < x1; cx++) {
+        const chunk = this.chunkAt(level, cx, cy, true);
+        const dx0 = Math.round(ox + cx * tpc * s);
+        const dy0 = Math.round(oy + cy * tpc * s);
+        const dx1 = Math.round(ox + (cx + 1) * tpc * s);
+        const dy1 = Math.round(oy + (cy + 1) * tpc * s);
+        if (chunk) {
+          ctx.drawImage(chunk.canvas, dx0, dy0, dx1 - dx0, dy1 - dy0);
+        } else {
+          // Not baked yet: stand in with the low-detail picture for a frame or two.
+          const sx = cx * tpc;
+          const sy = cy * tpc;
+          const sw = Math.min(tpc, this.w - sx);
+          const sh = Math.min(tpc, this.h - sy);
+          if (sw <= 0 || sh <= 0) continue;
+          const src = this.lowDark ? this.low : this.base;
+          const p = this.lowDark ? this.lowPpt : 1;
+          ctx.drawImage(
+            src,
+            sx * p,
+            sy * p,
+            sw * p,
+            sh * p,
+            dx0,
+            dy0,
+            Math.round(sw * s),
+            Math.round(sh * s),
+          );
+        }
+      }
+    }
+    // A spare bake goes to the ring just outside the view, so panning finds its chunks ready.
+    this.warm(ox, oy, s, vw, vh, 1);
+    if (this.chunks.size > MAX_CHUNKS) this.evict();
+  }
+
+  /** Bake one missing chunk for a view the camera is heading to, if this frame has a bake to spare. */
+  warm(ox: number, oy: number, s: number, vw: number, vh: number, margin = 0): void {
+    if (performance.now() >= this.bakeUntil || !this.spritesBound || s <= this.lowPpt * 1.6) return;
+    const level = s <= 20 ? MID : HI;
+    const { tpc } = level;
+    const cx0 = Math.max(0, Math.floor(-ox / s / tpc) - margin);
+    const cy0 = Math.max(0, Math.floor(-oy / s / tpc) - margin);
+    const cx1 = Math.min(Math.ceil(this.w / tpc) - 1, Math.floor((vw - ox) / s / tpc) + margin);
+    const cy1 = Math.min(Math.ceil(this.h / tpc) - 1, Math.floor((vh - oy) / s / tpc) + margin);
+    for (let cy = cy0; cy <= cy1; cy++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        if (this.chunks.has(level.ppt * 1048576 + cy * 1024 + cx)) continue;
+        this.chunkAt(level, cx, cy, true);
+        return;
+      }
+    }
   }
 
   private evict(): void {
