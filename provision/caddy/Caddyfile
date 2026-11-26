@@ -120,8 +120,8 @@ kuma-api.tetraslam.world {
 arena.tetraslam.world {
 	import security
 
-	# Control & RCON mutation endpoints stay behind Authelia; spectator UI & WS are public.
-	@admin path /api/control /api/factorio/rcon
+	# Control, admin CRUD & RCON mutation endpoints stay behind Authelia; spectator UI & WS are public.
+	@admin path /api/admin/* /api/control /api/factorio/rcon
 	handle @admin {
 		forward_auth 127.0.0.1:9091 {
 			uri /api/authz/forward-auth

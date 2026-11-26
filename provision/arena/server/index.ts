@@ -10,7 +10,9 @@ const OPENCODE_URL = (process.env.OPENCODE_URL || "http://127.0.0.1:4096").repla
 const DATA_DIR = process.env.ARENA_DATA_DIR || "/opt/tetrapod/arena";
 const WEB_DIR = process.env.ARENA_WEB_DIR || join(import.meta.dir, "../web");
 const SPRITES_DIR = process.env.ARENA_SPRITES_DIR || join(DATA_DIR, "sprites");
-const TURN_INTERVAL_MS = Number(process.env.ARENA_TURN_MS || "13000");
+const DEFAULT_TURN_MS = Number(process.env.ARENA_TURN_MS || "13000");
+
+type RunnerMode = "paused" | "single" | "pinned" | "rotation";
 
 type Contender = {
   id: string;
@@ -21,7 +23,6 @@ type Contender = {
 };
 
 // Strictly subscription-backed models (ChatGPT OAuth + personal Claude Agent).
-// Never spends metered OpenRouter credits.
 const CANDIDATE_ROSTER: Contender[] = [
   { id: "openai/gpt-6.2-astra", provider: "openai", ticker: "gpt-6.2-astra", label: "openai/gpt-6.2-astra", color: "#38bdf8" },
   { id: "openai/gpt-6.1-terra", provider: "openai", ticker: "gpt-6.1-terra", label: "openai/gpt-6.1-terra", color: "#34d399" },
@@ -33,8 +34,6 @@ const CANDIDATE_ROSTER: Contender[] = [
   { id: "claude-agent/haiku", provider: "claude-agent", ticker: "claude-haiku-5.5", label: "claude-agent/haiku", color: "#fbbf24" },
 ];
 
-let ROSTER: Contender[] = CANDIDATE_ROSTER.filter((c) => c.provider === "openai");
-
 const MAP_ROTATION = [
   "Ancient Caldera",
   "Fortress",
@@ -44,6 +43,10 @@ const MAP_ROTATION = [
   "Triad",
   "Islands",
   "Mud Flats",
+  "Shattered",
+  "Wasteland",
+  "Fork",
+  "Tendrils",
 ];
 
 await mkdir(DATA_DIR, { recursive: true });
@@ -73,7 +76,117 @@ db.exec(`
     text TEXT NOT NULL,
     actions_json TEXT
   );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS match_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    map TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS map_terrains (
+    map TEXT PRIMARY KEY,
+    terrain_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS match_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    wave INTEGER NOT NULL,
+    enemies INTEGER NOT NULL,
+    core_hp INTEGER NOT NULL,
+    core_max_hp INTEGER NOT NULL,
+    items_json TEXT NOT NULL,
+    power_json TEXT NOT NULL,
+    buildings_json TEXT NOT NULL,
+    units_json TEXT NOT NULL,
+    player_drone_json TEXT,
+    thought TEXT,
+    actions_json TEXT,
+    prompt_chars INTEGER DEFAULT 0,
+    output_chars INTEGER DEFAULT 0,
+    latency_ms INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_snapshots_match_seq ON match_snapshots(match_id, seq);
 `);
+
+// Safe migrations for existing DBs
+for (const col of [
+  "ALTER TABLE matches ADD COLUMN turns INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN avg_latency_ms INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN prompt_chars INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN output_chars INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE matches ADD COLUMN end_reason TEXT DEFAULT ''",
+]) {
+  try {
+    db.exec(col);
+  } catch {
+    // column already exists
+  }
+}
+
+type ArenaConfig = {
+  mode: RunnerMode;
+  turnIntervalMs: number;
+  autoPauseEmpty: boolean;
+  pinnedModel: string;
+  enabledModels: string[];
+};
+
+function loadConfig(): ArenaConfig {
+  const get = (k: string, fallback: string) => {
+    const row = db.query("SELECT value FROM settings WHERE key = ?").get(k) as { value: string } | null;
+    return row ? row.value : fallback;
+  };
+  const modeRaw = get("mode", "rotation");
+  const mode: RunnerMode =
+    modeRaw === "paused" || modeRaw === "single" || modeRaw === "pinned" || modeRaw === "rotation"
+      ? modeRaw
+      : "rotation";
+  let enabledModels: string[] = CANDIDATE_ROSTER.map((c) => c.id);
+  try {
+    const parsed = JSON.parse(get("enabled_models", "null"));
+    if (Array.isArray(parsed) && parsed.length > 0) enabledModels = parsed.map(String);
+  } catch {
+    // keep default
+  }
+  return {
+    mode,
+    turnIntervalMs: Math.max(5000, Math.min(60000, Number(get("turn_interval_ms", String(DEFAULT_TURN_MS))) || DEFAULT_TURN_MS)),
+    autoPauseEmpty: get("auto_pause_empty", "false") === "true",
+    pinnedModel: get("pinned_model", "claude-agent/haiku"),
+    enabledModels,
+  };
+}
+
+function saveConfig(cfg: ArenaConfig): void {
+  const upsert = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  upsert.run("mode", cfg.mode);
+  upsert.run("turn_interval_ms", String(cfg.turnIntervalMs));
+  upsert.run("auto_pause_empty", String(cfg.autoPauseEmpty));
+  upsert.run("pinned_model", cfg.pinnedModel);
+  upsert.run("enabled_models", JSON.stringify(cfg.enabledModels));
+}
+
+let config: ArenaConfig = loadConfig();
+let availableRoster: Contender[] = CANDIDATE_ROSTER.filter((c) => c.provider === "openai");
+let ROSTER: Contender[] = [...availableRoster];
+
+type PlayerDrone = {
+  id: number;
+  type: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  rot: number;
+  buildTarget: { x: number; y: number; block: string } | null;
+};
 
 type TerrainPayload = {
   ready: boolean;
@@ -128,6 +241,7 @@ type StatePayload = {
     rot: number;
   }>;
   bullets: Array<{ x: number; y: number; team: string; dmg: number }>;
+  playerDrone: PlayerDrone | null;
 };
 
 type FeedItem = {
@@ -137,6 +251,8 @@ type FeedItem = {
   model?: string;
   text: string;
   actions?: Array<{ label: string; ok: boolean; error?: string }>;
+  latencyMs?: number;
+  seq?: number;
 };
 
 type FactorioTelemetry = {
@@ -169,25 +285,58 @@ let factorioState: FactorioTelemetry = {
 
 let rosterIdx = 0;
 let mapIdx = 0;
-let activeContender = ROSTER[0];
+let activeContender: Contender = ROSTER[0];
 let activeMatchId: number | null = null;
-let aiPaused = false;
+let aiPaused = config.mode === "paused";
 let aiBusy = false;
 let lastTurnAt = 0;
 let lastGameOverAt = 0;
+let lastSpectatorSeenAt = Date.now();
 let matchBlocksBuilt = 0;
 let matchActionsOk = 0;
 let matchActionsFail = 0;
 let matchPeakWave = 1;
+let matchTurns = 0;
+let matchTotalLatencyMs = 0;
+let matchPromptChars = 0;
+let matchOutputChars = 0;
+let matchSnapshotSeq = 0;
 let recentActionFeedback: string[] = [];
 let recentFeed: FeedItem[] = [];
 const wsClients = new Set<ServerWebSocket<unknown>>();
+
+function getQueue(): Array<{ id: number; model: string; map: string; created_at: number }> {
+  return db.query("SELECT id, model, map, created_at FROM match_queue ORDER BY id ASC").all() as any[];
+}
+
+function getMetaPayload() {
+  const emptyPaused =
+    config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+  return {
+    contender: activeContender,
+    matchId: activeMatchId,
+    mode: config.mode,
+    turnIntervalMs: config.turnIntervalMs,
+    autoPauseEmpty: config.autoPauseEmpty,
+    emptyPaused,
+    aiPaused,
+    aiBusy,
+    blocksBuilt: matchBlocksBuilt,
+    actionsOk: matchActionsOk,
+    actionsFail: matchActionsFail,
+    turns: matchTurns,
+    avgLatencyMs: matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
+    spectators: wsClients.size,
+    queueLength: getQueue().length,
+  };
+}
 
 function pushFeed(
   kind: FeedItem["kind"],
   text: string,
   actions?: FeedItem["actions"],
-  model?: string
+  model?: string,
+  extra?: { latencyMs?: number; seq?: number }
 ): void {
   const ts = Date.now();
   const stmt = db.prepare(
@@ -208,10 +357,53 @@ function pushFeed(
     model: model || activeContender.label,
     text,
     actions,
+    latencyMs: extra?.latencyMs,
+    seq: extra?.seq,
   };
   recentFeed.push(item);
-  if (recentFeed.length > 40) recentFeed = recentFeed.slice(-40);
+  if (recentFeed.length > 50) recentFeed = recentFeed.slice(-50);
   broadcast({ type: "feed", item });
+}
+
+function recordSnapshot(
+  st: StatePayload,
+  kind: string,
+  extra?: {
+    thought?: string;
+    actions?: FeedItem["actions"];
+    promptChars?: number;
+    outputChars?: number;
+    latencyMs?: number;
+  }
+): number | undefined {
+  if (activeMatchId === null) return undefined;
+  matchSnapshotSeq++;
+  const seq = matchSnapshotSeq;
+  db.prepare(
+    `INSERT INTO match_snapshots
+      (match_id, seq, ts, kind, wave, enemies, core_hp, core_max_hp, items_json, power_json, buildings_json, units_json, player_drone_json, thought, actions_json, prompt_chars, output_chars, latency_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    activeMatchId,
+    seq,
+    Date.now(),
+    kind,
+    st.wave,
+    st.enemies,
+    st.core?.hp ?? 0,
+    st.core?.maxHp ?? 0,
+    JSON.stringify(st.items || {}),
+    JSON.stringify(st.power || { produced: 0, consumed: 0 }),
+    JSON.stringify(st.buildings || []),
+    JSON.stringify(st.units || []),
+    st.playerDrone ? JSON.stringify(st.playerDrone) : null,
+    extra?.thought ?? null,
+    extra?.actions ? JSON.stringify(extra.actions) : null,
+    extra?.promptChars ?? 0,
+    extra?.outputChars ?? 0,
+    extra?.latencyMs ?? 0
+  );
+  return seq;
 }
 
 function broadcast(msg: unknown): void {
@@ -253,6 +445,16 @@ function makeContender(modelId: string): Contender {
   return { id: modelId, provider, ticker, label: modelId, color: "#a78bfa" };
 }
 
+function recomputeEnabledRoster(): void {
+  const enabled = new Set(config.enabledModels);
+  const filtered = availableRoster.filter((c) => enabled.has(c.id));
+  ROSTER = filtered.length > 0 ? filtered : [...availableRoster];
+  if (!ROSTER.some((c) => c.id === activeContender.id) && config.mode === "rotation") {
+    rosterIdx = 0;
+    activeContender = ROSTER[0];
+  }
+}
+
 async function refreshActiveRoster(): Promise<void> {
   try {
     const auth = await getOcAuthHeader();
@@ -269,11 +471,8 @@ async function refreshActiveRoster(): Promise<void> {
     );
     const next = CANDIDATE_ROSTER.filter((c) => activeProviders.has(c.provider));
     if (next.length > 0) {
-      ROSTER = next;
-      if (!ROSTER.some((c) => c.id === activeContender.id)) {
-        rosterIdx = 0;
-        activeContender = ROSTER[0];
-      }
+      availableRoster = next;
+      recomputeEnabledRoster();
     }
   } catch {
     // keep current roster
@@ -312,13 +511,23 @@ async function mindustryJson<T = any>(path: string, body?: unknown): Promise<T> 
   return (await resp.json()) as T;
 }
 
-function startNewMatchRecord(mapName: string): void {
+function startNewMatchRecord(mapName: string, st?: StatePayload): void {
   const now = Date.now();
-  // Close any open playing match first
   if (activeMatchId !== null) {
     db.prepare(
-      "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, status = 'completed' WHERE id = ?"
-    ).run(now, matchPeakWave, matchBlocksBuilt, matchActionsOk, matchActionsFail, activeMatchId);
+      "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, status = 'completed', end_reason = 'superseded' WHERE id = ?"
+    ).run(
+      now,
+      matchPeakWave,
+      matchBlocksBuilt,
+      matchActionsOk,
+      matchActionsFail,
+      matchTurns,
+      matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
+      matchPromptChars,
+      matchOutputChars,
+      activeMatchId
+    );
   }
   const res = db
     .prepare(
@@ -330,16 +539,39 @@ function startNewMatchRecord(mapName: string): void {
   matchActionsOk = 0;
   matchActionsFail = 0;
   matchPeakWave = 1;
+  matchTurns = 0;
+  matchTotalLatencyMs = 0;
+  matchPromptChars = 0;
+  matchOutputChars = 0;
+  matchSnapshotSeq = 0;
   recentActionFeedback = [];
+  if (st && st.ready) {
+    recordSnapshot(st, "start", { thought: `${activeContender.id} deployed onto ${mapName}` });
+  }
   pushFeed("milestone", `${activeContender.label} dropped onto ${mapName} (match #${activeMatchId})`, undefined, "ARENA");
 }
 
-function finishMatchRecord(reason: string): void {
+function finishMatchRecord(reason: string, st?: StatePayload): void {
   if (activeMatchId === null) return;
+  if (st && st.ready) {
+    recordSnapshot(st, "end", { thought: `match ended: ${reason}` });
+  }
   const now = Date.now();
   db.prepare(
-    "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, status = 'completed' WHERE id = ?"
-  ).run(now, matchPeakWave, matchBlocksBuilt, matchActionsOk, matchActionsFail, activeMatchId);
+    "UPDATE matches SET ended_at = ?, peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, status = 'completed', end_reason = ? WHERE id = ?"
+  ).run(
+    now,
+    matchPeakWave,
+    matchBlocksBuilt,
+    matchActionsOk,
+    matchActionsFail,
+    matchTurns,
+    matchTurns > 0 ? Math.round(matchTotalLatencyMs / matchTurns) : 0,
+    matchPromptChars,
+    matchOutputChars,
+    reason,
+    activeMatchId
+  );
   pushFeed(
     "milestone",
     `match #${activeMatchId} ended (${reason}) — ${activeContender.label} reached wave ${matchPeakWave} with ${matchBlocksBuilt} blocks built`,
@@ -360,7 +592,8 @@ function getLeaderboard() {
         ROUND(AVG(peak_wave), 1) as avg_wave,
         SUM(blocks_built) as total_blocks,
         SUM(actions_ok) as actions_ok,
-        SUM(actions_fail) as actions_fail
+        SUM(actions_fail) as actions_fail,
+        SUM(turns) as total_turns
       FROM matches
       GROUP BY model
       ORDER BY best_wave DESC, avg_wave DESC, total_blocks DESC`
@@ -369,14 +602,112 @@ function getLeaderboard() {
 
   const recentMatches = db
     .query(
-      `SELECT id, model, model_label as label, map, started_at, ended_at, peak_wave, blocks_built, actions_ok, actions_fail, status
-       FROM matches
-       ORDER BY id DESC
-       LIMIT 25`
+      `SELECT m.id, m.model, m.model_label as label, m.map, m.started_at, m.ended_at,
+              m.peak_wave, m.blocks_built, m.actions_ok, m.actions_fail, m.turns,
+              m.avg_latency_ms, m.status, m.end_reason,
+              (SELECT COUNT(*) FROM match_snapshots s WHERE s.match_id = m.id) as snapshot_count
+       FROM matches m
+       ORDER BY m.id DESC
+       LIMIT 40`
     )
     .all();
 
-  return { models, recentMatches, roster: ROSTER, maps: MAP_ROTATION };
+  return {
+    models,
+    recentMatches,
+    roster: ROSTER,
+    availableRoster,
+    maps: MAP_ROTATION,
+    queue: getQueue(),
+  };
+}
+
+function getMatchDetail(matchId: number) {
+  const match = db
+    .query(
+      `SELECT id, game, model, model_label as label, map, started_at, ended_at,
+              peak_wave, blocks_built, actions_ok, actions_fail, turns,
+              avg_latency_ms, prompt_chars, output_chars, status, end_reason, last_thought
+       FROM matches WHERE id = ?`
+    )
+    .get(matchId) as any;
+  if (!match) return null;
+
+  const rawSnaps = db
+    .query(
+      `SELECT id, seq, ts, kind, wave, enemies, core_hp, core_max_hp,
+              items_json, power_json, buildings_json, units_json, player_drone_json,
+              thought, actions_json, prompt_chars, output_chars, latency_ms
+       FROM match_snapshots
+       WHERE match_id = ?
+       ORDER BY seq ASC`
+    )
+    .all(matchId) as any[];
+
+  const snapshots = rawSnaps.map((s) => {
+    const items = JSON.parse(s.items_json || "{}");
+    const power = JSON.parse(s.power_json || "{}");
+    const buildings = JSON.parse(s.buildings_json || "[]");
+    const units = JSON.parse(s.units_json || "[]");
+    const playerDrone = s.player_drone_json ? JSON.parse(s.player_drone_json) : null;
+    const actions = s.actions_json ? JSON.parse(s.actions_json) : [];
+    return {
+      id: s.id,
+      seq: s.seq,
+      ts: s.ts,
+      kind: s.kind,
+      wave: s.wave,
+      enemies: s.enemies,
+      coreHp: s.core_hp,
+      coreMaxHp: s.core_max_hp,
+      items,
+      power,
+      buildings,
+      units,
+      playerDrone,
+      thought: s.thought,
+      actions,
+      promptChars: s.prompt_chars,
+      outputChars: s.output_chars,
+      latencyMs: s.latency_ms,
+    };
+  });
+
+  // Compact LoL-style economy & threat curve for charts
+  const timeline = snapshots.map((s) => {
+    const friendly = s.buildings.filter((b: any) => b.team === "sharded");
+    const turrets = friendly.filter((b: any) =>
+      ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo"].includes(b.block)
+    );
+    const armedTurrets = turrets.filter((b: any) => (b.ammo || 0) > 0);
+    const drills = friendly.filter((b: any) => String(b.block || "").includes("drill"));
+    return {
+      seq: s.seq,
+      ts: s.ts,
+      wave: s.wave,
+      enemies: s.enemies,
+      coreHp: s.coreHp,
+      coreMaxHp: s.coreMaxHp,
+      copper: s.items.copper || 0,
+      lead: s.items.lead || 0,
+      graphite: s.items.graphite || 0,
+      buildings: friendly.length,
+      drills: drills.length,
+      turrets: turrets.length,
+      armedTurrets: armedTurrets.length,
+      powerNet: (s.power?.produced || 0) - (s.power?.consumed || 0),
+      latencyMs: s.latencyMs,
+    };
+  });
+
+  const terrainRow = db.query("SELECT terrain_json FROM map_terrains WHERE map = ?").get(match.map) as { terrain_json: string } | null;
+
+  return {
+    match,
+    hasTerrain: Boolean(terrainRow),
+    snapshots,
+    timeline,
+  };
 }
 
 function compassDirection(fromX: number, fromY: number, toX: number, toY: number): string {
@@ -484,16 +815,18 @@ function extractJsonObject(raw: string): any {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function runAiTurn(): Promise<void> {
-  if (aiPaused || aiBusy || !latestState || !latestState.ready || latestState.gameOver || !latestState.core) {
+async function runAiTurn(force = false): Promise<void> {
+  if ((!force && aiPaused) || aiBusy || !latestState || !latestState.ready || latestState.gameOver || !latestState.core) {
     return;
   }
   aiBusy = true;
   lastTurnAt = Date.now();
+  const t0 = Date.now();
   try {
     const tactical = await mindustryJson("/tactical");
     const prompt = buildTacticalPrompt(latestState, tactical);
     const raw = await callOpenCodeGenerate(activeContender.id, prompt);
+    const latencyMs = Date.now() - t0;
     const decision = extractJsonObject(raw);
 
     const thought = String(decision.thought || "thinking...").slice(0, 320);
@@ -506,7 +839,7 @@ async function runAiTurn(): Promise<void> {
 
     for (const act of actions) {
       if (!act || typeof act !== "object" || !act.type) continue;
-      if (act.type === "new_game") continue; // never let AI self-reset
+      if (act.type === "new_game") continue;
       try {
         const res = await mindustryJson<{ ok: boolean; built?: number; error?: string }>("/action", act);
         const label =
@@ -533,13 +866,40 @@ async function runAiTurn(): Promise<void> {
       }
     }
 
+    matchTurns++;
+    matchTotalLatencyMs += latencyMs;
+    matchPromptChars += prompt.length;
+    matchOutputChars += raw.length;
     if (recentActionFeedback.length > 16) recentActionFeedback = recentActionFeedback.slice(-16);
-    pushFeed("thought", thought, results, activeContender.label);
+
+    // Fetch fresh post-action state for snapshot accuracy
+    const postState = await mindustryJson<StatePayload>("/state").catch(() => latestState!);
+    if (postState && postState.ready) latestState = postState;
+
+    const seq = recordSnapshot(latestState, "turn", {
+      thought,
+      actions: results,
+      promptChars: prompt.length,
+      outputChars: raw.length,
+      latencyMs,
+    });
+    pushFeed("thought", thought, results, activeContender.label, { latencyMs, seq });
 
     if (activeMatchId !== null) {
       db.prepare(
-        "UPDATE matches SET peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, last_thought = ? WHERE id = ?"
-      ).run(matchPeakWave, matchBlocksBuilt, matchActionsOk, matchActionsFail, thought, activeMatchId);
+        "UPDATE matches SET peak_wave = ?, blocks_built = ?, actions_ok = ?, actions_fail = ?, turns = ?, avg_latency_ms = ?, prompt_chars = ?, output_chars = ?, last_thought = ? WHERE id = ?"
+      ).run(
+        matchPeakWave,
+        matchBlocksBuilt,
+        matchActionsOk,
+        matchActionsFail,
+        matchTurns,
+        Math.round(matchTotalLatencyMs / matchTurns),
+        matchPromptChars,
+        matchOutputChars,
+        thought,
+        activeMatchId
+      );
     }
   } catch (err: any) {
     console.error("arena AI turn error:", err);
@@ -547,6 +907,34 @@ async function runAiTurn(): Promise<void> {
   } finally {
     aiBusy = false;
   }
+}
+
+async function advanceAfterMatchEnd(): Promise<void> {
+  // 1. Check queued tournament matches first
+  const nextQueued = db.query("SELECT id, model, map FROM match_queue ORDER BY id ASC LIMIT 1").get() as
+    | { id: number; model: string; map: string }
+    | null;
+  if (nextQueued) {
+    db.prepare("DELETE FROM match_queue WHERE id = ?").run(nextQueued.id);
+    activeContender = makeContender(nextQueued.model);
+    aiPaused = false;
+    pushFeed("system", `launching queued match: ${activeContender.id} on ${nextQueued.map}`, undefined, "ARENA");
+    await mindustryJson("/action", { type: "new_game", map: nextQueued.map }).catch(() => {});
+    broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+    return;
+  }
+
+  // 2. Otherwise follow configured runner mode
+  if (config.mode === "single" || config.mode === "paused") {
+    aiPaused = true;
+    pushFeed("system", `mode=${config.mode}: paused after match completion`, undefined, "ARENA");
+  } else if (config.mode === "pinned") {
+    activeContender = makeContender(config.pinnedModel);
+  } else {
+    rosterIdx = (rosterIdx + 1) % ROSTER.length;
+    activeContender = ROSTER[rosterIdx];
+  }
+  broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
 }
 
 async function pollMindustry(): Promise<void> {
@@ -558,59 +946,62 @@ async function pollMindustry(): Promise<void> {
     const prevGameOver = latestState?.gameOver ?? false;
     latestState = st;
 
+    if (wsClients.size > 0) {
+      lastSpectatorSeenAt = Date.now();
+    }
+
     if (!cachedTerrain || cachedTerrain.map !== st.map) {
       cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
+      db.prepare(
+        "INSERT INTO map_terrains (map, terrain_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(map) DO UPDATE SET terrain_json = excluded.terrain_json, updated_at = excluded.updated_at"
+      ).run(cachedTerrain.map, JSON.stringify(cachedTerrain), Date.now());
       broadcast({ type: "terrain", terrain: cachedTerrain });
       if (activeMatchId === null || (prevMap && prevMap !== st.map)) {
-        startNewMatchRecord(st.map);
+        startNewMatchRecord(st.map, st);
       }
     } else if (activeMatchId === null && !st.gameOver) {
-      startNewMatchRecord(st.map);
+      startNewMatchRecord(st.map, st);
     }
 
     if (st.wave > matchPeakWave) {
       matchPeakWave = st.wave;
       if (st.wave > 1) {
-        pushFeed("milestone", `wave ${st.wave} incoming! (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA");
+        const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
+        pushFeed("milestone", `wave ${st.wave} incoming! (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
       }
     }
 
     if (st.gameOver && !prevGameOver) {
       lastGameOverAt = Date.now();
-      finishMatchRecord("core destroyed");
-      // Rotate to next contender for the upcoming map!
-      rosterIdx = (rosterIdx + 1) % ROSTER.length;
-      activeContender = ROSTER[rosterIdx];
-      broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+      finishMatchRecord("core destroyed", st);
+      await advanceAfterMatchEnd();
     }
 
     broadcast({
       type: "state",
       state: st,
-      meta: {
-        contender: activeContender,
-        matchId: activeMatchId,
-        aiPaused,
-        aiBusy,
-        blocksBuilt: matchBlocksBuilt,
-        actionsOk: matchActionsOk,
-        actionsFail: matchActionsFail,
-        spectators: wsClients.size,
-      },
+      meta: getMetaPayload(),
     });
 
-    // Trigger AI turn on cadence
-    if (!aiPaused && !aiBusy && !st.gameOver && Date.now() - lastTurnAt >= TURN_INTERVAL_MS && Date.now() - lastGameOverAt > 8000) {
+    const emptyPaused =
+      config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+    if (
+      !aiPaused &&
+      !emptyPaused &&
+      !aiBusy &&
+      !st.gameOver &&
+      Date.now() - lastTurnAt >= config.turnIntervalMs &&
+      Date.now() - lastGameOverAt > 8000
+    ) {
       void runAiTurn();
     }
-  } catch (err) {
+  } catch {
     // Mindustry temporarily restarting
   }
 }
 
 async function pollFactorio(): Promise<void> {
   try {
-    // Factorio 2.0 moved evolution to get_evolution_factor(surface); pcall keeps 1.1 saves working.
     const lua = `/sc local s=game.surfaces[1]; local f=game.forces.enemy; local ok,evo=pcall(function() return f.get_evolution_factor(s) end); if not ok then evo=f.evolution_factor end; rcon.print(game.tick.."|"..#game.connected_players.."|"..string.format("%.4f",evo).."|"..s.name.."|"..s.count_entities_filtered{area={{-128,-128},{128,128}}}.."|"..string.format("%.2f",s.daytime).."|"..script.active_mods.base)`;
     let raw = await factorioRcon(lua);
     if (raw.includes("achievements") || !raw.includes("|")) {
@@ -632,7 +1023,6 @@ async function pollFactorio(): Promise<void> {
         updatedAt: Date.now(),
       };
     } else {
-      // Fallback basic check
       const players = await factorioRcon("/players online");
       factorioState = {
         ...factorioState,
@@ -652,7 +1042,6 @@ async function pollFactorio(): Promise<void> {
   }
 }
 
-// Start polling loops
 void refreshActiveRoster();
 setInterval(() => void refreshActiveRoster(), 60_000);
 setInterval(() => void pollMindustry(), 300);
@@ -660,7 +1049,6 @@ setInterval(() => void pollFactorio(), 10_000);
 void pollMindustry();
 void pollFactorio();
 
-// The web UI is a Vite build copied into WEB_DIR: index.html plus content-hashed files under /assets.
 async function serveWeb(pathname: string): Promise<Response | null> {
   let rel: string;
   try {
@@ -676,7 +1064,6 @@ async function serveWeb(pathname: string): Promise<Response | null> {
   if (!(await file.exists())) return null;
   return new Response(file, {
     headers: {
-      // Hashed assets never change. The HTML that points at them must always be fresh.
       "cache-control": rel.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
     },
   });
@@ -699,6 +1086,7 @@ const server = Bun.serve({
         mindustry: Boolean(latestState?.ready),
         factorio: factorioState.online,
         contender: activeContender.id,
+        mode: config.mode,
         spectators: wsClients.size,
       });
     }
@@ -707,22 +1095,25 @@ const server = Bun.serve({
       return Response.json({
         state: latestState,
         terrain: cachedTerrain ? { map: cachedTerrain.map, width: cachedTerrain.width, height: cachedTerrain.height } : null,
-        meta: {
-          contender: activeContender,
-          matchId: activeMatchId,
-          aiPaused,
-          aiBusy,
-          blocksBuilt: matchBlocksBuilt,
-          actionsOk: matchActionsOk,
-          actionsFail: matchActionsFail,
-          spectators: wsClients.size,
-        },
-        feed: recentFeed.slice(-25),
+        meta: getMetaPayload(),
+        config,
+        feed: recentFeed.slice(-30),
         factorio: factorioState,
       });
     }
 
     if (url.pathname === "/api/terrain") {
+      const requestedMap = url.searchParams.get("map");
+      if (requestedMap) {
+        if (cachedTerrain && cachedTerrain.map === requestedMap) {
+          return Response.json(cachedTerrain);
+        }
+        const row = db.query("SELECT terrain_json FROM map_terrains WHERE map = ?").get(requestedMap) as { terrain_json: string } | null;
+        if (row) {
+          return new Response(row.terrain_json, { headers: { "content-type": "application/json" } });
+        }
+        return Response.json({ ready: false, error: "terrain not cached for map" }, { status: 404 });
+      }
       return Response.json(cachedTerrain || { ready: false });
     }
 
@@ -732,9 +1123,7 @@ const server = Bun.serve({
         const file = Bun.file(join(SPRITES_DIR, name));
         if (await file.exists()) {
           return new Response(file, {
-            headers: {
-              "cache-control": "public, max-age=86400, immutable",
-            },
+            headers: { "cache-control": "public, max-age=86400, immutable" },
           });
         }
       }
@@ -745,22 +1134,163 @@ const server = Bun.serve({
       return Response.json(getLeaderboard());
     }
 
-    if (url.pathname === "/api/control" && req.method === "POST") {
-      // Allow control requests from loopback/tailnet or explicit admin UI
+    if (url.pathname === "/api/matches" && req.method === "GET") {
+      const rows = db
+        .query(
+          `SELECT m.id, m.model, m.model_label as label, m.map, m.started_at, m.ended_at,
+                  m.peak_wave, m.blocks_built, m.actions_ok, m.actions_fail, m.turns,
+                  m.avg_latency_ms, m.status, m.end_reason, m.last_thought,
+                  (SELECT COUNT(*) FROM match_snapshots s WHERE s.match_id = m.id) as snapshot_count
+           FROM matches m
+           ORDER BY m.id DESC
+           LIMIT 100`
+        )
+        .all();
+      return Response.json({ matches: rows, queue: getQueue() });
+    }
+
+    const matchDetailMatch = url.pathname.match(/^\/api\/matches\/(\d+)$/);
+    if (matchDetailMatch && req.method === "GET") {
+      const detail = getMatchDetail(Number(matchDetailMatch[1]));
+      if (!detail) return Response.json({ error: "Match not found" }, { status: 404 });
+      return Response.json(detail);
+    }
+
+    // ---- Authelia-protected Admin API (/api/admin/* + /api/control) ----
+    if (url.pathname === "/api/admin/me" && req.method === "GET") {
+      const user = req.headers.get("remote-user") || "local-admin";
+      return Response.json({ admin: true, user });
+    }
+
+    if (url.pathname === "/api/admin/config" && req.method === "GET") {
+      const usage = db
+        .query(
+          `SELECT COUNT(*) as total_matches,
+                  COALESCE(SUM(turns), 0) as total_turns,
+                  COALESCE(SUM(blocks_built), 0) as total_blocks,
+                  COALESCE(SUM(prompt_chars), 0) as total_prompt_chars,
+                  COALESCE(SUM(output_chars), 0) as total_output_chars
+           FROM matches`
+        )
+        .get();
+      return Response.json({
+        config,
+        aiPaused,
+        contender: activeContender,
+        availableRoster,
+        roster: ROSTER,
+        maps: MAP_ROTATION,
+        queue: getQueue(),
+        usage,
+      });
+    }
+
+    if (url.pathname === "/api/admin/config" && req.method === "PATCH") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      if (body.mode && ["paused", "single", "pinned", "rotation"].includes(body.mode)) {
+        config.mode = body.mode;
+        if (config.mode === "paused") aiPaused = true;
+        else if (body.aiPaused === undefined) aiPaused = false;
+      }
+      if (typeof body.turnIntervalMs === "number") {
+        config.turnIntervalMs = Math.max(5000, Math.min(60000, Math.round(body.turnIntervalMs)));
+      }
+      if (typeof body.autoPauseEmpty === "boolean") {
+        config.autoPauseEmpty = body.autoPauseEmpty;
+      }
+      if (typeof body.pinnedModel === "string" && body.pinnedModel.includes("/")) {
+        config.pinnedModel = body.pinnedModel;
+        if (config.mode === "pinned") {
+          activeContender = makeContender(config.pinnedModel);
+        }
+      }
+      if (Array.isArray(body.enabledModels) && body.enabledModels.length > 0) {
+        config.enabledModels = body.enabledModels.map(String);
+        recomputeEnabledRoster();
+      }
+      if (typeof body.aiPaused === "boolean") {
+        aiPaused = body.aiPaused;
+      }
+      saveConfig(config);
+      pushFeed("system", `config updated (mode=${config.mode}, cadence=${Math.round(config.turnIntervalMs / 1000)}s, paused=${aiPaused})`, undefined, "ARENA");
+      broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, config, aiPaused, contender: activeContender, roster: ROSTER });
+    }
+
+    if (url.pathname === "/api/admin/matches" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const modelId = String(body.model || activeContender.id);
+      const mapName = String(body.map || MAP_ROTATION[(mapIdx = (mapIdx + 1) % MAP_ROTATION.length)]);
+      if (body.enqueue) {
+        const res = db
+          .prepare("INSERT INTO match_queue (model, map, created_at) VALUES (?, ?, ?)")
+          .run(modelId, mapName, Date.now());
+        pushFeed("system", `queued match: ${modelId} on ${mapName}`, undefined, "ARENA");
+        broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+        return Response.json({ ok: true, queuedId: Number(res.lastInsertRowid), queue: getQueue() });
+      }
+      if (body.mode && ["single", "pinned", "rotation"].includes(body.mode)) {
+        config.mode = body.mode;
+        if (body.mode === "pinned") config.pinnedModel = modelId;
+        saveConfig(config);
+      }
+      if (typeof body.turnIntervalMs === "number") {
+        config.turnIntervalMs = Math.max(5000, Math.min(60000, Math.round(body.turnIntervalMs)));
+        saveConfig(config);
+      }
+      activeContender = makeContender(modelId);
+      aiPaused = false;
+      finishMatchRecord("admin launch", latestState || undefined);
+      await mindustryJson("/action", { type: "new_game", map: mapName });
+      broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, contender: activeContender, map: mapName, config });
+    }
+
+    const adminDeleteMatch = url.pathname.match(/^\/api\/admin\/matches\/(\d+)$/);
+    if (adminDeleteMatch && req.method === "DELETE") {
+      const id = Number(adminDeleteMatch[1]);
+      if (id === activeMatchId) {
+        return Response.json({ ok: false, error: "Cannot delete active match — end it first" }, { status: 400 });
+      }
+      db.prepare("DELETE FROM match_snapshots WHERE match_id = ?").run(id);
+      db.prepare("DELETE FROM feed_events WHERE match_id = ?").run(id);
+      db.prepare("DELETE FROM matches WHERE id = ?").run(id);
+      broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, deleted: id });
+    }
+
+    const adminDeleteQueue = url.pathname.match(/^\/api\/admin\/queue\/(\d+)$/);
+    if (adminDeleteQueue && req.method === "DELETE") {
+      const id = Number(adminDeleteQueue[1]);
+      db.prepare("DELETE FROM match_queue WHERE id = ?").run(id);
+      broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, queue: getQueue() });
+    }
+
+    if ((url.pathname === "/api/admin/action" || url.pathname === "/api/control") && req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as any;
       if (body.action === "pause") {
         aiPaused = true;
         pushFeed("system", "AI runner paused", undefined, "ARENA");
       } else if (body.action === "resume") {
         aiPaused = false;
+        if (config.mode === "paused") {
+          config.mode = "single";
+          saveConfig(config);
+        }
         pushFeed("system", "AI runner resumed", undefined, "ARENA");
         void runAiTurn();
-      } else if (body.action === "set_model" && body.model) {
+      } else if (body.action === "step") {
+        void runAiTurn(true);
+      } else if ((body.action === "set_model" || body.action === "switch_model") && body.model) {
         activeContender = makeContender(String(body.model));
         pushFeed("system", `switched active contender to ${activeContender.id}`, undefined, "ARENA");
       } else if (body.action === "send_wave") {
         await mindustryJson("/action", { type: "send_wave" });
-        pushFeed("system", "manually sent next wave!", undefined, "ARENA");
+        pushFeed("system", "sent next wave early", undefined, "ARENA");
+      } else if (body.action === "end_match") {
+        finishMatchRecord("ended by admin", latestState || undefined);
+        await advanceAfterMatchEnd();
       } else if (body.action === "new_match") {
         if (body.model) {
           activeContender = makeContender(String(body.model));
@@ -769,10 +1299,12 @@ const server = Bun.serve({
           activeContender = ROSTER[rosterIdx];
         }
         const nextMap = body.map || MAP_ROTATION[(mapIdx = (mapIdx + 1) % MAP_ROTATION.length)];
-        finishMatchRecord("manual reset");
+        aiPaused = false;
+        finishMatchRecord("manual reset", latestState || undefined);
         await mindustryJson("/action", { type: "new_game", map: nextMap });
       }
-      return Response.json({ ok: true, aiPaused, contender: activeContender });
+      broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, aiPaused, contender: activeContender, config });
     }
 
     if (url.pathname === "/api/factorio/rcon" && req.method === "POST") {
@@ -796,22 +1328,15 @@ const server = Bun.serve({
   websocket: {
     open(ws) {
       wsClients.add(ws);
+      lastSpectatorSeenAt = Date.now();
       ws.send(
         JSON.stringify({
           type: "init",
           terrain: cachedTerrain,
           state: latestState,
-          meta: {
-            contender: activeContender,
-            matchId: activeMatchId,
-            aiPaused,
-            aiBusy,
-            blocksBuilt: matchBlocksBuilt,
-            actionsOk: matchActionsOk,
-            actionsFail: matchActionsFail,
-            spectators: wsClients.size,
-          },
-          feed: recentFeed.slice(-30),
+          meta: getMetaPayload(),
+          config,
+          feed: recentFeed.slice(-35),
           leaderboard: getLeaderboard(),
           factorio: factorioState,
         })

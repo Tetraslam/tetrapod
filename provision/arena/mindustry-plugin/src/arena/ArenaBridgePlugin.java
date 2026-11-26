@@ -1,6 +1,9 @@
 package arena;
 
 import arc.Core;
+import arc.Events;
+import arc.math.Angles;
+import arc.math.Mathf;
 import arc.math.geom.Point2;
 import arc.util.Log;
 import arc.util.serialization.JsonReader;
@@ -8,6 +11,8 @@ import arc.util.serialization.JsonValue;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import mindustry.Vars;
+import mindustry.content.UnitTypes;
+import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
 import mindustry.gen.Bullet;
@@ -19,6 +24,7 @@ import mindustry.mod.Plugin;
 import mindustry.server.ServerControl;
 import mindustry.type.Item;
 import mindustry.type.ItemStack;
+import mindustry.type.UnitType;
 import mindustry.world.Block;
 import mindustry.world.Build;
 import mindustry.world.Tile;
@@ -42,9 +48,24 @@ import java.util.concurrent.TimeUnit;
 
 public class ArenaBridgePlugin extends Plugin {
     private HttpServer server;
+    private Unit aiDrone;
+    private float droneTargetX = -1f;
+    private float droneTargetY = -1f;
+    private int buildBeamX = -1;
+    private int buildBeamY = -1;
+    private String buildBeamBlock = "";
+    private long buildBeamUntil = 0L;
+    private float patrolAngle = 0f;
 
     @Override
     public void init() {
+        Events.run(EventType.Trigger.update, this::updateAiDrone);
+        Events.on(EventType.WorldLoadEvent.class, e -> {
+            aiDrone = null;
+            droneTargetX = -1f;
+            droneTargetY = -1f;
+            buildBeamUntil = 0L;
+        });
         try {
             int port = Integer.parseInt(System.getenv().getOrDefault("ARENA_BRIDGE_PORT", "6568"));
             server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
@@ -59,6 +80,66 @@ public class ArenaBridgePlugin extends Plugin {
             Log.info("[arena-bridge] HTTP server listening on port @", port);
         } catch (Exception e) {
             Log.err("[arena-bridge] Failed to start HTTP server", e);
+        }
+    }
+
+    private void updateAiDrone() {
+        if (Vars.state == null || !Vars.state.isPlaying() || Vars.state.gameOver) return;
+        CoreBlock.CoreBuild core = Team.sharded.core();
+        if (core == null) return;
+
+        if (aiDrone == null || aiDrone.dead() || !aiDrone.isAdded()) {
+            UnitType shipType = UnitTypes.alpha;
+            if (core.block != null && core.block.name != null) {
+                if (core.block.name.contains("nucleus")) shipType = UnitTypes.gamma;
+                else if (core.block.name.contains("foundation")) shipType = UnitTypes.beta;
+            }
+            aiDrone = shipType.spawn(Team.sharded, core.x, core.y);
+            droneTargetX = core.x;
+            droneTargetY = core.y;
+        }
+
+        long now = System.currentTimeMillis();
+        float tx = droneTargetX;
+        float ty = droneTargetY;
+        if (now > buildBeamUntil + 3500L || tx < 0f) {
+            // Patrol smoothly around core or shadow nearest enemy unit
+            Unit nearestEnemy = null;
+            float bestDist = 260f * 260f;
+            for (Unit u : Groups.unit) {
+                if (u == null || u.dead() || u.team == Team.sharded) continue;
+                float d2 = Mathf.dst2(core.x, core.y, u.x, u.y);
+                if (d2 < bestDist) {
+                    bestDist = d2;
+                    nearestEnemy = u;
+                }
+            }
+            if (nearestEnemy != null) {
+                float ang = Angles.angle(nearestEnemy.x, nearestEnemy.y, core.x, core.y);
+                tx = nearestEnemy.x + Angles.trnsx(ang, 56f);
+                ty = nearestEnemy.y + Angles.trnsy(ang, 56f);
+            } else {
+                patrolAngle = (patrolAngle + 0.55f) % 360f;
+                tx = core.x + Angles.trnsx(patrolAngle, 52f);
+                ty = core.y + Angles.trnsy(patrolAngle, 52f);
+            }
+        }
+
+        float dx = tx - aiDrone.x;
+        float dy = ty - aiDrone.y;
+        float dist = Mathf.len(dx, dy);
+        if (dist > 6f) {
+            float speed = Math.min(3.8f, dist * 0.08f);
+            float vx = (dx / dist) * speed;
+            float vy = (dy / dist) * speed;
+            aiDrone.vel.lerp(vx, vy, 0.22f);
+            aiDrone.rotation = Angles.moveToward(aiDrone.rotation, Angles.angle(dx, dy), 9f);
+        } else {
+            aiDrone.vel.scl(0.85f);
+            if (now <= buildBeamUntil && buildBeamX >= 0) {
+                float bAng = Angles.angle(aiDrone.x, aiDrone.y, buildBeamX * 8f, buildBeamY * 8f);
+                aiDrone.rotation = Angles.moveToward(aiDrone.rotation, bAng, 12f);
+            }
         }
     }
 
@@ -604,6 +685,27 @@ public class ArenaBridgePlugin extends Plugin {
                 }
                 sb.append(']');
 
+                // Player builder drone (real Sharded alpha/beta/gamma unit flying to build sites)
+                if (aiDrone != null && !aiDrone.dead() && aiDrone.isAdded()) {
+                    sb.append(",\"playerDrone\":{\"id\":").append(aiDrone.id)
+                      .append(",\"type\":\"").append(esc(aiDrone.type != null ? aiDrone.type.name : "alpha"))
+                      .append("\",\"x\":").append(Math.round(aiDrone.x / 8f * 10f) / 10f)
+                      .append(",\"y\":").append(Math.round(aiDrone.y / 8f * 10f) / 10f)
+                      .append(",\"hp\":").append(Math.round(aiDrone.health))
+                      .append(",\"maxHp\":").append(Math.round(aiDrone.maxHealth))
+                      .append(",\"rot\":").append(Math.round(aiDrone.rotation));
+                    if (System.currentTimeMillis() <= buildBeamUntil && buildBeamX >= 0) {
+                        sb.append(",\"buildTarget\":{\"x\":").append(buildBeamX)
+                          .append(",\"y\":").append(buildBeamY)
+                          .append(",\"block\":\"").append(esc(buildBeamBlock)).append("\"}");
+                    } else {
+                        sb.append(",\"buildTarget\":null");
+                    }
+                    sb.append('}');
+                } else {
+                    sb.append(",\"playerDrone\":null");
+                }
+
                 sb.append('}');
                 return sb.toString();
             });
@@ -639,6 +741,13 @@ public class ArenaBridgePlugin extends Plugin {
         }
         core.items.remove(block.requirements);
         tile.setNet(block, Team.sharded, r);
+        // Direct the AI builder drone to this build site with an active build beam
+        droneTargetX = x * 8f;
+        droneTargetY = y * 8f;
+        buildBeamX = x;
+        buildBeamY = y;
+        buildBeamBlock = blockName;
+        buildBeamUntil = System.currentTimeMillis() + 3200L;
         return null;
     }
 
