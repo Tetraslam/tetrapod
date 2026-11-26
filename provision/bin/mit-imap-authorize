@@ -1,15 +1,19 @@
-#!/usr/bin/env python3
+#!/home/tetraslam/.local/share/uv/tools/emailproxy/bin/python
 """Direct Microsoft 365 OAuth2 device-code authorization for email-oauth2-proxy (IMAP).
 
 Bypasses email-oauth2-proxy's IMAP-coupled device flow (which aborts when mail
 clients like Omamail time out after ~30 seconds), polls Microsoft directly for
-the full device-code lifetime, writes the tokens into emailproxy.cache, and
-restarts email-oauth2-proxy.service.
+the full device-code lifetime, encrypts tokens with emailproxy's exact
+PBKDF2+Fernet format, stops email-oauth2-proxy before writing emailproxy.cache
+(so its shutdown handler cannot clobber the file), restarts it, and verifies
+an actual IMAP LOGIN end-to-end.
 """
 
 from __future__ import annotations
 
+import base64
 import configparser
+import imaplib
 import json
 import os
 import subprocess
@@ -20,12 +24,21 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
 ACCOUNT = "shresht@mit.edu"
+HOST = "tetrapod.tailc27667.ts.net"
+PORT = 1993
+PASSWORD_REF = "op://Agents/MIT Mail Proxy/password"
 CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
 DEVICE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
 CACHE_PATH = Path("/var/lib/email-oauth2-proxy/emailproxy.cache")
+ITERATIONS = 1_200_000
 
 
 def post_form(url: str, data: dict[str, str]) -> tuple[int, dict]:
@@ -47,7 +60,31 @@ def post_form(url: str, data: dict[str, str]) -> tuple[int, dict]:
             return err.code, {"error": raw}
 
 
+def encrypt_for_emailproxy(password: str, access_token: str, refresh_token: str) -> dict[str, str]:
+    salt = os.urandom(16)
+    key = base64.urlsafe_b64encode(
+        PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=ITERATIONS,
+            backend=default_backend(),
+        ).derive(password.encode("utf-8"))
+    )
+    f = Fernet(key)
+    return {
+        "token_salt": base64.b64encode(salt).decode("utf-8"),
+        "token_iterations": str(ITERATIONS),
+        "access_token": f.encrypt(access_token.encode("utf-8")).decode("utf-8"),
+        "refresh_token": f.encrypt(refresh_token.encode("utf-8")).decode("utf-8"),
+    }
+
+
 def main() -> int:
+    password = subprocess.run(
+        ["opa", "read", PASSWORD_REF], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
     status, dc = post_form(DEVICE_URL, {"client_id": CLIENT_ID, "scope": SCOPE})
     if status != 200 or "device_code" not in dc:
         print(f"failed to start device code flow ({status}): {dc}", file=sys.stderr)
@@ -67,26 +104,39 @@ def main() -> int:
                 "device_code": dc["device_code"],
             },
         )
-        if st == 200 and "access_token" in tok:
+        if st == 200 and "access_token" in tok and "refresh_token" in tok:
+            enc = encrypt_for_emailproxy(password, tok["access_token"], tok["refresh_token"])
+            expiry = int(time.time()) + int(tok.get("expires_in", 3600))
+
+            # Stop proxy BEFORE writing cache so its shutdown handler doesn't clobber the file
+            subprocess.run(["sudo", "systemctl", "stop", "email-oauth2-proxy.service"], check=True)
             cfg = configparser.ConfigParser(interpolation=None)
             if CACHE_PATH.exists():
                 cfg.read(CACHE_PATH)
-            if ACCOUNT not in cfg:
-                cfg[ACCOUNT] = {}
-            expiry = int(time.time()) + int(tok.get("expires_in", 3600))
-            cfg[ACCOUNT]["access_token"] = tok["access_token"]
-            cfg[ACCOUNT]["access_token_expiry"] = str(expiry)
-            if tok.get("refresh_token"):
-                cfg[ACCOUNT]["refresh_token"] = tok["refresh_token"]
+            cfg[ACCOUNT] = {
+                "token_salt": enc["token_salt"],
+                "token_iterations": enc["token_iterations"],
+                "access_token": enc["access_token"],
+                "access_token_expiry": str(expiry),
+                "refresh_token": enc["refresh_token"],
+            }
             CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             tmp = CACHE_PATH.with_suffix(".tmp")
             with tmp.open("w", encoding="utf-8") as f:
                 cfg.write(f)
             os.chmod(tmp, 0o600)
             os.replace(tmp, CACHE_PATH)
-            subprocess.run(["sudo", "systemctl", "restart", "email-oauth2-proxy.service"], check=True)
-            print(f"authorized IMAP for {ACCOUNT} and restarted email-oauth2-proxy.service", flush=True)
+            subprocess.run(["sudo", "systemctl", "start", "email-oauth2-proxy.service"], check=True)
+            time.sleep(2)
+
+            # End-to-end IMAP login verification + immediate Kuma push
+            imap = imaplib.IMAP4_SSL(HOST, PORT, timeout=20)
+            typ, _ = imap.login(ACCOUNT, password)
+            imap.logout()
+            print(f"VERIFIED IMAP LOGIN ({typ}) for {ACCOUNT}!", flush=True)
+            subprocess.run(["/usr/local/bin/mit-mail-kuma-push"], check=False)
             return 0
+
         err = tok.get("error")
         if err == "authorization_pending":
             continue
