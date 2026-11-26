@@ -12,11 +12,19 @@ import { $, h, num, setText } from "./util";
 
 const SIGN_IN = "https://auth.tetraslam.world/?rd=https://arena.tetraslam.world";
 
-const MODES: Array<{ id: RunnerMode; says: string }> = [
-  { id: "rotation", says: "models take turns in roster order, one match each." },
-  { id: "pinned", says: "one model plays every match." },
-  { id: "single", says: "the current match plays out, then everything stops." },
-  { id: "paused", says: "nothing takes a turn until you resume." },
+/** What happens once a match is over and the queue is empty. The server calls these single, pinned and rotation. */
+const AFTER: Array<{ id: RunnerMode; name: string; says: string }> = [
+  {
+    id: "single",
+    name: "stop",
+    says: "the match and anything queued play out, then the arena goes off air.",
+  },
+  {
+    id: "pinned",
+    name: "loop one",
+    says: "the same model plays again on the next map, for as long as you leave it.",
+  },
+  { id: "rotation", name: "rotate", says: "the next model in the roster takes the next map." },
 ];
 
 type Api = { open: (o?: unknown) => Promise<{ returnValue?: string }>; close: () => void };
@@ -191,58 +199,45 @@ export class AdminDeck {
           </header>
           <p class="deck-say" id="deckSay" role="status" aria-live="polite"></p>
           <div class="deck-scroll">
-            <section>
+            <section id="secNow">
               <h3>right now</h3>
               <div id="deckNow" class="deck-now"></div>
-              <div class="btnrow">
-                <button id="aPause" class="btn"></button>
+              <div class="btnrow" id="nowActions">
+                <button id="aPause" class="btn solid"></button>
                 <button id="aStep" class="btn" title="take one turn now, even while paused">step one turn</button>
                 <button id="aWave" class="btn" title="call the next wave in early">send wave</button>
-                <button id="aEnd" class="btn danger">end match</button>
+                <button id="aIdle" class="btn danger" title="end this match and show the off-air screen">go off air</button>
               </div>
             </section>
 
-            <section>
-              <h3>how it runs</h3>
-              <ui-segmented-control id="cMode" aria-label="runner mode" class="seg">
+            <section id="secAfter">
+              <h3>after this match ends</h3>
+              <ui-segmented-control id="cMode" aria-label="what happens after this match" class="seg seg-3">
                 <ui-segmented-control-indicator class="seg-ind"></ui-segmented-control-indicator>
-                ${MODES.map((m) => `<ui-segmented-control-item value="${m.id}" class="seg-item">${m.id}</ui-segmented-control-item>`).join("")}
+                ${AFTER.map((m) => `<ui-segmented-control-item value="${m.id}" class="seg-item">${m.name}</ui-segmented-control-item>`).join("")}
               </ui-segmented-control>
               <p class="hint" id="cModeSays"></p>
               <div id="cPinnedWrap" hidden>
                 <ui-select id="cPinned" class="sel">
-                  <ui-select-label class="lbl">the pinned model</ui-select-label>
+                  <ui-select-label class="lbl">the model that loops</ui-select-label>
                   <ui-select-trigger><button class="sel-btn"><ui-select-value></ui-select-value></button></ui-select-trigger>
                   <ui-select-content class="sel-list"></ui-select-content>
                 </ui-select>
               </div>
+              <div id="cRosterWrap" hidden>
+                <span class="lbl">the roster it rotates through</span>
+                <div id="cRoster" class="checks"></div>
+              </div>
             </section>
 
-            <section>
-              <h3>turn cadence</h3>
-              <ui-slider id="cTurn" min="5" max="60" step="1" class="slider">
-                <div class="slider-top"><span class="lbl">a turn every</span><b id="cTurnVal"></b></div>
-                <ui-slider-control class="slider-ctl">
-                  <ui-slider-track class="slider-track">
-                    <ui-slider-indicator class="slider-fill"></ui-slider-indicator>
-                    <ui-slider-thumb class="slider-thumb" aria-label="seconds between turns"></ui-slider-thumb>
-                  </ui-slider-track>
-                </ui-slider-control>
-              </ui-slider>
-              <label class="toggle">
-                <span><b>pause when nobody's watching</b><span class="hint">after ten minutes with no spectators. it saves the subscriptions for an audience.</span></span>
-                <ui-switch id="cEmpty" class="switch"><ui-switch-thumb class="switch-thumb"></ui-switch-thumb></ui-switch>
-              </label>
+            <section id="secQueue">
+              <h3>up next</h3>
+              <p class="hint">runs next, in order, before the after-match rule.</p>
+              <ol id="lQueueList" class="queue"></ol>
             </section>
 
-            <section>
-              <h3>roster</h3>
-              <p class="hint">which signed-in models rotation draws from.</p>
-              <div id="cRoster" class="checks"></div>
-            </section>
-
-            <section>
-              <h3>start a match</h3>
+            <section id="secStart">
+              <h3 id="startTitle">start a match</h3>
               <div class="pair2">
                 <ui-select id="lModel" class="sel">
                   <ui-select-label class="lbl">model</ui-select-label>
@@ -256,12 +251,27 @@ export class AdminDeck {
                 </ui-select>
               </div>
               <div class="btnrow">
-                <button id="lLaunch" class="btn solid">launch now</button>
+                <button id="lLaunch" class="btn solid"></button>
                 <button id="lQueue" class="btn">add to queue</button>
-                <button id="lSwitch" class="btn" title="hand the match in progress to this model">switch model</button>
+                <button id="lSwitch" class="btn" title="hand the match in progress to this model">give it this match</button>
               </div>
-              <h4>up next</h4>
-              <ol id="lQueueList" class="queue"></ol>
+            </section>
+
+            <section id="secPace">
+              <h3>pace</h3>
+              <ui-slider id="cTurn" min="5" max="60" step="1" class="slider">
+                <div class="slider-top"><span class="lbl">a turn every</span><b id="cTurnVal"></b></div>
+                <ui-slider-control class="slider-ctl">
+                  <ui-slider-track class="slider-track">
+                    <ui-slider-indicator class="slider-fill"></ui-slider-indicator>
+                    <ui-slider-thumb class="slider-thumb" aria-label="seconds between turns"></ui-slider-thumb>
+                  </ui-slider-track>
+                </ui-slider-control>
+              </ui-slider>
+              <label class="toggle">
+                <span><b>pause when nobody's watching</b><span class="hint">after ten minutes with no spectators, the game and the ai both freeze until someone is back.</span></span>
+                <ui-switch id="cEmpty" class="switch"><ui-switch-thumb class="switch-thumb"></ui-switch-thumb></ui-switch>
+              </label>
             </section>
 
             <section>
@@ -278,7 +288,7 @@ export class AdminDeck {
           <ui-alert-dialog-title class="deck-title" id="confirmTitle"></ui-alert-dialog-title>
           <ui-alert-dialog-description id="confirmDetail"></ui-alert-dialog-description>
           <div class="btnrow end">
-            <ui-alert-dialog-close><button class="btn">keep it</button></ui-alert-dialog-close>
+            <ui-alert-dialog-close><button class="btn">not now</button></ui-alert-dialog-close>
             <ui-alert-dialog-close value="confirm"><button class="btn danger" id="confirmYes"></button></ui-alert-dialog-close>
           </div>
         </ui-alert-dialog-content>
@@ -288,7 +298,7 @@ export class AdminDeck {
     const link = $("adminLink");
     const open = h(
       "button",
-      { class: "decklink", id: "deckOpen", onclick: () => void ui("deckDrawer").api.open() },
+      { class: "decklink", id: "deckOpen", onclick: () => this.open() },
       "control deck",
     );
     link.replaceWith(open);
@@ -298,10 +308,15 @@ export class AdminDeck {
       void this.act(done, "PATCH", "/api/admin/config", body);
 
     $("aPause").addEventListener("click", () => {
-      const paused = this.meta?.aiPaused ?? this.state?.aiPaused;
-      void this.act(paused ? "resumed." : "paused.", "POST", "/api/admin/action", {
-        action: paused ? "resume" : "pause",
-      });
+      const paused = this.meta?.matchState === "paused";
+      void this.act(
+        paused
+          ? "resumed. the game and the ai are running again."
+          : "paused. the game and the ai are both frozen.",
+        "POST",
+        "/api/admin/action",
+        { action: paused ? "resume" : "pause" },
+      );
     });
     $("aStep").addEventListener(
       "click",
@@ -312,26 +327,27 @@ export class AdminDeck {
       () =>
         void this.act("the next wave is on its way.", "POST", "/api/admin/action", { action: "send_wave" }),
     );
-    $("aEnd").addEventListener("click", async () => {
+    $("aIdle").addEventListener("click", async () => {
       const id = this.liveMatchId();
       if (
         await this.confirm(
-          `end match ${id ?? ""} now?`,
-          "it is scored as it stands, and whatever is next in the queue or the mode takes over.",
-          "end it",
+          "go off air?",
+          `match ${id ?? ""} ends now and is scored as it stands. nothing plays until you start a match.`,
+          "go off air",
         )
       )
-        void this.act("match ended.", "POST", "/api/admin/action", { action: "end_match" });
+        void this.act("off air.", "POST", "/api/admin/action", { action: "go_idle" });
     });
 
     $("cMode").addEventListener("valuechange", (e) => {
       const mode = String(value(e)) as RunnerMode;
-      if (mode && mode !== this.state?.config.mode) patch(`mode is now ${mode}.`, { mode });
+      const name = AFTER.find((m) => m.id === mode)?.name;
+      if (name && mode !== this.state?.config.mode) patch(`after this match: ${name}.`, { mode });
     });
     $("cPinned").addEventListener("valuechange", (e) => {
       const pinnedModel = String(value(e) || "");
       if (pinnedModel && pinnedModel !== this.state?.config.pinnedModel)
-        patch(`${pinnedModel} is pinned.`, { pinnedModel });
+        patch(`${pinnedModel} will loop.`, { pinnedModel });
     });
     $("cTurn").addEventListener("valuechange", (e) => setText($("cTurnVal"), `${Number(value(e))}s`));
     $("cTurn").addEventListener("valuecommit", (e) => {
@@ -354,12 +370,15 @@ export class AdminDeck {
       this.map = String(value(e) || this.map);
     });
     $("lLaunch").addEventListener("click", async () => {
+      const idle = this.meta?.matchState === "idle";
+      // Off air there is nothing to interrupt, so it just starts.
       if (
-        await this.confirm(
+        idle ||
+        (await this.confirm(
           `launch ${this.model} on ${this.map}?`,
           "the match in progress ends now and is scored as it stands.",
           "launch",
-        )
+        ))
       )
         void this.act(`${this.model} is dropping onto ${this.map}.`, "POST", "/api/admin/matches", {
           model: this.model,
@@ -392,9 +411,12 @@ export class AdminDeck {
     if (!this.model || !models.some((m) => m.value === this.model)) this.model = s.contender.id;
     if (!this.map) this.map = s.maps[0] || "";
 
-    ui<string>("cMode").value = s.config.mode;
-    setText($("cModeSays"), MODES.find((m) => m.id === s.config.mode)?.says || "");
-    $("cPinnedWrap").hidden = s.config.mode !== "pinned";
+    // "paused" was once a mode. Pausing lives in "right now", so an old config reads as "stop".
+    const mode: RunnerMode = s.config.mode === "paused" ? "single" : s.config.mode;
+    ui<string>("cMode").value = mode;
+    setText($("cModeSays"), AFTER.find((m) => m.id === mode)?.says || "");
+    $("cPinnedWrap").hidden = mode !== "pinned";
+    $("cRosterWrap").hidden = mode !== "rotation";
     fill(
       "cPinned",
       models.some((m) => m.value === s.config.pinnedModel)
@@ -481,25 +503,52 @@ export class AdminDeck {
     this.renderNow();
   }
 
+  open(): void {
+    void ui("deckDrawer").api.open();
+  }
+
   private renderNow(): void {
     const m = this.meta;
     const s = this.state;
     if (!s || !document.getElementById("deckNow")) return;
+    const air = m?.matchState ?? (s.aiPaused ? "paused" : "live");
+    const idle = air === "idle";
     const id = m?.contender.id || s.contender.id;
-    const paused = m?.aiPaused ?? s.aiPaused;
     const now = $("deckNow");
-    const key = `${id}|${paused}|${m?.matchId}|${m?.turns}|${m?.avgLatencyMs}|${m?.emptyPaused}`;
+    const key = `${air}|${id}|${m?.matchId}|${m?.turns}|${m?.avgLatencyMs}|${m?.emptyPaused}|${m?.lastCompleted?.id}`;
     if (now.dataset.key !== key) {
       now.dataset.key = key;
-      const facts = [
-        m?.matchId ? `match ${m.matchId}` : "no match",
-        paused ? "paused" : m?.emptyPaused ? "waiting for a spectator" : "playing",
-        m?.turns ? `${m.turns} turns` : "",
-        m?.avgLatencyMs ? `${(m.avgLatencyMs / 1000).toFixed(1)}s a turn` : "",
-      ].filter(Boolean);
-      now.replaceChildren(tickerEl(id, "m"), h("span", { class: "quiet" }, facts.join(", ")));
+      const word = h("b", { class: "air", "data-air": air }, idle ? "off air" : air);
+      if (idle) {
+        const last = m?.lastCompleted;
+        now.replaceChildren(
+          word,
+          h(
+            "span",
+            { class: "quiet" },
+            last ? `no match is running. the last was match ${last.id}.` : "no match is running.",
+          ),
+        );
+      } else {
+        const facts = [
+          m?.matchId ? `match ${m.matchId}` : "",
+          air === "paused" ? (m?.emptyPaused ? "nobody was watching" : "game and ai frozen") : "",
+          m?.turns ? `${m.turns} turns` : "",
+          m?.avgLatencyMs ? `${(m.avgLatencyMs / 1000).toFixed(1)}s a turn` : "",
+        ].filter(Boolean);
+        now.replaceChildren(word, tickerEl(id, "m"), h("span", { class: "quiet" }, facts.join(", ")));
+      }
       now.title = `${lineLetter(id)} line`;
+      // Off air, starting a match is the only thing to do, so that form moves to the top.
+      $("nowActions").hidden = idle;
+      $("lSwitch").hidden = idle;
+      const start = $("secStart");
+      if (idle) $("secNow").after(start);
+      else $("secQueue").after(start);
+      setText($("startTitle"), idle ? "start a match" : "start or queue a match");
+      setText($("lLaunch"), idle ? "go on air" : "launch now");
+      setText($("secAfter").querySelector("h3")!, idle ? "after a match ends" : "after this match ends");
     }
-    setText($("aPause"), paused ? "resume" : "pause");
+    setText($("aPause"), air === "paused" ? "resume" : "pause");
   }
 }

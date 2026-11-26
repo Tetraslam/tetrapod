@@ -23,6 +23,7 @@ bun run check   # typecheck + biome
 - the look is decided in [BRIEF.md](BRIEF.md). read it before changing anything visual.
 
 `ARENA_MOCK_ADMIN=1 bun run dev` answers `/api/admin/*` with canned data, so the control deck can be worked on without signing in.
+in `vite dev`, `?state=idle` and `?state=paused` force those match states, to work on the off-air and paused screens.
 `?perf=<url>` posts frame-time stats to that url every 4s, and `arena.perf()` prints them in the console.
 
 ## where things are

@@ -96,7 +96,17 @@ export function renderBoard(state: State | null, meta: Meta | null): void {
     if (href) matchCell.setAttribute("href", href);
     else matchCell.removeAttribute("href");
   }
-  setText($("bLineLabel"), over ? "just played" : "now playing");
+  const paused = meta?.matchState === "paused";
+  setText($("bLineLabel"), paused ? "paused" : over ? "just played" : "now playing");
+  const hold = $("hold");
+  hold.hidden = !paused;
+  if (paused)
+    setText(
+      $("holdWhy"),
+      meta?.emptyPaused
+        ? "nobody was watching, so the game and the ai both stopped"
+        : "the game and the ai are both frozen",
+    );
 }
 
 let thinkingSince = 0;
@@ -111,9 +121,9 @@ export function renderBrainStatus(state: State | null, meta: Meta | null, now: n
   else if (state?.gameOver) {
     mode = "over";
     text = "core lost, next model is up";
-  } else if (meta.aiPaused) {
+  } else if (meta.matchState === "paused" || meta.aiPaused) {
     mode = "paused";
-    text = "paused";
+    text = meta.emptyPaused ? "paused, nobody watching" : "paused";
   } else if (meta.aiBusy) {
     if (!thinkingSince) thinkingSince = now;
     mode = "thinking";
@@ -498,6 +508,116 @@ export function ending(m: MatchRow, liveId: number | null | undefined): string {
 
 export type BoardHooks = { admin: boolean; remove: (m: MatchRow) => void };
 
+/** The match table: every row is a link to that match's breakdown. Used by the leaderboard and the off-air screen. */
+function matchTable(
+  el: HTMLElement,
+  rows: MatchRow[],
+  meta: Meta | null,
+  hooks?: BoardHooks,
+  compact = false,
+): void {
+  const admin = !!hooks?.admin;
+  const ended = (m: MatchRow): HTMLElement => {
+    const text = ending(m, meta?.matchId);
+    if (text === "on now") return h("span", { class: "now" }, text);
+    return h(
+      "span",
+      {
+        class: text === "cut short" ? "quiet" : null,
+        title: m.ended_at ? new Date(m.ended_at).toLocaleString() : null,
+      },
+      m.ended_at && text !== "cut short" ? [text, ago(m.ended_at)].filter(Boolean).join(", ") : text,
+    );
+  };
+  el.replaceChildren(
+    h(
+      "thead",
+      null,
+      h(
+        "tr",
+        null,
+        th("#", true),
+        th("model", true),
+        th("map", true),
+        th("wave"),
+        th("turns"),
+        compact ? null : th("actions landed"),
+        compact ? null : th("lasted"),
+        th("ended"),
+        admin ? th("") : null,
+      ),
+    ),
+    h(
+      "tbody",
+      null,
+      ...(rows.length
+        ? rows.map((m) => {
+            const href = `#match/${m.id}`;
+            const replay = (m.snapshot_count || 0) > 0;
+            return h(
+              "tr",
+              { class: "go", "data-href": href },
+              h("td", { class: "l quiet" }, String(m.id)),
+              h(
+                "td",
+                { class: "l" },
+                h(
+                  "a",
+                  { href, class: "rowlink", "aria-label": `match ${m.id} breakdown` },
+                  tickerEl(m.model, "s"),
+                ),
+              ),
+              h("td", { class: "l" }, m.map),
+              h("td", null, String(m.peak_wave)),
+              h(
+                "td",
+                {
+                  class: replay ? null : "quiet",
+                  title: replay ? "has a replay" : "played before replays were recorded",
+                },
+                replay ? String(m.turns ?? 0) : "--",
+              ),
+              compact ? null : h("td", null, accuracy(m.actions_ok, m.actions_fail)),
+              compact
+                ? null
+                : h(
+                    "td",
+                    null,
+                    m.ended_at
+                      ? duration((m.ended_at - m.started_at) / 1000)
+                      : m.id === meta?.matchId
+                        ? duration((Date.now() - m.started_at) / 1000)
+                        : "--",
+                  ),
+              h("td", null, ended(m)),
+              admin
+                ? h(
+                    "td",
+                    null,
+                    m.id === meta?.matchId
+                      ? null
+                      : h(
+                          "button",
+                          {
+                            class: "del",
+                            "aria-label": `delete match ${m.id}`,
+                            title: "delete this match",
+                            onclick: (e: Event) => {
+                              e.stopPropagation();
+                              hooks?.remove(m);
+                            },
+                          },
+                          "delete",
+                        ),
+                  )
+                : null,
+            );
+          })
+        : [h("tr", { class: "empty" }, h("td", { colspan: 8 }, "no matches yet."))]),
+    ),
+  );
+}
+
 export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null, hooks?: BoardHooks): void {
   if (!lb) return;
   const live = meta?.contender.id;
@@ -554,104 +674,7 @@ export function renderLeaderboard(lb: Leaderboard | null, meta: Meta | null, hoo
     ),
   );
 
-  const admin = !!hooks?.admin;
-  const ended = (m: MatchRow): HTMLElement => {
-    const text = ending(m, meta?.matchId);
-    if (text === "on now") return h("span", { class: "now" }, text);
-    return h(
-      "span",
-      {
-        class: text === "cut short" ? "quiet" : null,
-        title: m.ended_at ? new Date(m.ended_at).toLocaleString() : null,
-      },
-      m.ended_at && text !== "cut short" ? [text, ago(m.ended_at)].filter(Boolean).join(", ") : text,
-    );
-  };
-  $("matches").replaceChildren(
-    h(
-      "thead",
-      null,
-      h(
-        "tr",
-        null,
-        th("#", true),
-        th("model", true),
-        th("map", true),
-        th("wave"),
-        th("turns"),
-        th("actions landed"),
-        th("lasted"),
-        th("ended"),
-        admin ? th("") : null,
-      ),
-    ),
-    h(
-      "tbody",
-      null,
-      ...(lb.recentMatches.length
-        ? lb.recentMatches.map((m) => {
-            const href = `#match/${m.id}`;
-            const replay = (m.snapshot_count || 0) > 0;
-            return h(
-              "tr",
-              { class: "go", "data-href": href },
-              h("td", { class: "l quiet" }, String(m.id)),
-              h(
-                "td",
-                { class: "l" },
-                h(
-                  "a",
-                  { href, class: "rowlink", "aria-label": `match ${m.id} breakdown` },
-                  tickerEl(m.model, "s"),
-                ),
-              ),
-              h("td", { class: "l" }, m.map),
-              h("td", null, String(m.peak_wave)),
-              h(
-                "td",
-                {
-                  class: replay ? null : "quiet",
-                  title: replay ? "has a replay" : "played before replays were recorded",
-                },
-                replay ? String(m.turns ?? 0) : "--",
-              ),
-              h("td", null, accuracy(m.actions_ok, m.actions_fail)),
-              h(
-                "td",
-                null,
-                m.ended_at
-                  ? duration((m.ended_at - m.started_at) / 1000)
-                  : m.id === meta?.matchId
-                    ? duration((Date.now() - m.started_at) / 1000)
-                    : "--",
-              ),
-              h("td", null, ended(m)),
-              admin
-                ? h(
-                    "td",
-                    null,
-                    m.id === meta?.matchId
-                      ? null
-                      : h(
-                          "button",
-                          {
-                            class: "del",
-                            "aria-label": `delete match ${m.id}`,
-                            title: "delete this match",
-                            onclick: (e: Event) => {
-                              e.stopPropagation();
-                              hooks?.remove(m);
-                            },
-                          },
-                          "delete",
-                        ),
-                  )
-                : null,
-            );
-          })
-        : [h("tr", { class: "empty" }, h("td", { colspan: 8 }, "no matches yet."))]),
-    ),
-  );
+  matchTable($("matches"), lb.recentMatches, meta, hooks);
 
   const queue = lb.queue || [];
   $("queueWrap").hidden = queue.length === 0;
@@ -715,4 +738,64 @@ export function renderFactorio(f: Factorio | null, now: number): void {
   const d = f.daytime;
   show("fDay", d < 0.2 || d > 0.8 ? "day" : d < 0.3 ? "dusk" : d < 0.7 ? "night" : "dawn");
   meter($("fDayFill"), dim ? 0 : d);
+}
+
+// ---------- off air ----------
+
+let offBoard: Leaderboard | null = null;
+let offAdmin = false;
+
+/** The intermission screen: what happened last, what to watch back, and what is queued. */
+export function renderOffAir(
+  lb: Leaderboard | null,
+  meta: Meta | null,
+  hooks: BoardHooks,
+  now: number,
+): void {
+  const last = meta?.lastCompleted;
+  const link = $<HTMLAnchorElement>("offLast");
+  link.hidden = !last;
+  if (last) {
+    const key = `${last.id}|${Math.floor((now - last.ended_at) / 30000)}`;
+    if (link.dataset.key !== key) {
+      link.dataset.key = key;
+      link.href = `#match/${last.id}`;
+      link.replaceChildren(
+        h("span", { class: "quiet" }, `the last one ended ${ago(last.ended_at, now)}:`),
+        tickerEl(last.model, "m"),
+        h("span", null, `reached wave ${last.peak_wave} on ${last.map}`),
+      );
+    }
+  }
+  const queue = lb?.queue || [];
+  setText(
+    $("offSays"),
+    queue.length
+      ? `no match is running. ${queue.length} ${queue.length === 1 ? "is" : "are"} queued and will start when the arena goes back on air.`
+      : "no match is running.",
+  );
+  $("offStart").hidden = !hooks.admin;
+  // The tables only rebuild when the board data itself changed, so hover and focus survive the clock.
+  if (!lb || (lb === offBoard && hooks.admin === offAdmin)) return;
+  offBoard = lb;
+  offAdmin = hooks.admin;
+  matchTable($("offMatches"), lb.recentMatches.slice(0, 14), meta, hooks, true);
+  $("offQueueWrap").hidden = queue.length === 0;
+  $("offQueue").replaceChildren(
+    ...queue.map((q) => h("li", null, tickerEl(q.model, "m"), h("span", { class: "quiet" }, `on ${q.map}`))),
+  );
+  $("offStandings").replaceChildren(
+    ...(lb.models.length
+      ? lb.models
+          .slice(0, 8)
+          .map((r) =>
+            h(
+              "li",
+              null,
+              tickerEl(r.model, "m"),
+              h("b", { title: "best wave reached" }, String(r.best_wave)),
+            ),
+          )
+      : [h("li", { class: "quiet" }, "nobody has played yet.")]),
+  );
 }

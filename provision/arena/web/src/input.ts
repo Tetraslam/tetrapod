@@ -1,7 +1,15 @@
 import type { Pick, Renderer } from "./renderer";
 
-/** Pan, wheel and pinch zoom, hover and click for one map canvas. `touched` fires on any manual camera move. */
-export function attachCamera(view: Renderer, touched: () => void): void {
+export type CameraHooks = {
+  /** The viewer dragged the map. */
+  panned: () => void;
+  /** The viewer zoomed. Return true to zoom about the centre of the view and not the pointer. */
+  zoomed?: () => boolean;
+};
+
+/** Pan, wheel and pinch zoom, hover and click for one map canvas. */
+export function attachCamera(view: Renderer, hooks: CameraHooks): void {
+  const centred = () => hooks.zoomed?.() ?? false;
   const canvas = view.canvas;
   const pointers = new Map<number, { x: number; y: number }>();
   let dragged = 0;
@@ -33,16 +41,20 @@ export function attachCamera(view: Renderer, touched: () => void): void {
       dragged += Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y);
       if (dragged > 4) {
         canvas.classList.add("dragging");
-        touched();
+        hooks.panned();
         view.panBy(p.x - prev.x, p.y - prev.y);
         view.hover = null;
       }
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      touched();
-      if (pinch > 0) view.zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, dist / pinch);
-      view.panBy((p.x - prev.x) / 2, (p.y - prev.y) / 2);
+      // A pinch on a tracked camera only zooms: the ship stays in the middle.
+      if (centred()) {
+        if (pinch > 0) view.zoomAt(view.width / 2, view.height / 2, dist / pinch);
+      } else {
+        if (pinch > 0) view.zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, dist / pinch);
+        view.panBy((p.x - prev.x) / 2, (p.y - prev.y) / 2);
+      }
       pinch = dist;
       dragged = 99;
     }
@@ -68,8 +80,8 @@ export function attachCamera(view: Renderer, touched: () => void): void {
     "wheel",
     (e) => {
       e.preventDefault();
-      touched();
-      const p = local(e);
+      const mid = centred();
+      const p = mid ? { x: view.width / 2, y: view.height / 2 } : local(e);
       const step = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
       view.zoomAt(p.x, p.y, Math.exp(-step * (e.ctrlKey ? 0.01 : 0.0016)));
     },

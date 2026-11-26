@@ -1486,7 +1486,7 @@ a.cell[href]:hover .lbl {
 }
 
 .caption::before {
-  content: "director ";
+  content: attr(data-mode) " ";
   font-weight: 600;
   color: var(--signal);
 }
@@ -2568,4 +2568,183 @@ a.cell[href]:hover .lbl {
   animation: none;
   transform-origin: left;
   transition: transform 260ms linear;
+}
+
+/* camera bar: one of three modes, then an overlay switch that is plainly a different kind of thing */
+.modes {
+  display: flex;
+}
+
+.key.mode {
+  position: relative;
+}
+
+.key.mode::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--signal);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--slide);
+}
+
+.key.mode[aria-checked="true"] {
+  color: var(--ink);
+  background: var(--raise);
+}
+
+.key.mode[aria-checked="true"]::before {
+  transform: scaleX(1);
+}
+
+.key.overlay {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.key.overlay::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--ink-3);
+  transition: background 120ms;
+}
+
+.key.overlay[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.key.overlay[aria-checked="true"]::before {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.key.overlay kbd {
+  margin-left: 0;
+}
+
+/* ---------- round three: paused, off air, the deck's order ---------- */
+/* paused is neither live nor hostile, so its plate is plain enamel white */
+.hold {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  max-width: calc(100% - 24px);
+  padding: 7px 16px 9px;
+  background: var(--ink);
+  color: var(--black);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.hold b {
+  font: 700 30px / 0.9 var(--display);
+}
+
+.hold span {
+  font: 400 12px / 1.2 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.off-says {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding-bottom: 4px;
+}
+
+.off-last {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ink);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.off-last:hover code {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.off-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0 48px;
+}
+
+.off-grid h2 {
+  margin-top: 36px;
+}
+
+.off-grid .hint {
+  margin: 10px 0 2px;
+}
+
+.standlist {
+  list-style: none;
+}
+
+.standlist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.standlist b {
+  font: 600 26px / 0.9 var(--display);
+}
+
+.seg-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.air {
+  justify-self: start;
+  font: 700 26px / 0.95 var(--display);
+}
+
+.air[data-air="live"] {
+  color: var(--signal);
+}
+
+.air[data-air="idle"] {
+  color: var(--ink-3);
+}
+
+#cRosterWrap,
+#cPinnedWrap {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .off-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hold {
+    flex-direction: column;
+    gap: 3px;
+    white-space: normal;
+    text-align: center;
+    align-items: center;
+  }
+
+  .hold b {
+    font-size: 24px;
+  }
 }

@@ -38,6 +38,12 @@ principles borrowed:
 - the control deck is a sheet from the right that only exists for a signed-in admin. spectators get one quiet word, "admin".
 - nothing says "live". a healthy stream is silent and only trouble gets a word, in red.
 
+## round three
+- one thing drives the camera at a time: it follows the builder ship (the default), the director cuts between events, or it is free. dragging or jumping picks free. tactical is an overlay, so it is drawn as a switch and sits apart from the modes.
+- paused gets a plain enamel-white plate on the map. it is neither live (yellow) nor hostile (red), and the picture holds still under it.
+- off air is its own board, not an empty stage: the last result, the matches worth watching back, the standings and what is queued.
+- the control deck reads top to bottom as time: right now, after this match, up next, start one, pace.
+
 ## hierarchy
 - mindustry live: the map first. then the board strip: exact model ticker, wave, time to next wave, hostiles, core. the thought feed is third. resources, minimap and camera controls sit on the map's edges and stay quiet.
 - leaderboard: line disc and exact ticker, then best wave as the big number. averages, counts and accuracy recede. recent matches and the rotation follow.

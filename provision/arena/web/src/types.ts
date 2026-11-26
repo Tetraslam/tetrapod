@@ -79,6 +79,9 @@ export type Contender = { id: string; provider: string; ticker: string; label: s
 export type Meta = {
   contender: Contender;
   matchId: number | null;
+  /** live: a match is running. paused: it is frozen in place, game and model both. idle: off air, no match. */
+  matchState?: "live" | "paused" | "idle";
+  lastCompleted?: { id: number; model: string; map: string; peak_wave: number; ended_at: number } | null;
   mode?: RunnerMode;
   turnIntervalMs?: number;
   autoPauseEmpty?: boolean;

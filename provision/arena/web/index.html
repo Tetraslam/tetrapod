@@ -63,12 +63,18 @@
             <ul id="legend" class="legend" hidden></ul>
             <div id="announce" class="announce" aria-live="polite"></div>
             <p id="waiting" class="waiting">waiting for the battlefield</p>
+            <div id="hold" class="hold" role="status" hidden><b>paused</b><span id="holdWhy"></span></div>
 
             <div class="deck">
-              <p id="directorLabel" class="caption"></p>
+              <p id="directorLabel" class="caption" hidden></p>
               <div class="keys">
-                <button id="btnDirector" class="key toggle" aria-pressed="true" title="the camera follows fights and new construction on its own">director <kbd>d</kbd></button>
-                <button id="btnTactical" class="key toggle" aria-pressed="false" title="turret reach, enemy routes and ore veins">tactical <kbd>t</kbd></button>
+                <span class="modes" role="radiogroup" aria-label="what the camera does">
+                  <button id="camFollow" class="key mode" role="radio" aria-checked="true" title="the camera stays on the model's builder ship">follow <kbd>a</kbd></button>
+                  <button id="camDirector" class="key mode" role="radio" aria-checked="false" title="the camera cuts to fights, new construction and incoming waves">director <kbd>d</kbd></button>
+                  <button id="camFree" class="key mode" role="radio" aria-checked="false" title="the camera stays where you put it">free</button>
+                </span>
+                <span class="gap"></span>
+                <button id="btnTactical" class="key overlay" role="switch" aria-checked="false" title="an overlay: turret reach, enemy routes and ore veins">tactical <kbd>t</kbd></button>
                 <span class="gap"></span>
                 <button id="btnCore" class="key">core <kbd>c</kbd></button>
                 <button id="btnFit" class="key">whole map <kbd>f</kbd></button>
@@ -101,6 +107,36 @@
             </header>
             <ol id="feed" class="feed"></ol>
           </aside>
+        </section>
+
+        <section class="view page offair" id="view-offair" aria-label="off air" hidden>
+          <div class="sheet">
+            <header class="sheet-head">
+              <h1>off air</h1>
+              <div class="off-says">
+                <p id="offSays">no match is running.</p>
+                <a id="offLast" class="off-last" hidden></a>
+                <button id="offStart" class="btn solid" hidden>start a match</button>
+              </div>
+            </header>
+            <div class="off-grid">
+              <section>
+                <h2>recent matches</h2>
+                <p class="hint">pick one to open its replay and breakdown.</p>
+                <div class="scroll-x"><table class="tbl" id="offMatches"></table></div>
+              </section>
+              <aside>
+                <section id="offQueueWrap" hidden>
+                  <h2>up next</h2>
+                  <ol id="offQueue" class="rotation"></ol>
+                </section>
+                <section>
+                  <h2>standings</h2>
+                  <ol id="offStandings" class="standlist"></ol>
+                </section>
+              </aside>
+            </div>
+          </div>
         </section>
 
         <section class="view page" id="view-leaderboard" role="tabpanel" aria-labelledby="tab-leaderboard" hidden>

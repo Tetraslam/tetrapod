@@ -102,9 +102,16 @@ export class MatchView {
     private liveMatchId: () => number | null,
   ) {
     this.view = new Renderer($<HTMLCanvasElement>("mMap"), this.world);
-    attachCamera(this.view, () => {
+    const mine = () => {
       this.touchedAt = performance.now();
       this.view.ease = 0.08;
+    };
+    attachCamera(this.view, {
+      panned: mine,
+      zoomed: () => {
+        mine();
+        return false;
+      },
     });
     $("mPlay").addEventListener("click", () => this.toggle());
     $("mBack").addEventListener("click", () => this.step(-1));

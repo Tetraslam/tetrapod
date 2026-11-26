@@ -1,5 +1,4 @@
 import type { Renderer } from "./renderer";
-import { mmss } from "./util";
 import { type BView, HOME, type World } from "./world";
 
 type Shot = {
@@ -13,19 +12,14 @@ type Shot = {
   cut?: boolean;
 };
 
-const RESUME_MS = 40_000;
-
 /**
  * The observer. It picks what the camera should watch, the way a caster's observer would:
  * a fight beats fresh construction, construction beats a wave walking in, and when nothing
- * is happening it tours the base. Touching the map takes the camera away for a while.
+ * is happening it tours the base. It only runs while the camera mode is "director".
  */
 export class Director {
-  /** The viewer's switch. Off means the director never moves the camera. */
-  on = true;
   label = "";
   private shot: Shot | null = null;
-  private heldUntil = 0;
   private tour = 0;
   private queued: { views: BView[]; at: number } | null = null;
 
@@ -33,17 +27,6 @@ export class Director {
     private world: World,
     private view: Renderer,
   ) {}
-
-  /** The viewer moved the camera by hand. */
-  touch(now: number): void {
-    this.heldUntil = now + RESUME_MS;
-    this.shot = null;
-    this.view.ease = 0.08;
-  }
-
-  get held(): boolean {
-    return this.heldUntil > performance.now();
-  }
 
   reset(): void {
     this.shot = null;
@@ -58,25 +41,11 @@ export class Director {
     else this.queued = { views: mine, at: now };
   }
 
-  /** Point the camera at a tile because the viewer asked (a feed row, the minimap). */
-  jump(wx: number, wy: number, now: number, z?: number): void {
-    this.touch(now);
-    this.view.lookAt(wx, wy, z ?? Math.max(this.view.goal.z, 24));
-  }
-
   update(now: number): void {
     const { world, view } = this;
     const state = world.state;
     if (!state || !world.w) {
       this.label = "";
-      return;
-    }
-    if (!this.on) {
-      this.label = "director off";
-      return;
-    }
-    if (this.heldUntil > now) {
-      this.label = `yours for ${mmss((this.heldUntil - now) / 1000)}`;
       return;
     }
 

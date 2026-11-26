@@ -37,6 +37,9 @@ export class Renderer {
   /** Seconds for the camera to close most of the gap to its goal. */
   ease = 0.08;
   tactical = false;
+  /** The game is paused: belts, rotors and pulses hold still. The camera still moves. */
+  frozen = false;
+  private frozenAt = 0;
   hover: Pick | null = null;
   selected: Pick | null = null;
   /** The exact model id, shown as the builder ship's callsign, and its line colour. */
@@ -182,6 +185,9 @@ export class Renderer {
     this.cam.y += (this.goal.y - this.cam.y) * k;
     this.cam.z *= (this.goal.z / this.cam.z) ** k;
 
+    if (!this.frozen) this.frozenAt = now;
+    else now = this.frozenAt;
+
     const { ctx, world } = this;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -277,7 +283,7 @@ export class Renderer {
     for (const v of all) {
       const b = v.b;
       const hit = now - v.hitAt;
-      if (hit < 180 && sprites) {
+      if (hit >= 0 && hit < 180 && sprites) {
         ctx.globalAlpha = 0.5 * (1 - hit / 180);
         ctx.fillStyle = "#fff";
         ctx.fillRect(v.ox, Y(v.oy + b.size), b.size, b.size);
@@ -352,7 +358,7 @@ export class Renderer {
     const cy = Y(v.cy);
     // A fresh block settles in from slightly oversize.
     const age = now - v.born;
-    const pop = age < 260 && !reducedMotion() ? 1 + 0.16 * (1 - age / 260) ** 2 : 1;
+    const pop = age >= 0 && age < 260 && !reducedMotion() ? 1 + 0.16 * (1 - age / 260) ** 2 : 1;
 
     if (v.kind === "turret") {
       if (!sprite(ctx, `block-${b.size}`, v.cx, cy, 0, pop)) this.flat(v, Y);
@@ -589,7 +595,7 @@ export class Renderer {
         }
         sprite(ctx, v.u.type, x, y, v.rot - 90);
         const hit = now - v.hitAt;
-        if (hit < 160) {
+        if (hit >= 0 && hit < 160) {
           const white = tinted(v.u.type, "#ffffff");
           if (white) {
             ctx.globalAlpha = 0.75 * (1 - hit / 160);
