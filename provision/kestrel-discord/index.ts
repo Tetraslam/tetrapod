@@ -22,7 +22,7 @@ const MENTION_EXEMPT = new Set(
     .map((s) => s.trim())
     .filter(Boolean)
 );
-const DEFAULT_MODEL = process.env.KESTREL_DEFAULT_MODEL || "claude-agent/opus";
+const DEFAULT_MODEL = process.env.KESTREL_DEFAULT_MODEL || "claude-agent/opus[1m]";
 
 if (!DISCORD_TOKEN) {
   console.error("kestrel-discord: DISCORD_TOKEN is required");
