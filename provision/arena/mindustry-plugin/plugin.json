@@ -1,0 +1,10 @@
+{
+  "name": "arena-bridge",
+  "displayName": "Tetrapod Arena Bridge",
+  "author": "tetraslam",
+  "main": "arena.ArenaBridgePlugin",
+  "description": "Local HTTP state and action bridge for the Tetrapod AI Game Arena",
+  "version": "1.0",
+  "minGameVersion": 146,
+  "hidden": true
+}

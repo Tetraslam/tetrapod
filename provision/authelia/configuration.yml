@@ -34,6 +34,7 @@ access_control:
         - manga.tetraslam.world
         - pinchflat.tetraslam.world
         - searxng.tetraslam.world
+        - arena.tetraslam.world
       policy: one_factor
 
 session:

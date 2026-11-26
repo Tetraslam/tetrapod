@@ -17,6 +17,7 @@ http://searxng.tetraslam.world,
 http://ntfy.tetraslam.world,
 http://auth.tetraslam.world,
 http://kuma-api.tetraslam.world,
+http://arena.tetraslam.world,
 http://i.tetraslam.world {
 	redir https://{host}{uri} permanent
 }
@@ -114,6 +115,24 @@ kuma-api.tetraslam.world {
 	}
 
 	respond 404
+}
+
+arena.tetraslam.world {
+	import security
+
+	# Control & RCON mutation endpoints stay behind Authelia; spectator UI & WS are public.
+	@admin path /api/control /api/factorio/rcon
+	handle @admin {
+		forward_auth 127.0.0.1:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		}
+		reverse_proxy 127.0.0.1:6570
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:6570
+	}
 }
 
 i.tetraslam.world {

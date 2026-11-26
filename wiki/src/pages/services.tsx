@@ -102,10 +102,10 @@ const services = [
     purpose: "push notifications to Android",
   },
   {
-    name: "steel",
-    url: URLS.steel,
-    address: "tetrapod:3003",
-    purpose: "full Chromium for difficult agent browsing",
+    name: "arena",
+    url: URLS.arena,
+    address: "arena.tetraslam.world",
+    purpose: "live AI-agent Mindustry & Factorio spectator stream",
   },
   {
     name: "zipline",
@@ -125,10 +125,10 @@ const services = [
     purpose: "fast browser engine for agents",
   },
   {
-    name: "nullclaw",
+    name: "kestrel",
     page: "nullclaw",
-    address: "Discord",
-    purpose: "tetrapod's social agent",
+    address: "Discord + OpenCode V2",
+    purpose: "tetrapod's resident OpenCode V2 + dotagents cloud agent",
   },
   {
     name: "MIT mail proxy",

@@ -52,6 +52,7 @@ HTTP_MONITORS = [
     ("suwayomi", f"http://{HOST}:4567/", None),
     ("pinchflat", f"http://{HOST}:8945/", None),
     ("zipline", f"http://{HOST}:3200/", ["200-299", "300-399"]),
+    ("arena", "https://arena.tetraslam.world/health", None),
     ("lightpanda", f"http://{HOST}:9222/json/version", None),
 ]
 TCP_MONITORS = [

@@ -50,7 +50,7 @@ export const URLS = {
   pinchflat: "https://pinchflat.tetraslam.world",
   searxng: "https://searxng.tetraslam.world",
   ntfy: "https://ntfy.tetraslam.world",
-  steel: `http://${HOSTS.tetrapod.fqdn}:3003`,
+  arena: "https://arena.tetraslam.world",
   zipline: "https://i.tetraslam.world",
 } as const;
 

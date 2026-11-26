@@ -287,6 +287,7 @@ services:
     ports:
       - "6567:6567"     # tailnet-only via SG
       - "6567:6567/udp"
+      - "127.0.0.1:6568:6568" # arena-bridge local HTTP API
     volumes:
       - /opt/tetrapod/mindustry:/data
     mem_limit: 2g

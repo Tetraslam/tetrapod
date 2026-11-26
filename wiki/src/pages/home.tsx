@@ -27,7 +27,7 @@ const quick = [
     title: "agents",
     links: [
       ["search", URLS.searxng],
-      ["browser", URLS.steel],
+      ["arena", URLS.arena],
     ],
   },
   {

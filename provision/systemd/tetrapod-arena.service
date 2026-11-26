@@ -1,0 +1,24 @@
+[Unit]
+Description=Tetrapod AI Game Arena (Mindustry + Factorio live spectator & AI runner)
+After=network-online.target docker.service opencode-serve.service
+Wants=network-online.target opencode-serve.service
+
+[Service]
+Type=simple
+User=tetraslam
+Group=tetraslam
+WorkingDirectory=/opt/tetrapod/arena/server
+Environment=HOME=/home/tetraslam
+Environment=ARENA_PORT=6570
+Environment=ARENA_DATA_DIR=/opt/tetrapod/arena
+Environment=ARENA_WEB_DIR=/opt/tetrapod/arena/web
+Environment=ARENA_TURN_MS=14000
+Environment=MINDUSTRY_URL=http://127.0.0.1:6568
+Environment=OPENCODE_URL=http://127.0.0.1:4096
+Environment=PATH=/home/tetraslam/.local/share/mise/shims:/home/tetraslam/.bun/bin:/home/tetraslam/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/tetraslam/.local/share/mise/shims/bun run /opt/tetrapod/arena/server/index.ts
+Restart=always
+RestartSec=4
+
+[Install]
+WantedBy=multi-user.target
