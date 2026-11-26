@@ -550,8 +550,11 @@ async function pollMindustry(): Promise<void> {
 
 async function pollFactorio(): Promise<void> {
   try {
-    const lua = `/s local p=#game.players; local s=game.surfaces[1]; local e=s.count_entities_filtered{area={{-128,-128},{128,128}}}; rcon.print(game.tick.."|"..p.."|"..string.format("%.4f",game.forces.enemy.evolution_factor).."|"..s.name.."|"..e.."|"..string.format("%.2f",s.daytime))`;
-    const raw = await factorioRcon(lua);
+    const lua = `/sc local p=#game.players; local s=game.surfaces[1]; local e=s.count_entities_filtered{area={{-128,-128},{128,128}}}; rcon.print(game.tick.."|"..p.."|"..string.format("%.4f",game.forces.enemy.evolution_factor).."|"..s.name.."|"..e.."|"..string.format("%.2f",s.daytime))`;
+    let raw = await factorioRcon(lua);
+    if (raw.includes("achievements") || !raw.includes("|")) {
+      raw = await factorioRcon(lua);
+    }
     const parts = raw.trim().split("|");
     if (parts.length >= 6) {
       const tick = Number(parts[0]) || 0;

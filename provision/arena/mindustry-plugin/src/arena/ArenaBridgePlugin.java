@@ -100,9 +100,38 @@ public class ArenaBridgePlugin extends Plugin {
         return sb.toString();
     }
 
-    private static String hexColor(int rgba) {
-        int rgb = (rgba >>> 8) & 0xFFFFFF;
-        return String.format("#%06x", rgb);
+    private static String biomeColor(Tile t) {
+        if (t == null) return "#0b0f16";
+        Block b = t.block();
+        if (b != null && b.solid && t.build == null) {
+            String bn = b.name != null ? b.name : "";
+            if (bn.contains("snow") || bn.contains("ice")) return "#7a90a8";
+            if (bn.contains("sand") || bn.contains("dune") || bn.contains("yellow")) return "#786246";
+            if (bn.contains("spore") || bn.contains("moss") || bn.contains("shrub")) return "#3c4b3a";
+            if (bn.contains("red") || bn.contains("ferric")) return "#633834";
+            if (bn.contains("shale") || bn.contains("basalt") || bn.contains("dark")) return "#2b323e";
+            if (bn.contains("salt")) return "#8b8f99";
+            if (bn.contains("beryllic")) return "#39594f";
+            return "#434c5c"; // crisp raised rock wall
+        }
+        if (t.floor() == null) return "#161c26";
+        String fn = t.floor().name != null ? t.floor().name : "";
+        if (fn.contains("deep-water") || fn.contains("deepwater")) return "#163252";
+        if (fn.contains("tainted-water")) return "#2b4248";
+        if (fn.contains("water") || fn.contains("arkycite")) return "#1e446b";
+        if (fn.contains("slag") || fn.contains("magma") || fn.contains("hotrock")) return "#8c351e";
+        if (fn.contains("tar") || fn.contains("oil")) return "#16141a";
+        if (fn.contains("cryo")) return "#2c5f78";
+        if (fn.contains("snow") || fn.contains("ice")) return "#384659";
+        if (fn.contains("salt")) return "#4b515c";
+        if (fn.contains("sand") || fn.contains("dune")) return "#3d3528";
+        if (fn.contains("moss") || fn.contains("grass") || fn.contains("spore")) return "#1e2e24";
+        if (fn.contains("mud")) return "#2c241d";
+        if (fn.contains("metal") || fn.contains("dark-panel")) return "#242b38";
+        if (fn.contains("basalt") || fn.contains("shale") || fn.contains("charr") || fn.contains("carbon")) return "#171c24";
+        if (fn.contains("red") || fn.contains("ferric")) return "#2f2020";
+        if (fn.contains("dacite") || fn.contains("stone") || fn.contains("crater")) return "#222936";
+        return "#1c2330";
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
@@ -283,20 +312,12 @@ public class ArenaBridgePlugin extends Plugin {
                 for (int y = 0; y < h; y++) {
                     for (int x = 0; x < w; x++) {
                         Tile t = Vars.world.tile(x, y);
-                        String col = "#1a1f26";
-                        if (t != null) {
-                            Block b = t.block();
-                            if (b != null && b.solid && t.build == null) {
-                                col = hexColor(b.mapColor.rgba());
-                            } else if (t.floor() != null) {
-                                col = hexColor(t.floor().mapColor.rgba());
-                            }
-                            if (t.overlay() != null && t.overlay().itemDrop != null) {
-                                if (!firstOre) ores.append(',');
-                                firstOre = false;
-                                ores.append("[").append(x).append(',').append(y).append(",\"")
-                                    .append(esc(t.overlay().itemDrop.name)).append("\"]");
-                            }
+                        String col = biomeColor(t);
+                        if (t != null && t.overlay() != null && t.overlay().itemDrop != null) {
+                            if (!firstOre) ores.append(',');
+                            firstOre = false;
+                            ores.append("[").append(x).append(',').append(y).append(",\"")
+                                .append(esc(t.overlay().itemDrop.name)).append("\"]");
                         }
                         Integer idx = paletteIdx.get(col);
                         if (idx == null) {
