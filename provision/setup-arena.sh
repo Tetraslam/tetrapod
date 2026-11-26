@@ -20,10 +20,23 @@ for _ in $(seq 1 25); do
   sleep 1
 done
 
+echo "==> building the web UI (vite)"
+# bun comes from mise on tetrapod and is not on a non-interactive PATH.
+export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$PATH"
+(
+  cd "$HERE/arena/web"
+  bun install --frozen-lockfile
+  bun run build
+)
+
 echo "==> deploying /opt/tetrapod/arena"
 sudo install -d -o tetraslam -g tetraslam /opt/tetrapod/arena /opt/tetrapod/arena/server /opt/tetrapod/arena/web
 cp "$HERE/arena/server/index.ts" "$HERE/arena/server/rcon.ts" /opt/tetrapod/arena/server/
-cp "$HERE/arena/web/index.html" /opt/tetrapod/arena/web/index.html
+# Swap the whole build in, so hashed assets from older builds don't pile up.
+rm -rf /opt/tetrapod/arena/web.next
+cp -r "$HERE/arena/web/dist" /opt/tetrapod/arena/web.next
+rm -rf /opt/tetrapod/arena/web
+mv /opt/tetrapod/arena/web.next /opt/tetrapod/arena/web
 
 echo "==> installing & starting tetrapod-arena.service"
 sudo cp "$HERE/systemd/tetrapod-arena.service" /etc/systemd/system/

@@ -496,8 +496,15 @@ public class ArenaBridgePlugin extends Plugin {
 
                 sb.append(",\"buildings\":[");
                 boolean firstB = true;
-                for (Building b : Groups.build) {
-                    if (b == null || b.block == null) continue;
+                // Walk the tile grid instead of Groups.build: idle conveyors sleep() themselves out of
+                // that group, which made belts flicker in and out of the stream.
+                int worldW = Vars.world.width();
+                int worldH = Vars.world.height();
+                for (int tileIdx = 0; tileIdx < worldW * worldH; tileIdx++) {
+                    Tile originTile = Vars.world.tile(tileIdx % worldW, tileIdx / worldW);
+                    if (originTile == null || originTile.build == null || originTile.build.tile != originTile) continue;
+                    Building b = originTile.build;
+                    if (b.block == null) continue;
                     if (!firstB) sb.append(',');
                     firstB = false;
                     int ammo = 0;

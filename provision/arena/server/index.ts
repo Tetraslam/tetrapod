@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, normalize, sep } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { factorioRcon } from "./rcon";
 
@@ -84,6 +84,8 @@ type TerrainPayload = {
   core: { x: number; y: number } | null;
   palette: string[];
   rle: number[];
+  tileNames: string[];
+  tileRle: number[];
   ores: Array<[number, number, string]>;
 };
 
@@ -106,11 +108,14 @@ type StatePayload = {
     block: string;
     size: number;
     rot: number;
+    aimRot: number;
     hp: number;
     maxHp: number;
     team: string;
     ammo: number;
   }>;
+  powerLinks: Array<[number, number, number, number]>;
+  conveyorItems: Array<[number, number, string]>;
   power: { produced: number; consumed: number };
   units: Array<{
     id: number;
@@ -144,6 +149,7 @@ type FactorioTelemetry = {
   entitiesNearSpawn: number;
   daytime: number;
   updatedAt: number;
+  version?: string;
   error?: string;
 };
 
@@ -603,7 +609,8 @@ async function pollMindustry(): Promise<void> {
 
 async function pollFactorio(): Promise<void> {
   try {
-    const lua = `/sc local p=#game.players; local s=game.surfaces[1]; local e=s.count_entities_filtered{area={{-128,-128},{128,128}}}; rcon.print(game.tick.."|"..p.."|"..string.format("%.4f",game.forces.enemy.evolution_factor).."|"..s.name.."|"..e.."|"..string.format("%.2f",s.daytime))`;
+    // Factorio 2.0 moved evolution to get_evolution_factor(surface); pcall keeps 1.1 saves working.
+    const lua = `/sc local s=game.surfaces[1]; local f=game.forces.enemy; local ok,evo=pcall(function() return f.get_evolution_factor(s) end); if not ok then evo=f.evolution_factor end; rcon.print(game.tick.."|"..#game.connected_players.."|"..string.format("%.4f",evo).."|"..s.name.."|"..s.count_entities_filtered{area={{-128,-128},{128,128}}}.."|"..string.format("%.2f",s.daytime).."|"..script.active_mods.base)`;
     let raw = await factorioRcon(lua);
     if (raw.includes("achievements") || !raw.includes("|")) {
       raw = await factorioRcon(lua);
@@ -620,6 +627,7 @@ async function pollFactorio(): Promise<void> {
         surface: parts[3] || "nauvis",
         entitiesNearSpawn: Number(parts[4]) || 0,
         daytime: Number(parts[5]) || 0,
+        version: parts[6] || undefined,
         updatedAt: Date.now(),
       };
     } else {
@@ -650,6 +658,28 @@ setInterval(() => void pollMindustry(), 300);
 setInterval(() => void pollFactorio(), 10_000);
 void pollMindustry();
 void pollFactorio();
+
+// The web UI is a Vite build copied into WEB_DIR: index.html plus content-hashed files under /assets.
+async function serveWeb(pathname: string): Promise<Response | null> {
+  let rel: string;
+  try {
+    rel = decodeURIComponent(pathname).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+  if (rel === "") rel = "index.html";
+  if (rel.split("/").some((part) => part === "" || part.startsWith("."))) return null;
+  const path = normalize(join(WEB_DIR, rel));
+  if (!path.startsWith(normalize(WEB_DIR) + sep)) return null;
+  const file = Bun.file(path);
+  if (!(await file.exists())) return null;
+  return new Response(file, {
+    headers: {
+      // Hashed assets never change. The HTML that points at them must always be fresh.
+      "cache-control": rel.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+    },
+  });
+}
 
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -755,14 +785,9 @@ const server = Bun.serve({
       }
     }
 
-    if (url.pathname === "/" || url.pathname === "/index.html") {
-      const html = await readFile(join(WEB_DIR, "index.html"), "utf8");
-      return new Response(html, {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
-        },
-      });
+    if (req.method === "GET" || req.method === "HEAD") {
+      const asset = await serveWeb(url.pathname);
+      if (asset) return asset;
     }
 
     return new Response("Not found", { status: 404 });

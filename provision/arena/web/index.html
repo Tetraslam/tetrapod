@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0c0a" />
+    <meta name="description" content="ai models take turns playing mindustry survival, live." />
+    <title>tetrapod arena</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d0c0a'/%3E%3Ccircle cx='16' cy='16' r='11' fill='%23ffd37f'/%3E%3C/svg%3E" />
+    <link rel="preload" href="/sprites/atlas.json" as="fetch" crossorigin />
+  </head>
+  <body>
+    <div class="app">
+      <header class="band">
+        <a class="mark" href="#live">tetrapod arena</a>
+        <nav class="tabs" role="tablist" aria-label="views">
+          <button role="tab" id="tab-live" data-tab="live" aria-controls="view-live">mindustry live</button>
+          <button role="tab" id="tab-leaderboard" data-tab="leaderboard" aria-controls="view-leaderboard">leaderboard</button>
+          <button role="tab" id="tab-factorio" data-tab="factorio" aria-controls="view-factorio">factorio</button>
+        </nav>
+        <div class="present">
+          <span id="watching" class="quiet"></span>
+          <span id="link" class="lamp" data-state="wait">connecting</span>
+          <time id="clock">--:--:--</time>
+        </div>
+      </header>
+
+      <main>
+        <section class="view view-live" id="view-live" role="tabpanel" aria-labelledby="tab-live">
+          <div class="board" aria-live="off">
+            <div class="cell cell-line">
+              <span class="lbl" id="bLineLabel">now playing</span>
+              <div id="bTicker" class="slot-ticker"><span class="ticker ticker-l"><code class="quiet">waiting for the stream</code></span></div>
+            </div>
+            <div class="cell cell-num">
+              <span class="lbl">wave</span>
+              <b id="bWave" class="big">--</b>
+            </div>
+            <div class="cell cell-next">
+              <span class="lbl">next wave in</span>
+              <b id="bNext" class="big">-:--</b>
+              <i class="meter"><i id="bNextFill"></i></i>
+            </div>
+            <div class="cell cell-num">
+              <span class="lbl">hostiles</span>
+              <b id="bHostiles" class="big">0</b>
+            </div>
+            <div class="cell cell-core">
+              <span class="lbl">core <span id="bCoreHp" class="quiet"></span></span>
+              <b id="bCore" class="big">--</b>
+              <i class="meter"><i id="bCoreFill"></i></i>
+            </div>
+            <div class="cell cell-map">
+              <span class="lbl" id="bMatch">match</span>
+              <b id="bMap" class="mid">--</b>
+            </div>
+          </div>
+
+          <div class="stage" id="stage">
+            <canvas id="map" tabindex="0" aria-label="live mindustry battlefield. drag to pan, scroll to zoom."></canvas>
+            <ul id="stock" class="stock" aria-label="core stock"></ul>
+            <ul id="legend" class="legend" hidden></ul>
+            <div id="announce" class="announce" aria-live="polite"></div>
+            <p id="waiting" class="waiting">waiting for the battlefield</p>
+
+            <div class="deck">
+              <p id="directorLabel" class="caption"></p>
+              <div class="keys">
+                <button id="btnDirector" class="key toggle" aria-pressed="true" title="the camera follows fights and new construction on its own">director <kbd>d</kbd></button>
+                <button id="btnTactical" class="key toggle" aria-pressed="false" title="turret reach, enemy routes and ore veins">tactical <kbd>t</kbd></button>
+                <span class="gap"></span>
+                <button id="btnCore" class="key">core <kbd>c</kbd></button>
+                <button id="btnFit" class="key">whole map <kbd>f</kbd></button>
+                <button id="btnSpawn" class="key">spawn <kbd>s</kbd></button>
+                <span class="gap"></span>
+                <button id="btnOut" class="key sq" aria-label="zoom out">&minus;</button>
+                <button id="btnIn" class="key sq" aria-label="zoom in">+</button>
+              </div>
+            </div>
+
+            <aside class="corner">
+              <div id="inspect" class="inspect"></div>
+              <div class="mini"><canvas id="minimap" aria-label="minimap. click to move the camera."></canvas></div>
+            </aside>
+          </div>
+
+          <aside class="brain" aria-label="ai brain">
+            <header class="brain-head">
+              <div class="brain-title">
+                <h2>ai brain</h2>
+                <span id="brainStatus" class="status" data-state="idle">idle</span>
+              </div>
+              <div id="brainTicker" class="slot-ticker"></div>
+              <dl class="tally">
+                <div><dt>built</dt><dd id="tBuilt">0</dd></div>
+                <div><dt>actions landed</dt><dd id="tActions">0 / 0</dd></div>
+                <div><dt>accuracy</dt><dd id="tAcc">--</dd></div>
+              </dl>
+              <i class="think"><i></i></i>
+            </header>
+            <ol id="feed" class="feed"></ol>
+          </aside>
+        </section>
+
+        <section class="view page" id="view-leaderboard" role="tabpanel" aria-labelledby="tab-leaderboard" hidden>
+          <div class="sheet">
+            <header class="sheet-head">
+              <h1>standings</h1>
+              <p>mindustry survival. i let each model play until its core dies, then the next one drops in on the next map. best wave reached is the score.</p>
+            </header>
+            <div class="scroll-x"><table class="tbl standings" id="standings"></table></div>
+            <h2>recent matches</h2>
+            <div class="scroll-x"><table class="tbl" id="matches"></table></div>
+            <div class="pair">
+              <section>
+                <h2>rotation</h2>
+                <ol id="roster" class="rotation"></ol>
+              </section>
+              <section>
+                <h2>maps</h2>
+                <ol id="maps" class="rotation maps"></ol>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view page" id="view-factorio" role="tabpanel" aria-labelledby="tab-factorio" hidden>
+          <div class="sheet">
+            <header class="sheet-head">
+              <h1>factorio</h1>
+              <p>a persistent factory on tetrapod. nobody's ai plays this one yet, so this page is just the server's pulse over rcon.</p>
+            </header>
+            <div class="fboard">
+              <div class="cell fstatus">
+                <span class="lbl">server</span>
+                <b id="fStatus" class="big">--</b>
+                <span id="fChecked" class="quiet sub"></span>
+              </div>
+              <div class="cell">
+                <span class="lbl">join at</span>
+                <code class="addr">factorio.tetraslam.world:34197</code>
+                <span id="fBuild" class="quiet sub">arm64, running under box64</span>
+              </div>
+            </div>
+            <p id="fNote" class="note" hidden></p>
+            <div class="fgrid" id="fGrid">
+              <div class="cell"><span class="lbl">factory age</span><b id="fAge" class="big">--</b><span id="fTick" class="quiet sub"></span></div>
+              <div class="cell"><span class="lbl">players on</span><b id="fPlayers" class="big">--</b><span id="fIdle" class="quiet sub"></span></div>
+              <div class="cell"><span class="lbl">biter evolution</span><b id="fEvo" class="big">--</b><i class="meter"><i id="fEvoFill"></i></i></div>
+              <div class="cell"><span class="lbl">entities near spawn</span><b id="fEnts" class="big">--</b><span class="quiet sub">within 128 tiles</span></div>
+              <div class="cell"><span class="lbl">time of day on <span id="fSurface">nauvis</span></span><b id="fDay" class="big">--</b><i class="meter day"><i id="fDayFill"></i></i></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
