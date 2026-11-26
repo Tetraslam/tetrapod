@@ -486,8 +486,8 @@ async function getStatusText(channelId: string): Promise<string> {
   const entry = state.channels[channelId];
   const mcpList = Array.isArray(mcp?.data || mcp)
     ? (mcp?.data || mcp)
-        .filter((s: any) => s?.status?.type !== "disabled")
-        .map((s: any) => `${s.name}:${s.status?.type || "?"}`)
+        .filter((s: any) => (s?.status?.status ?? s?.status) !== "disabled")
+        .map((s: any) => `${s.name}:${s?.status?.status ?? s?.status ?? "?"}`)
         .join(", ")
     : "n/a";
   return [

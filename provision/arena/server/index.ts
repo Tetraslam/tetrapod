@@ -1199,6 +1199,8 @@ const server = Bun.serve({
       return Response.json({
         config,
         aiPaused,
+        arenaIdle,
+        meta: getMetaPayload(),
         contender: activeContender,
         availableRoster,
         roster: ROSTER,
