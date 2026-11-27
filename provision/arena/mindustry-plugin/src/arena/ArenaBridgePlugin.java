@@ -5,12 +5,16 @@ import arc.Events;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.math.geom.Point2;
+import arc.math.geom.Vec2;
+import arc.struct.Seq;
 import arc.util.Log;
 import arc.util.serialization.JsonReader;
 import arc.util.serialization.JsonValue;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import mindustry.Vars;
+import mindustry.ai.UnitCommand;
+import mindustry.ai.types.CommandAI;
 import mindustry.ai.types.FlyingAI;
 import mindustry.ai.types.MinerAI;
 import mindustry.content.UnitTypes;
@@ -22,6 +26,7 @@ import mindustry.gen.Building;
 import mindustry.gen.Bullet;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
+import mindustry.gen.Teamc;
 import mindustry.gen.Unit;
 import mindustry.maps.Map;
 import mindustry.mod.Plugin;
@@ -41,10 +46,14 @@ import mindustry.world.blocks.distribution.ItemBridge;
 import mindustry.world.blocks.distribution.MassDriver;
 import mindustry.world.blocks.liquid.Conduit;
 import mindustry.world.blocks.liquid.LiquidBlock;
+import mindustry.world.blocks.logic.LogicBlock;
+import mindustry.world.blocks.logic.MessageBlock;
+import mindustry.world.blocks.logic.SwitchBlock;
 import mindustry.world.blocks.power.PowerNode;
 import mindustry.world.blocks.production.Drill;
 import mindustry.world.blocks.production.Pump;
 import mindustry.world.blocks.storage.CoreBlock;
+import mindustry.world.blocks.units.Reconstructor;
 import mindustry.world.blocks.units.UnitFactory;
 import mindustry.world.meta.BuildVisibility;
 
@@ -254,6 +263,25 @@ public class ArenaBridgePlugin extends Plugin {
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);
         }
+    }
+
+    private static String formatLogicLinks(Seq<LogicBlock.LogicLink> links) {
+        StringBuilder sb = new StringBuilder("[");
+        if (links != null) {
+            boolean first = true;
+            for (int i = 0; i < links.size; i++) {
+                LogicBlock.LogicLink lk = links.get(i);
+                if (lk == null) continue;
+                if (!first) sb.append(',');
+                first = false;
+                sb.append("{\"name\":\"").append(esc(lk.name))
+                  .append("\",\"x\":").append(lk.x)
+                  .append(",\"y\":").append(lk.y)
+                  .append(",\"valid\":").append(lk.valid).append('}');
+            }
+        }
+        sb.append(']');
+        return sb.toString();
     }
 
     private static String esc(String s) {
@@ -547,6 +575,27 @@ public class ArenaBridgePlugin extends Plugin {
                         sb.append('"').append(esc(ufb.plans.get(pi).unit.name)).append('"');
                     }
                     sb.append(']');
+                    if (uf.commandPos != null) {
+                        sb.append(",\"rally\":{\"x\":").append(Math.round(uf.commandPos.x / 8f))
+                          .append(",\"y\":").append(Math.round(uf.commandPos.y / 8f)).append('}');
+                    }
+                    if (uf.command != null) {
+                        sb.append(",\"command\":\"").append(esc(uf.command.name)).append('"');
+                    }
+                } else if (b instanceof Reconstructor.ReconstructorBuild rb) {
+                    if (rb.commandPos != null) {
+                        sb.append(",\"rally\":{\"x\":").append(Math.round(rb.commandPos.x / 8f))
+                          .append(",\"y\":").append(Math.round(rb.commandPos.y / 8f)).append('}');
+                    }
+                    if (rb.command != null) {
+                        sb.append(",\"command\":\"").append(esc(rb.command.name)).append('"');
+                    }
+                } else if (b instanceof LogicBlock.LogicBuild lb) {
+                    sb.append(",\"logicRange\":").append(Math.round(((LogicBlock) b.block).range / 8f));
+                    sb.append(",\"links\":").append(formatLogicLinks(lb.links));
+                    String code = lb.code != null ? lb.code : "";
+                    if (code.length() > 4000) code = code.substring(0, 4000);
+                    sb.append(",\"code\":\"").append(esc(code)).append('"');
                 }
 
                 // Current block configuration
@@ -557,6 +606,14 @@ public class ArenaBridgePlugin extends Plugin {
                 } else if (b instanceof MassDriver.MassDriverBuild md) {
                     if (md.link == -1) sb.append("null");
                     else sb.append("{\"target\":{\"x\":").append(Point2.x(md.link)).append(",\"y\":").append(Point2.y(md.link)).append("}}");
+                } else if (b instanceof LogicBlock.LogicBuild lb) {
+                    int codeLen = lb.code != null ? lb.code.length() : 0;
+                    int linkCount = lb.links != null ? lb.links.size : 0;
+                    sb.append("{\"codeChars\":").append(codeLen).append(",\"links\":").append(linkCount).append('}');
+                } else if (b instanceof MessageBlock.MessageBuild mb) {
+                    sb.append("{\"text\":\"").append(esc(mb.message != null ? mb.message.toString() : "")).append("\"}");
+                } else if (b instanceof SwitchBlock.SwitchBuild sw) {
+                    sb.append("{\"enabled\":").append(sw.enabled).append('}');
                 } else if (b instanceof UnitFactory.UnitFactoryBuild uf && b.block instanceof UnitFactory ufb) {
                     if (uf.currentPlan >= 0 && uf.currentPlan < ufb.plans.size) {
                         sb.append("{\"unit\":\"").append(esc(ufb.plans.get(uf.currentPlan).unit.name)).append("\"}");
@@ -1507,7 +1564,7 @@ public class ArenaBridgePlugin extends Plugin {
                             return "{\"ok\":false,\"error\":\"no friendly building at (" + x + "," + y + ")\"}";
                         }
                         Building b = t.build;
-                        if (!b.block.configurable) {
+                        if (!b.block.configurable && !(b instanceof Reconstructor.ReconstructorBuild) && !(b instanceof UnitFactory.UnitFactoryBuild)) {
                             return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " is not configurable\"}";
                         }
                         boolean clear = req.getBoolean("clear", false);
@@ -1516,6 +1573,13 @@ public class ArenaBridgePlugin extends Plugin {
                                 b.configureAny(-1);
                             } else if (b instanceof PowerNode.PowerNodeBuild) {
                                 b.configureAny(new Point2[0]);
+                            } else if (b instanceof LogicBlock.LogicBuild) {
+                                b.configureAny(LogicBlock.compress("", new Seq<>()));
+                            } else if (b instanceof UnitFactory.UnitFactoryBuild uf) {
+                                uf.commandPos = null;
+                                b.configureAny(null);
+                            } else if (b instanceof Reconstructor.ReconstructorBuild rb) {
+                                rb.commandPos = null;
                             } else {
                                 b.configureAny(null);
                             }
@@ -1525,7 +1589,55 @@ public class ArenaBridgePlugin extends Plugin {
                         String itemName = req.has("item") && !req.get("item").isNull() ? req.getString("item", "").trim().toLowerCase() : "";
                         String liquidName = req.has("liquid") && !req.get("liquid").isNull() ? req.getString("liquid", "").trim().toLowerCase() : "";
                         String unitName = req.has("unit") && !req.get("unit").isNull() ? req.getString("unit", "").trim().toLowerCase() : "";
+                        boolean hasCode = req.has("code") && !req.get("code").isNull();
+                        boolean hasText = req.has("text") && !req.get("text").isNull();
+                        boolean hasEnabled = req.has("enabled") && !req.get("enabled").isNull();
+                        String cmdName = req.has("command") && !req.get("command").isNull() ? req.getString("command", "").trim().toLowerCase() : "";
                         boolean hasTarget = req.has("targetX") && req.has("targetY") && !req.get("targetX").isNull() && !req.get("targetY").isNull();
+
+                        if (hasCode) {
+                            if (!(b instanceof LogicBlock.LogicBuild lb)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " is not a logic processor\"}";
+                            }
+                            String code = req.getString("code", "");
+                            if (code.length() > 8000) {
+                                return "{\"ok\":false,\"error\":\"MLOG code exceeds 8000 char limit\"}";
+                            }
+                            b.configureAny(LogicBlock.compress(code, lb.links));
+                            int lines = code.isEmpty() ? 0 : code.split("\\r?\\n").length;
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"codeLines\":" + lines + ",\"links\":" + formatLogicLinks(lb.links) + "}";
+                        }
+
+                        if (hasText) {
+                            if (!(b instanceof MessageBlock.MessageBuild)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " is not a message block\"}";
+                            }
+                            String text = req.getString("text", "");
+                            if (text.length() > 220) text = text.substring(0, 220);
+                            b.configureAny(text);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"text\":\"" + esc(text) + "\"}";
+                        }
+
+                        if (hasEnabled) {
+                            if (!(b instanceof SwitchBlock.SwitchBuild)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " is not a switch block\"}";
+                            }
+                            boolean en = req.getBoolean("enabled", false);
+                            b.configureAny(en);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"enabled\":" + en + "}";
+                        }
+
+                        if (!cmdName.isEmpty()) {
+                            UnitCommand uc = Vars.content.unitCommand(cmdName);
+                            if (uc == null) {
+                                return "{\"ok\":false,\"error\":\"unknown unit command: " + esc(cmdName) + " (try move, repair, rebuild, assist, mine)\"}";
+                            }
+                            if (!b.block.configurations.containsKey(UnitCommand.class)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept a unit command\"}";
+                            }
+                            b.configureAny(uc);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"command\":\"" + esc(uc.name) + "\"}";
+                        }
 
                         if (!itemName.isEmpty()) {
                             Item it = Vars.content.item(itemName);
@@ -1607,6 +1719,18 @@ public class ArenaBridgePlugin extends Plugin {
                                 b.configureAny(tb.pos());
                                 return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"linked\":" + (!alreadyLinked) + ",\"target\":{\"x\":" + tb.tileX() + ",\"y\":" + tb.tileY() + "}}";
                             }
+                            if (b instanceof LogicBlock.LogicBuild lb) {
+                                if (targetTile.build == null || !lb.validLink(targetTile.build)) {
+                                    int rng = Math.round(((LogicBlock) b.block).range / 8f);
+                                    return "{\"ok\":false,\"error\":\"cannot link " + esc(b.block.name) + " to (" + tx + "," + ty + "): target must be a friendly building within range " + rng + " tiles\"}";
+                                }
+                                b.configureAny(targetTile.build.pos());
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"links\":" + formatLogicLinks(lb.links) + "}";
+                            }
+                            if (b instanceof UnitFactory.UnitFactoryBuild || b instanceof Reconstructor.ReconstructorBuild) {
+                                b.onCommand(new Vec2(tx * 8f, ty * 8f));
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"rally\":{\"x\":" + tx + ",\"y\":" + ty + "}}";
+                            }
                             if (b.block.configurations.containsKey(Point2.class)) {
                                 b.configureAny(new Point2(tx - b.tileX(), ty - b.tileY()));
                                 return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"target\":{\"x\":" + tx + ",\"y\":" + ty + "}}";
@@ -1614,7 +1738,100 @@ public class ArenaBridgePlugin extends Plugin {
                             return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept a target tile link\"}";
                         }
 
-                        return "{\"ok\":false,\"error\":\"provide one of: item, liquid, unit, target_x+target_y, or clear=true\"}";
+                        return "{\"ok\":false,\"error\":\"provide one of: item, liquid, unit, code, text, enabled, command, target_x+target_y, or clear=true\"}";
+                    }
+                    case "command_units" -> {
+                        String unitType = req.has("unitType") && !req.get("unitType").isNull() ? req.getString("unitType", "").trim().toLowerCase() : "all";
+                        if (unitType.isEmpty()) unitType = "all";
+                        String cmdName = req.has("command") && !req.get("command").isNull() ? req.getString("command", "").trim().toLowerCase() : "";
+                        boolean hasPos = req.has("x") && req.has("y") && !req.get("x").isNull() && !req.get("y").isNull();
+                        boolean attack = req.getBoolean("attack", false);
+
+                        if (cmdName.isEmpty() && !hasPos) {
+                            return "{\"ok\":false,\"error\":\"provide x+y target coordinates and/or command (move, repair, rebuild, assist, mine)\"}";
+                        }
+
+                        UnitCommand uc = null;
+                        if (!cmdName.isEmpty()) {
+                            uc = Vars.content.unitCommand(cmdName);
+                            if (uc == null) {
+                                return "{\"ok\":false,\"error\":\"unknown unit command: " + esc(cmdName) + " (try move, repair, rebuild, assist, mine)\"}";
+                            }
+                        }
+
+                        int tx = hasPos ? req.getInt("x", -1) : -1;
+                        int ty = hasPos ? req.getInt("y", -1) : -1;
+                        if (hasPos && (tx < 0 || ty < 0 || tx >= Vars.world.width() || ty >= Vars.world.height())) {
+                            return "{\"ok\":false,\"error\":\"target coordinates out of bounds\"}";
+                        }
+                        float wx = tx * 8f;
+                        float wy = ty * 8f;
+
+                        // Optional focus-fire target near (tx, ty) when attack=true
+                        Teamc attackTarget = null;
+                        if (hasPos && attack) {
+                            float bestD2 = 40f * 40f;
+                            for (Unit eu : Groups.unit) {
+                                if (eu == null || eu.dead() || eu.team == Team.sharded) continue;
+                                float d2 = Mathf.dst2(wx, wy, eu.x, eu.y);
+                                if (d2 < bestD2) {
+                                    bestD2 = d2;
+                                    attackTarget = eu;
+                                }
+                            }
+                            if (attackTarget == null) {
+                                Tile tt = Vars.world.tile(tx, ty);
+                                if (tt != null && tt.build != null && tt.build.team != Team.sharded) {
+                                    attackTarget = tt.build;
+                                }
+                            }
+                        }
+
+                        int commanded = 0;
+                        HashMap<String, Integer> availFriendly = new HashMap<>();
+                        for (Unit u : Groups.unit) {
+                            if (u == null || u.dead() || u.team != Team.sharded) continue;
+                            if (aiDrone != null && u.id == aiDrone.id) continue;
+                            String un = u.type != null ? u.type.name : "unit";
+                            if (u.isCommandable()) {
+                                availFriendly.put(un, availFriendly.getOrDefault(un, 0) + 1);
+                            }
+                            if (!u.isCommandable()) continue;
+                            if (!"all".equals(unitType) && !un.equalsIgnoreCase(unitType)) continue;
+                            CommandAI cai = u.command();
+                            if (cai == null) continue;
+                            if (uc != null && u.type != null && u.type.allowCommand(u, uc)) {
+                                cai.command(uc);
+                            }
+                            if (hasPos) {
+                                if (attackTarget != null) {
+                                    cai.commandTarget(attackTarget);
+                                } else {
+                                    cai.commandPosition(new Vec2(wx, wy));
+                                }
+                            }
+                            commanded++;
+                        }
+
+                        if (commanded == 0) {
+                            StringBuilder sb = new StringBuilder("{\"ok\":false,\"commanded\":0,\"error\":\"no matching friendly commandable units\",\"friendlyUnits\":{");
+                            boolean first = true;
+                            for (var e : availFriendly.entrySet()) {
+                                if (!first) sb.append(',');
+                                first = false;
+                                sb.append('"').append(esc(e.getKey())).append("\":").append(e.getValue());
+                            }
+                            sb.append("}}");
+                            return sb.toString();
+                        }
+
+                        StringBuilder sb = new StringBuilder("{\"ok\":true,\"commanded\":").append(commanded)
+                            .append(",\"unitType\":\"").append(esc(unitType)).append('"');
+                        if (uc != null) sb.append(",\"command\":\"").append(esc(uc.name)).append('"');
+                        if (hasPos) sb.append(",\"target\":{\"x\":").append(tx).append(",\"y\":").append(ty).append('}');
+                        if (attackTarget != null) sb.append(",\"focusTarget\":true");
+                        sb.append('}');
+                        return sb.toString();
                     }
                     case "send_wave" -> {
                         Vars.logic.runWave();

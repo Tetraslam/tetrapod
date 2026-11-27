@@ -1112,6 +1112,14 @@ function buildOverviewPayload(state: StatePayload) {
     .slice(0, 20)
     .map((u) => ({ type: u.type, flying: Boolean(u.flying), x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp }));
 
+  const friendlyUnits: Record<string, number> = {};
+  const droneId = state.playerDrone?.id ?? -1;
+  for (const u of state.units || []) {
+    if (u.team === "sharded" && u.id !== droneId) {
+      friendlyUnits[u.type] = (friendlyUnits[u.type] || 0) + 1;
+    }
+  }
+
   return {
     map: state.map,
     width: state.width,
@@ -1120,6 +1128,7 @@ function buildOverviewPayload(state: StatePayload) {
     waveTimeSec: state.waveTime,
     enemiesCount: state.enemies,
     enemiesSample: enemies,
+    friendlyUnits,
     core: core
       ? {
           x: core.x,
@@ -1359,7 +1368,7 @@ const handleMcp = createMcpHandler([
   {
     name: "configure",
     description:
-      "Configure a friendly configurable building at (x, y): set an item filter (unloader, sorter, inverted-sorter), set a liquid, select a unit plan (ground-factory, air-factory, naval-factory), link a bridge/mass-driver/power-node to (target_x, target_y), or clear its config.",
+      "Configure a friendly building at (x, y): set an item (unloader/sorter), liquid, unit plan (unit factories), MLOG processor code (micro-processor/logic-processor/hyper-processor), message text, switch enabled state, factory/reconstructor default unit command, link/rally target (bridge, mass-driver, power-node, logic processor building link, or factory/reconstructor rally point) via target_x+target_y, or clear=true.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1368,8 +1377,12 @@ const handleMcp = createMcpHandler([
         item: { type: "string", description: "Item name for unloaders/sorters (e.g. 'copper', 'graphite', 'titanium', 'silicon')" },
         liquid: { type: "string", description: "Liquid name for liquid-configurable blocks (e.g. 'water', 'cryofluid', 'oil')" },
         unit: { type: "string", description: "Unit type name for unit factories (e.g. 'dagger', 'nova', 'flare', 'mono')" },
-        target_x: { type: "integer", description: "Target tile X for bridge-conveyor, bridge-conduit, phase bridges, mass-driver, or power-node link toggle" },
-        target_y: { type: "integer", description: "Target tile Y for bridge-conveyor, bridge-conduit, phase bridges, mass-driver, or power-node link toggle" },
+        code: { type: "string", description: "MLOG source code for micro-processor, logic-processor, or hyper-processor" },
+        text: { type: "string", description: "Text for a message block" },
+        enabled: { type: "boolean", description: "On/off state for a switch block" },
+        command: { type: "string", description: "Default unit command for a unit factory or reconstructor ('move', 'repair', 'rebuild', 'assist', 'mine')" },
+        target_x: { type: "integer", description: "Target tile X for bridge, mass-driver, power-node link toggle, logic processor building link toggle, or factory/reconstructor rally point" },
+        target_y: { type: "integer", description: "Target tile Y for bridge, mass-driver, power-node link toggle, logic processor building link toggle, or factory/reconstructor rally point" },
         clear: { type: "boolean", description: "If true, clear/unlink this building's configuration" },
       },
       required: ["x", "y"],
@@ -1383,6 +1396,10 @@ const handleMcp = createMcpHandler([
       if (args.item !== undefined) payload.item = String(args.item);
       if (args.liquid !== undefined) payload.liquid = String(args.liquid);
       if (args.unit !== undefined) payload.unit = String(args.unit);
+      if (args.code !== undefined) payload.code = String(args.code);
+      if (args.text !== undefined) payload.text = String(args.text);
+      if (args.enabled !== undefined) payload.enabled = Boolean(args.enabled);
+      if (args.command !== undefined) payload.command = String(args.command);
       if (args.target_x !== undefined && args.target_y !== undefined) {
         payload.targetX = Math.round(Number(args.target_x));
         payload.targetY = Math.round(Number(args.target_y));
@@ -1390,16 +1407,59 @@ const handleMcp = createMcpHandler([
       const res = await mindustryJson<{ ok: boolean; block?: string; error?: string }>("/action", payload);
       const val = args.clear
         ? "clear"
-        : args.item
-          ? String(args.item)
-          : args.liquid
-            ? String(args.liquid)
-            : args.unit
-              ? String(args.unit)
-              : args.target_x !== undefined
-                ? `→(${Math.round(Number(args.target_x))},${Math.round(Number(args.target_y))})`
-                : "";
+        : args.code !== undefined
+          ? `mlog(${String(args.code).split(/\r?\n/).length}L)`
+          : args.item
+            ? String(args.item)
+            : args.liquid
+              ? String(args.liquid)
+              : args.unit
+                ? String(args.unit)
+                : args.command
+                  ? String(args.command)
+                  : args.enabled !== undefined
+                    ? String(Boolean(args.enabled))
+                    : args.text !== undefined
+                      ? "text"
+                      : args.target_x !== undefined
+                        ? `→(${Math.round(Number(args.target_x))},${Math.round(Number(args.target_y))})`
+                        : "";
       recordMcpAction(`cfg ${res.block || "block"}@(${x},${y}) ${val}`.trim(), res, false);
+      return res;
+    },
+  },
+  {
+    name: "command_units",
+    description:
+      "Issue RTS commands to your built friendly units (excludes your core builder ship, which uses `ship`). Filter by unit_type (e.g. 'dagger', 'flare', 'poly', 'mega', 'zenith', or 'all') and send them to a rally tile (x, y), focus-fire near (x, y) with attack=true, and/or switch their unit command ('move', 'repair', 'rebuild', 'assist', 'mine').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        unit_type: { type: "string", description: "Friendly unit type to command (e.g. 'poly', 'flare', 'zenith', or 'all'; default 'all')" },
+        x: { type: "integer", description: "Target or rally tile X" },
+        y: { type: "integer", description: "Target or rally tile Y" },
+        command: { type: "string", description: "Optional unit command/role: 'move', 'repair', 'rebuild', 'assist', 'mine'" },
+        attack: { type: "boolean", description: "If true, focus-fire an enemy unit or building near (x, y) instead of moving passively" },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const payload: Record<string, unknown> = { type: "command_units" };
+      if (args.unit_type !== undefined) payload.unitType = String(args.unit_type);
+      if (args.x !== undefined && args.y !== undefined) {
+        payload.x = Math.round(Number(args.x));
+        payload.y = Math.round(Number(args.y));
+      }
+      if (args.command !== undefined) payload.command = String(args.command);
+      if (args.attack !== undefined) payload.attack = Boolean(args.attack);
+      const res = await mindustryJson<{ ok: boolean; commanded?: number; error?: string }>("/action", payload);
+      const ut = args.unit_type ? String(args.unit_type) : "all";
+      const target =
+        args.x !== undefined && args.y !== undefined
+          ? `→(${Math.round(Number(args.x))},${Math.round(Number(args.y))})`
+          : "";
+      const cmd = args.command ? ` ${args.command}` : "";
+      recordMcpAction(`units ${ut}${cmd}${target}`, res, false);
       return res;
     },
   },
