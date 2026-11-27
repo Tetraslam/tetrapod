@@ -199,8 +199,22 @@ export type TimelinePoint = {
   latencyMs: number;
 };
 
+/** One question put to the model in its own match session after the match, and what it said. */
+export type InterviewItem = {
+  id: number;
+  matchId: number;
+  ts: number;
+  asker: string;
+  question: string;
+  answer: string;
+  latencyMs: number;
+};
+
 export type MatchDetail = {
   match: MatchRow;
+  /** True when the match kept its session and is over, so the model can still be asked things. */
+  canInterview?: boolean;
+  interviews?: InterviewItem[];
   hasTerrain: boolean;
   snapshots: Snapshot[];
   timeline: TimelinePoint[];
@@ -274,6 +288,8 @@ export type ServerMessage =
   | { type: "state"; state: State; meta: Meta }
   | { type: "feed"; item: FeedItem }
   | { type: "plan"; plan: PlanGoal[] }
+  | { type: "interview"; matchId: number; item: InterviewItem }
+  | { type: "interview_deleted"; matchId: number; id: number }
   | { type: "leaderboard"; leaderboard: Leaderboard }
   | { type: "factorio"; factorio: Factorio }
   | { type: "config"; config: ArenaConfig; meta: Meta; leaderboard?: Leaderboard };

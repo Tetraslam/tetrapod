@@ -169,7 +169,8 @@ export class AdminDeck {
     this.render();
   }
 
-  private async confirm(title: string, detail: string, yes: string): Promise<boolean> {
+  /** Ask before something that can't be undone. Resolves true only on the agreeing button. */
+  async confirm(title: string, detail: string, yes: string): Promise<boolean> {
     setText($("confirmTitle"), title);
     setText($("confirmDetail"), detail);
     setText($("confirmYes"), yes);

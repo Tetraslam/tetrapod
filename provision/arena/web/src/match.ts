@@ -8,7 +8,7 @@ import { attachCamera } from "./input";
 import { lineColor, tickerEl } from "./lines";
 import { Renderer } from "./renderer";
 import { TerrainModel } from "./terrain";
-import type { MatchDetail, Snapshot, State, Terrain, TimelinePoint } from "./types";
+import type { InterviewItem, MatchDetail, Snapshot, State, Terrain, TimelinePoint } from "./types";
 import { $, clamp, clock, duration, h, num, setText } from "./util";
 import { World } from "./world";
 
@@ -118,11 +118,35 @@ export class MatchView {
   private inspectAt = 0;
   private follow = false;
 
+  private pane: "turns" | "talk" = "turns";
+  private seq = 0;
+  private asking = false;
+  private talkKey = "";
+
   constructor(
     /** The live match's terrain, so its replay doesn't download and bake the map twice. */
     private liveTerrain: () => TerrainModel | null,
     private liveMatchId: () => number | null,
+    /** Whether an admin is signed in, and how to ask them to confirm something. */
+    private admin: () => {
+      on: boolean;
+      confirm: (title: string, detail: string, yes: string) => Promise<boolean>;
+    },
   ) {
+    $("mPaneTurns").addEventListener("click", () => this.setPane("turns"));
+    $("mPaneTalk").addEventListener("click", () => this.setPane("talk"));
+    const text = $<HTMLTextAreaElement>("mAskText");
+    $("mAsk").addEventListener("submit", (e) => {
+      e.preventDefault();
+      void this.ask();
+    });
+    // Enter sends, shift+enter makes a new line.
+    text.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        void this.ask();
+      }
+    });
     this.view = new Renderer($<HTMLCanvasElement>("mMap"), this.world);
     const mine = () => {
       this.touchedAt = performance.now();
@@ -191,15 +215,20 @@ export class MatchView {
     return true;
   }
 
-  async show(id: number, seq?: number): Promise<void> {
+  /** Open a match. `talk` opens it on the interview, which is what #match/<id>/interview links to. */
+  async show(id: number, seq?: number, talk = false): Promise<void> {
     const same = id === this.id && this.detail;
     this.id = id;
     if (same) {
       if (seq) this.selectSeq(seq);
+      if (talk) this.setPane("talk");
       return;
     }
     this.pause();
     this.detail = null;
+    this.setPane(talk ? "talk" : "turns");
+    $<HTMLTextAreaElement>("mAskText").value = "";
+    setText($("mAskSay"), "");
     this.world.state = null;
     this.world.terrain = null;
     this.renderHead();
@@ -238,6 +267,7 @@ export class MatchView {
       const first = !this.detail;
       this.detail = detail;
       this.renderHead();
+      this.renderTalk();
       if (!detail.snapshots.length) {
         $("mBody").dataset.state = "empty";
         return;
@@ -345,7 +375,8 @@ export class MatchView {
     this.view.callsignColor = lineColor(this.detail!.match.model);
     this.renderCursor();
     this.renderTurn();
-    history.replaceState(null, "", `#match/${this.id}/${snap.seq}`);
+    this.seq = snap.seq;
+    this.syncHash();
 
     if (now - this.touchedAt > 9000) {
       const targets = snap.actions.flatMap(actionTargets);
@@ -405,6 +436,212 @@ export class MatchView {
       this.view.fitZoom(x1 - x0 + 16, y1 - y0 + 12, 18, 32),
     );
     if (byHand) this.touchedAt = now;
+  }
+
+  // ---------- the interview ----------
+
+  private setPane(pane: "turns" | "talk"): void {
+    this.pane = pane;
+    $("mSide").dataset.pane = pane;
+    $("mPaneTurns").setAttribute("aria-selected", String(pane === "turns"));
+    $("mPaneTalk").setAttribute("aria-selected", String(pane === "talk"));
+    if (pane === "talk") this.renderTalk();
+    if (this.detail) this.syncHash();
+  }
+
+  /** The address always says what is open, so it can be shared: a step, or the interview. */
+  private syncHash(): void {
+    if (!this.id) return;
+    const tail = this.pane === "talk" ? "interview" : this.seq || "";
+    history.replaceState(null, "", `#match/${this.id}${tail ? `/${tail}` : ""}`);
+  }
+
+  /** The admin signed in after this view was drawn: show the ask box and the delete actions. */
+  adminChanged(): void {
+    this.talkKey = "";
+    if (this.detail) this.renderTalk();
+  }
+
+  /** A question was answered, here or by the automatic debrief when the match ended. */
+  onInterview(matchId: number, item: InterviewItem): void {
+    const d = this.detail;
+    if (!d || matchId !== this.id) return;
+    const list = d.interviews || [];
+    if (list.some((i) => i.id === item.id)) return;
+    d.interviews = [...list, item];
+    d.canInterview = true;
+    this.renderTalk(item.id);
+  }
+
+  onInterviewDeleted(matchId: number, id: number): void {
+    const d = this.detail;
+    if (!d || matchId !== this.id || !d.interviews) return;
+    d.interviews = d.interviews.filter((i) => i.id !== id);
+    this.renderTalk();
+  }
+
+  private async ask(): Promise<void> {
+    const d = this.detail;
+    const box = $<HTMLTextAreaElement>("mAskText");
+    const question = box.value.trim();
+    if (!d || !question || this.asking) return;
+    const id = this.id;
+    const say = $("mAskSay");
+    this.asking = true;
+    box.disabled = true;
+    $<HTMLButtonElement>("mAskGo").disabled = true;
+    $("mAsk").toggleAttribute("data-waiting", true);
+    const started = performance.now();
+    const tick = () => {
+      say.removeAttribute("data-bad");
+      setText(say, `waiting for ${d.match.model}, ${Math.floor((performance.now() - started) / 1000)}s`);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    let failed = "";
+    try {
+      const res = await fetch(`/api/admin/matches/${id}/interview`, {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      if (res.status === 0 || res.status === 401 || res.status === 302)
+        failed = "your sign-in ran out. sign in again and retry.";
+      else {
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          item?: InterviewItem;
+        };
+        if (!res.ok || json.ok === false || !json.item)
+          failed = String(json.error || `the arena answered ${res.status}.`).toLowerCase();
+        else {
+          box.value = "";
+          this.onInterview(id, json.item);
+        }
+      }
+    } catch {
+      failed = "couldn't reach the arena.";
+    }
+    clearInterval(timer);
+    this.asking = false;
+    box.disabled = false;
+    $<HTMLButtonElement>("mAskGo").disabled = false;
+    $("mAsk").toggleAttribute("data-waiting", false);
+    // A failed question stays in the box, so it can be sent again.
+    setText(say, failed);
+    say.toggleAttribute("data-bad", !!failed);
+    if (this.pane === "talk") box.focus();
+  }
+
+  private async removeTalk(item: InterviewItem): Promise<void> {
+    const admin = this.admin();
+    if (
+      !(await admin.confirm(
+        "delete this answer?",
+        `"${item.question.slice(0, 90)}" and its reply are removed for everyone.`,
+        "delete",
+      ))
+    )
+      return;
+    const say = $("mAskSay");
+    try {
+      const res = await fetch(`/api/admin/interviews/${item.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        redirect: "manual",
+      });
+      if (!res.ok) throw new Error();
+      this.onInterviewDeleted(this.id, item.id);
+      setText(say, "");
+    } catch {
+      setText(say, "couldn't delete that.");
+      say.setAttribute("data-bad", "");
+    }
+  }
+
+  private renderTalk(fresh?: number): void {
+    const d = this.detail;
+    if (!d) return;
+    const items = d.interviews || [];
+    const admin = this.admin().on;
+    setText($("mPaneTalk"), items.length ? `interview (${items.length})` : "interview");
+    const canAsk = admin && !!d.canInterview;
+    $("mAsk").hidden = !canAsk;
+    setText($("mAskLabel"), `ask ${d.match.model}`);
+    const key = `${this.id}|${admin}|${d.canInterview}|${items.map((i) => i.id).join(",")}`;
+    if (key === this.talkKey) return;
+    this.talkKey = key;
+    const list = $("mTalkList");
+    if (!items.length) {
+      const live = d.match.id === this.liveMatchId();
+      list.replaceChildren(
+        h(
+          "li",
+          { class: "talk-none" },
+          live
+            ? "this match is still being played. the debrief happens when it ends."
+            : d.canInterview
+              ? canAsk
+                ? "no interview yet. ask the first question below."
+                : "no post-match interview recorded yet."
+              : "this match was played before sessions were kept, so the model can't be asked about it.",
+        ),
+      );
+      return;
+    }
+    list.replaceChildren(
+      ...items.map((it) =>
+        h(
+          "li",
+          { class: it.id === fresh ? "qa enter" : "qa" },
+          h(
+            "div",
+            { class: "q" },
+            h(
+              "header",
+              null,
+              h("span", { class: "who" }, it.asker),
+              h(
+                "time",
+                { datetime: new Date(it.ts).toISOString(), title: new Date(it.ts).toLocaleString() },
+                clock(it.ts),
+              ),
+            ),
+            h("p", null, it.question),
+          ),
+          h(
+            "div",
+            { class: "a" },
+            h(
+              "header",
+              null,
+              tickerEl(d.match.model, "s"),
+              h("span", { class: "quiet" }, it.latencyMs ? `answered in ${seconds(it.latencyMs)}` : ""),
+            ),
+            ...it.answer
+              .split(/\n\s*\n|\n/)
+              .map((para) => para.trim())
+              .filter(Boolean)
+              .map((para) => h("p", null, para)),
+            admin
+              ? h(
+                  "button",
+                  {
+                    class: "del",
+                    "aria-label": "delete this question and answer",
+                    onclick: () => void this.removeTalk(it),
+                  },
+                  "delete",
+                )
+              : null,
+          ),
+        ),
+      ),
+    );
+    if (fresh) list.lastElementChild?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   /** A slow tick: the live match's scoreline keeps moving while its breakdown is open. */

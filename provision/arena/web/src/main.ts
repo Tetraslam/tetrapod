@@ -55,6 +55,10 @@ let framed = false;
 const matchView = new MatchView(
   () => world.terrain,
   () => meta?.matchId ?? null,
+  () => ({
+    on: !!deck?.on,
+    confirm: (title, detail, yes) => deck?.confirm(title, detail, yes) ?? Promise.resolve(false),
+  }),
 );
 
 const store = {
@@ -102,6 +106,7 @@ async function probeAdmin(): Promise<void> {
     );
     await deck.probe();
     deck.setMeta(meta);
+    matchView.adminChanged();
     if (tab === "leaderboard") drawBoard();
     if (offAir()) drawOffAir();
   } catch {
@@ -117,10 +122,11 @@ let tab: Tab = "live";
 
 function route(): void {
   const hash = location.hash.slice(1);
-  const m = hash.match(/^match\/(\d+)(?:\/(\d+))?$/);
+  const m = hash.match(/^match\/(\d+)(?:\/(\d+|interview))?$/);
   if (m) {
     show("match");
-    void matchView.show(Number(m[1]), m[2] ? Number(m[2]) : undefined);
+    const talk = m[2] === "interview";
+    void matchView.show(Number(m[1]), m[2] && !talk ? Number(m[2]) : undefined, talk);
     return;
   }
   show(TABS.includes(hash as Tab) ? (hash as Tab) : "live");
@@ -299,7 +305,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (tab === "match") {
-    if (el.closest("button") && key === " ") return;
+    if (el.closest("button, textarea") && key === " ") return;
     if (matchView.key(e)) e.preventDefault();
     return;
   }
@@ -468,6 +474,12 @@ function handle(msg: ServerMessage): void {
       break;
     case "feed":
       onFeed(msg.item);
+      break;
+    case "interview":
+      matchView.onInterview(msg.matchId, msg.item);
+      break;
+    case "interview_deleted":
+      matchView.onInterviewDeleted(msg.matchId, msg.id);
       break;
     case "plan":
       // The model can rewrite its plan in the middle of a turn, so this arrives on its own.

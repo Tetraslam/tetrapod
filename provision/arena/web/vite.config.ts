@@ -38,6 +38,20 @@ function mockAdmin(): Plugin {
           if (body.action === "resume") state.aiPaused = false;
         }
         if (req.url === "/api/admin/matches" && body.enqueue) state.queue.push({ id: Date.now(), model: body.model, map: body.map, created_at: Date.now() });
+        const talk = req.url.match(/^\/api\/admin\/matches\/(\d+)\/interview$/);
+        if (talk) {
+          await new Promise((r) => setTimeout(r, 3500));
+          const item = {
+            id: Date.now(),
+            matchId: Number(talk[1]),
+            ts: Date.now(),
+            asker: "mock",
+            question: body.question,
+            answer: "honestly the eastern belt.\n\nit fed two guns and the core at once, and when it got cut i lost all three.",
+            latencyMs: 3500,
+          };
+          return send({ ok: true, item, interviews: [item] });
+        }
         const del = req.url.match(/^\/api\/admin\/queue\/(\d+)$/);
         if (del) state.queue = state.queue.filter((q) => q.id !== Number(del[1]));
         send({

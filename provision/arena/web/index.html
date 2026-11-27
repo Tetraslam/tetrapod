@@ -180,9 +180,24 @@
               <canvas id="mMap" tabindex="0" aria-label="match replay. drag to pan, scroll to zoom."></canvas>
               <div id="mInspect" class="inspect m-inspect" data-empty></div>
             </div>
-            <aside class="m-side">
-              <article id="mTurn" class="m-turn"></article>
+            <aside class="m-side" id="mSide" data-pane="turns">
+              <div class="m-panes" role="tablist" aria-label="what this column shows">
+                <button id="mPaneTurns" role="tab" aria-selected="true" aria-controls="mTurn">turns</button>
+                <button id="mPaneTalk" role="tab" aria-selected="false" aria-controls="mTalk">interview</button>
+              </div>
+              <article id="mTurn" class="m-turn" role="tabpanel"></article>
               <ol id="mTurns" class="m-turns" aria-label="every step of the match"></ol>
+              <section id="mTalk" class="m-talk" role="tabpanel" aria-label="post-match interview">
+                <ol id="mTalkList" class="talk"></ol>
+                <form id="mAsk" class="ask" hidden>
+                  <label class="lbl" for="mAskText" id="mAskLabel">ask a question</label>
+                  <div class="ask-row">
+                    <textarea id="mAskText" rows="2" maxlength="600" placeholder="what would you do differently?"></textarea>
+                    <button class="btn solid" id="mAskGo" type="submit">ask</button>
+                  </div>
+                  <p id="mAskSay" class="ask-say" role="status" aria-live="polite"></p>
+                </form>
+              </section>
             </aside>
             <div class="m-timeline">
               <div class="m-controls">
