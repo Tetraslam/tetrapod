@@ -16,6 +16,14 @@ done
 bazarr_key="$(perl -ne 'if (/^\s*apikey:\s*(\S+)/) { print $1; exit }' "$config")"
 sonarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/sonarr/config.xml)"
 radarr_key="$(xmlstarlet sel -t -v /Config/ApiKey /opt/tetrapod/radarr/config.xml)"
+os_item="$(opa item get OpenSubtitles --vault Agents --format json)"
+os_field() {
+  jq -r --arg label "$1" '[.fields[] | select(.label == $label and (.value // "") != "") | .value][0] // empty' <<<"$os_item"
+}
+os_user="$(os_field username)"
+os_pass="$(os_field password)"
+[ -n "$os_user" ] && [ -n "$os_pass" ] || { echo "bazarr-provision: OpenSubtitles credentials missing in 1Password" >&2; exit 1; }
+
 api() {
   curl -fsS -H "X-API-KEY: $bazarr_key" "$@"
 }
@@ -50,13 +58,17 @@ api -X POST "$base/system/settings" \
   --data-urlencode 'settings-general-enabled_providers=gestdown' \
   --data-urlencode 'settings-general-enabled_providers=tvsubtitles' \
   --data-urlencode 'settings-general-enabled_providers=yifysubtitles' \
+  --data-urlencode 'settings-general-enabled_providers=opensubtitlescom' \
+  --data-urlencode "settings-opensubtitlescom-username=$os_user" \
+  --data-urlencode "settings-opensubtitlescom-password=$os_pass" \
+  --data-urlencode 'settings-opensubtitlescom-use_hash=true' \
   --data-urlencode 'settings-general-subfolder=current' \
   --data-urlencode 'settings-general-utf8_encode=true' \
   --data-urlencode 'settings-subsync-use_subsync=true' \
   --data-urlencode 'settings-subsync-force_audio=true' \
   --data-urlencode 'settings-subsync-use_original_language=true' \
   >/dev/null
-echo "bazarr-provision: configured arr connections, English subtitles, and providers"
+echo "bazarr-provision: configured arr connections, English subtitles, and providers (incl. OpenSubtitles.com)"
 
 ensure_populated() {
   local task="$1"
@@ -111,7 +123,7 @@ settings="$(api "$base/system/settings")"
 jq -e '
   .general.use_sonarr == true and
   .general.use_radarr == true and
-  .general.enabled_providers == ["gestdown", "tvsubtitles", "yifysubtitles"] and
+  .general.enabled_providers == ["gestdown", "tvsubtitles", "yifysubtitles", "opensubtitlescom"] and
   .subsync.use_subsync == true
 ' <<<"$settings" >/dev/null
 echo "bazarr-provision: configuration verified"
