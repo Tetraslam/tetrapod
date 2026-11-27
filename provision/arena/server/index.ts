@@ -327,12 +327,22 @@ let prevTurnItems: Record<string, number> = {};
 let prevTurnCoreHp = 0;
 let lastSteeredWave = 1;
 let lastSteeredCoreHp = 0;
-let arenaIdle = config.mode === "paused";
-let aiPaused = config.mode === "paused";
+let arenaIdle =
+  (db.query("SELECT value FROM settings WHERE key = 'arena_idle'").get() as { value: string } | null)?.value === "true" ||
+  config.mode === "paused";
+let aiPaused = arenaIdle;
+
+function setArenaIdle(val: boolean): void {
+  arenaIdle = val;
+  db.prepare("INSERT INTO settings (key, value) VALUES ('arena_idle', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
+    String(val)
+  );
+}
 let aiBusy = false;
 let lastTurnAt = 0;
 let lastGameOverAt = 0;
 let lastPauseSyncAt = 0;
+let pendingNewGame: { seenGameOver: boolean; expiresAt: number } | null = null;
 let lastSpectatorSeenAt = Date.now();
 let matchBlocksBuilt = 0;
 let matchActionsOk = 0;
@@ -1619,9 +1629,10 @@ async function advanceAfterMatchEnd(): Promise<void> {
   if (nextQueued) {
     db.prepare("DELETE FROM match_queue WHERE id = ?").run(nextQueued.id);
     activeContender = makeContender(nextQueued.model);
-    arenaIdle = false;
+    setArenaIdle(false);
     aiPaused = false;
     pushFeed("system", `launching queued match: ${activeContender.id} on ${nextQueued.map}`, undefined, "ARENA");
+    pendingNewGame = { seenGameOver: false, expiresAt: Date.now() + 25_000 };
     await mindustryJson("/action", { type: "new_game", map: nextQueued.map }).catch(() => {});
     broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
     return;
@@ -1629,14 +1640,14 @@ async function advanceAfterMatchEnd(): Promise<void> {
 
   // 2. Otherwise follow configured after-match policy
   if (config.mode === "single" || config.mode === "paused") {
-    arenaIdle = true;
+    setArenaIdle(true);
     aiPaused = true;
     pushFeed("system", "arena off-air — no active match", undefined, "ARENA");
   } else if (config.mode === "pinned") {
-    arenaIdle = false;
+    setArenaIdle(false);
     activeContender = makeContender(config.pinnedModel);
   } else {
-    arenaIdle = false;
+    setArenaIdle(false);
     rosterIdx = (rosterIdx + 1) % ROSTER.length;
     activeContender = ROSTER[rosterIdx];
   }
@@ -1656,20 +1667,28 @@ async function pollMindustry(): Promise<void> {
       lastSpectatorSeenAt = Date.now();
     }
 
+    if (pendingNewGame) {
+      if (st.gameOver) {
+        pendingNewGame.seenGameOver = true;
+      } else if (pendingNewGame.seenGameOver || Date.now() > pendingNewGame.expiresAt) {
+        pendingNewGame = null;
+      }
+    }
+
     if (!cachedTerrain || cachedTerrain.map !== st.map) {
       cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
       db.prepare(
         "INSERT INTO map_terrains (map, terrain_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(map) DO UPDATE SET terrain_json = excluded.terrain_json, updated_at = excluded.updated_at"
       ).run(cachedTerrain.map, JSON.stringify(cachedTerrain), Date.now());
       broadcast({ type: "terrain", terrain: cachedTerrain });
-      if (!arenaIdle && (activeMatchId === null || (prevMap && prevMap !== st.map))) {
+      if (!arenaIdle && !pendingNewGame && (activeMatchId === null || (prevMap && prevMap !== st.map))) {
         startNewMatchRecord(st.map, st);
       }
-    } else if (!arenaIdle && activeMatchId === null && !st.gameOver) {
+    } else if (!arenaIdle && !pendingNewGame && activeMatchId === null && !st.gameOver) {
       startNewMatchRecord(st.map, st);
     }
 
-    if (!arenaIdle && st.wave > matchPeakWave) {
+    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.wave > matchPeakWave) {
       matchPeakWave = st.wave;
       if (st.wave > 1) {
         const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
@@ -1680,13 +1699,13 @@ async function pollMindustry(): Promise<void> {
         }
       }
     }
-    if (!arenaIdle && st.core && lastSteeredCoreHp - st.core.hp >= 100) {
+    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.core && lastSteeredCoreHp - st.core.hp >= 100) {
       const drop = lastSteeredCoreHp - st.core.hp;
       lastSteeredCoreHp = st.core.hp;
       void steerActiveSession(`[alert] core under attack! lost ${drop} hp (now ${st.core.hp}/${st.core.maxHp}), ${st.enemies} enemies active.`);
     }
 
-    if (!arenaIdle && st.gameOver && !prevGameOver) {
+    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.gameOver && !prevGameOver) {
       lastGameOverAt = Date.now();
       finishMatchRecord("core destroyed", st);
       await advanceAfterMatchEnd();
@@ -1694,7 +1713,7 @@ async function pollMindustry(): Promise<void> {
 
     const emptyPaused =
       !arenaIdle && config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
-    const desiredPaused = arenaIdle || aiPaused || emptyPaused;
+    const desiredPaused = !pendingNewGame && (arenaIdle || aiPaused || emptyPaused);
 
     // Keep Mindustry simulation strictly synchronized with runner pause state
     if (!st.gameOver && typeof st.paused === "boolean" && st.paused !== desiredPaused && Date.now() - lastPauseSyncAt > 800) {
@@ -1711,6 +1730,7 @@ async function pollMindustry(): Promise<void> {
 
     if (
       !desiredPaused &&
+      !pendingNewGame &&
       !aiBusy &&
       !st.gameOver &&
       Date.now() - lastTurnAt >= config.turnIntervalMs &&
@@ -1873,7 +1893,7 @@ function tryRestorePlayingMatch(): void {
     text: String(r.text || ""),
     actions: r.actions_json ? JSON.parse(r.actions_json) : undefined,
   }));
-  arenaIdle = false;
+  setArenaIdle(false);
   console.log(`restored in-progress match #${activeMatchId} (${activeContender.id} on ${row.map}, session=${activeSessionId})`);
 }
 
@@ -2039,7 +2059,7 @@ const server = Bun.serve({
         config.mode = body.mode;
       }
       if (typeof body.arenaIdle === "boolean") {
-        arenaIdle = body.arenaIdle;
+        setArenaIdle(body.arenaIdle);
         if (arenaIdle) aiPaused = true;
       }
       if (typeof body.turnIntervalMs === "number") {
@@ -2089,9 +2109,10 @@ const server = Bun.serve({
         saveConfig(config);
       }
       activeContender = makeContender(modelId);
-      arenaIdle = false;
+      setArenaIdle(false);
       aiPaused = false;
       finishMatchRecord("admin launch", latestState || undefined);
+      pendingNewGame = { seenGameOver: false, expiresAt: Date.now() + 25_000 };
       await mindustryJson("/action", { type: "new_game", map: mapName });
       broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
       return Response.json({ ok: true, contender: activeContender, map: mapName, config, meta: getMetaPayload() });
@@ -2150,7 +2171,7 @@ const server = Bun.serve({
         void interruptActiveSession();
         pushFeed("system", "match paused", undefined, "ARENA");
       } else if (body.action === "resume") {
-        arenaIdle = false;
+        setArenaIdle(false);
         aiPaused = false;
         if (config.mode === "paused") {
           config.mode = "single";
@@ -2160,7 +2181,7 @@ const server = Bun.serve({
         void runAiTurn();
       } else if (body.action === "go_idle") {
         finishMatchRecord("off-air", latestState || undefined);
-        arenaIdle = true;
+        setArenaIdle(true);
         aiPaused = true;
         pushFeed("system", "arena set off-air", undefined, "ARENA");
       } else if (body.action === "step") {
@@ -2185,9 +2206,10 @@ const server = Bun.serve({
           activeContender = ROSTER[rosterIdx];
         }
         const nextMap = body.map || MAP_ROTATION[(mapIdx = (mapIdx + 1) % MAP_ROTATION.length)];
-        arenaIdle = false;
+        setArenaIdle(false);
         aiPaused = false;
         finishMatchRecord("manual reset", latestState || undefined);
+        pendingNewGame = { seenGameOver: false, expiresAt: Date.now() + 25_000 };
         await mindustryJson("/action", { type: "new_game", map: nextMap });
       }
       broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
