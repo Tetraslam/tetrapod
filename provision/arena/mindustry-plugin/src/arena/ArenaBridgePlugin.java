@@ -137,6 +137,7 @@ public class ArenaBridgePlugin extends Plugin {
         if (core == null) return;
 
         if (aiDrone == null || aiDrone.dead() || !aiDrone.isAdded()) {
+            aiDrone = null;
             // Adopt an existing Sharded core ship (e.g. after save/load) before spawning a new one
             for (Unit u : Groups.unit) {
                 if (u == null || u.dead() || u.team != Team.sharded || u.type == null) continue;
