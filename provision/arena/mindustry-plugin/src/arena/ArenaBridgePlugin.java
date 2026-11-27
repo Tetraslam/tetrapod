@@ -575,6 +575,13 @@ public class ArenaBridgePlugin extends Plugin {
                         sb.append("{\"unit\":\"").append(esc(ut.name)).append("\"}");
                     } else if (cfg instanceof Point2 p) {
                         sb.append("{\"target\":{\"x\":").append(b.tileX() + p.x).append(",\"y\":").append(b.tileY() + p.y).append("}}");
+                    } else if (cfg instanceof Point2[] pts) {
+                        sb.append("{\"links\":[");
+                        for (int pi = 0; pi < pts.length; pi++) {
+                            if (pi > 0) sb.append(',');
+                            sb.append('[').append(b.tileX() + pts[pi].x).append(',').append(b.tileY() + pts[pi].y).append(']');
+                        }
+                        sb.append("]}");
                     } else {
                         sb.append('"').append(esc(cfg.toString())).append('"');
                     }
