@@ -1897,7 +1897,7 @@ function tryRestorePlayingMatch(): void {
   console.log(`restored in-progress match #${activeMatchId} (${activeContender.id} on ${row.map}, session=${activeSessionId})`);
 }
 
-tryRestorePlayingMatch();
+if (!arenaIdle) tryRestorePlayingMatch();
 void startOpencodeEventListener();
 void refreshActiveRoster();
 setInterval(() => void refreshActiveRoster(), 60_000);
