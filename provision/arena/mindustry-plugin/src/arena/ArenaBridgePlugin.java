@@ -28,6 +28,7 @@ import mindustry.mod.Plugin;
 import mindustry.server.ServerControl;
 import mindustry.type.Item;
 import mindustry.type.ItemStack;
+import mindustry.type.Liquid;
 import mindustry.type.UnitType;
 import mindustry.world.Block;
 import mindustry.world.Build;
@@ -36,9 +37,15 @@ import mindustry.world.blocks.defense.turrets.BaseTurret;
 import mindustry.world.blocks.defense.turrets.ItemTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
 import mindustry.world.blocks.distribution.Conveyor;
+import mindustry.world.blocks.distribution.ItemBridge;
+import mindustry.world.blocks.distribution.MassDriver;
+import mindustry.world.blocks.liquid.Conduit;
+import mindustry.world.blocks.liquid.LiquidBlock;
 import mindustry.world.blocks.power.PowerNode;
 import mindustry.world.blocks.production.Drill;
+import mindustry.world.blocks.production.Pump;
 import mindustry.world.blocks.storage.CoreBlock;
+import mindustry.world.blocks.units.UnitFactory;
 import mindustry.world.meta.BuildVisibility;
 
 import java.io.IOException;
@@ -105,6 +112,7 @@ public class ArenaBridgePlugin extends Plugin {
             server.createContext("/terrain", this::handleTerrain);
             server.createContext("/tactical", this::handleTactical);
             server.createContext("/scan", this::handleScan);
+            server.createContext("/inspect", this::handleInspect);
             server.createContext("/ores", this::handleOres);
             server.createContext("/catalog", this::handleCatalog);
             server.createContext("/maps", this::handleMaps);
@@ -385,14 +393,16 @@ public class ArenaBridgePlugin extends Plugin {
                             else if (bn.contains("drill")) ch = 'D';
                             else if (t.build instanceof Turret.TurretBuild) ch = 'T';
                             else if (bn.contains("wall")) ch = 'W';
+                            else if (bn.contains("conduit") || t.build instanceof Conduit.ConduitBuild) ch = '=';
+                            else if (t.build instanceof Pump.PumpBuild || bn.contains("pump") || bn.contains("water-extractor") || bn.contains("oil-extractor") || bn.contains("liquid-") || t.build instanceof LiquidBlock.LiquidBuild) ch = 'L';
                             else if (bn.contains("conveyor")) ch = switch (t.build.rotation) {
                                 case 0 -> '>';
                                 case 1 -> '^';
                                 case 2 -> '<';
                                 default -> 'v';
                             };
-                            else if (bn.contains("router") || bn.contains("junction") || bn.contains("distributor")) ch = '+';
-                            else if (bn.contains("power") || bn.contains("generator") || bn.contains("battery") || bn.contains("solar")) ch = 'P';
+                            else if (bn.contains("router") || bn.contains("junction") || bn.contains("distributor") || bn.contains("sorter") || bn.contains("gate")) ch = '+';
+                            else if (bn.contains("power") || bn.contains("generator") || bn.contains("battery") || bn.contains("solar") || bn.contains("reactor")) ch = 'P';
                             else ch = 'B';
                         } else if (t.block() != null && t.block().solid) {
                             ch = '#';
@@ -428,6 +438,154 @@ public class ArenaBridgePlugin extends Plugin {
             sendJson(ex, 200, json);
         } catch (Exception e) {
             sendJson(ex, 500, "{\"error\":\"" + esc(e.toString()) + "\"}");
+        }
+    }
+
+    private void handleInspect(HttpExchange ex) throws IOException {
+        try {
+            HashMap<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
+            int qx = parseIntParam(q, "x", -1);
+            int qy = parseIntParam(q, "y", -1);
+            String json = onMainThread(() -> {
+                if (Vars.world == null || Vars.world.width() == 0) return "{\"ready\":false}";
+                Tile t = Vars.world.tile(qx, qy);
+                if (t == null) {
+                    return "{\"ok\":false,\"error\":\"out of bounds (" + qx + "," + qy + ")\"}";
+                }
+                StringBuilder sb = new StringBuilder(1024);
+                sb.append("{\"ok\":true,\"x\":").append(qx).append(",\"y\":").append(qy);
+                sb.append(",\"floor\":\"").append(esc(t.floor() != null ? t.floor().name : "none")).append('"');
+                if (t.floor() != null && t.floor().liquidDrop != null) {
+                    sb.append(",\"floorLiquid\":\"").append(esc(t.floor().liquidDrop.name)).append('"');
+                }
+                if (t.overlay() != null && t.overlay().itemDrop != null) {
+                    sb.append(",\"ore\":\"").append(esc(t.overlay().itemDrop.name)).append('"');
+                }
+                if (t.build == null && t.block() != null && t.block().solid) {
+                    sb.append(",\"solidWall\":true,\"wallBlock\":\"").append(esc(t.block().name)).append('"');
+                }
+
+                Building b = t.build;
+                if (b == null || b.block == null) {
+                    sb.append(",\"building\":null}");
+                    return sb.toString();
+                }
+
+                sb.append(",\"building\":{");
+                sb.append("\"block\":\"").append(esc(b.block.name)).append('"');
+                sb.append(",\"team\":\"").append(esc(b.team != null ? b.team.name : "none")).append('"');
+                sb.append(",\"origin\":{\"x\":").append(b.tileX()).append(",\"y\":").append(b.tileY()).append('}');
+                sb.append(",\"size\":").append(b.block.size);
+                sb.append(",\"rot\":").append(b.rotation);
+                sb.append(",\"hp\":").append(Math.round(b.health));
+                sb.append(",\"maxHp\":").append(Math.round(b.maxHealth));
+                sb.append(",\"enabled\":").append(b.enabled);
+                sb.append(",\"efficiency\":").append(Math.round(b.efficiency * 100f) / 100f);
+                sb.append(",\"configurable\":").append(b.block.configurable);
+
+                if (b.items != null) {
+                    sb.append(",\"itemCapacity\":").append(b.block.itemCapacity);
+                    sb.append(",\"items\":{");
+                    boolean firstIt = true;
+                    for (Item item : Vars.content.items()) {
+                        int amt = b.items.get(item);
+                        if (amt > 0) {
+                            if (!firstIt) sb.append(',');
+                            firstIt = false;
+                            sb.append('"').append(esc(item.name)).append("\":").append(amt);
+                        }
+                    }
+                    sb.append('}');
+                }
+
+                if (b.liquids != null) {
+                    sb.append(",\"liquidCapacity\":").append(Math.round(b.block.liquidCapacity * 10f) / 10f);
+                    sb.append(",\"liquids\":{");
+                    boolean firstLiq = true;
+                    for (Liquid liq : Vars.content.liquids()) {
+                        float amt = b.liquids.get(liq);
+                        if (amt > 0.01f) {
+                            if (!firstLiq) sb.append(',');
+                            firstLiq = false;
+                            sb.append('"').append(esc(liq.name)).append("\":").append(Math.round(amt * 10f) / 10f);
+                        }
+                    }
+                    sb.append('}');
+                }
+
+                if (b.power != null) {
+                    sb.append(",\"power\":{");
+                    if (b.power.graph != null) {
+                        sb.append("\"satisfaction\":").append(Math.round(b.power.graph.getSatisfaction() * 100f) / 100f)
+                          .append(",\"produced\":").append(Math.round(b.power.graph.getPowerProduced() * 60f))
+                          .append(",\"consumed\":").append(Math.round(b.power.graph.getPowerNeeded() * 60f))
+                          .append(",\"batteryStored\":").append(Math.round(b.power.graph.getBatteryStored()))
+                          .append(",\"batteryCapacity\":").append(Math.round(b.power.graph.getTotalBatteryCapacity()));
+                    } else {
+                        sb.append("\"satisfaction\":0");
+                    }
+                    if (b.power.links != null && b.power.links.size > 0) {
+                        sb.append(",\"links\":[");
+                        for (int li = 0; li < b.power.links.size; li++) {
+                            if (li > 0) sb.append(',');
+                            int pos = b.power.links.get(li);
+                            sb.append('[').append(Point2.x(pos)).append(',').append(Point2.y(pos)).append(']');
+                        }
+                        sb.append(']');
+                    }
+                    sb.append('}');
+                }
+
+                if (b instanceof Turret.TurretBuild tb) {
+                    sb.append(",\"ammo\":").append(tb.totalAmmo);
+                }
+
+                if (b instanceof UnitFactory.UnitFactoryBuild uf && b.block instanceof UnitFactory ufb) {
+                    sb.append(",\"availableUnits\":[");
+                    for (int pi = 0; pi < ufb.plans.size; pi++) {
+                        if (pi > 0) sb.append(',');
+                        sb.append('"').append(esc(ufb.plans.get(pi).unit.name)).append('"');
+                    }
+                    sb.append(']');
+                }
+
+                // Current block configuration
+                sb.append(",\"config\":");
+                if (b instanceof ItemBridge.ItemBridgeBuild ib) {
+                    if (ib.link == -1) sb.append("null");
+                    else sb.append("{\"target\":{\"x\":").append(Point2.x(ib.link)).append(",\"y\":").append(Point2.y(ib.link)).append("}}");
+                } else if (b instanceof MassDriver.MassDriverBuild md) {
+                    if (md.link == -1) sb.append("null");
+                    else sb.append("{\"target\":{\"x\":").append(Point2.x(md.link)).append(",\"y\":").append(Point2.y(md.link)).append("}}");
+                } else if (b instanceof UnitFactory.UnitFactoryBuild uf && b.block instanceof UnitFactory ufb) {
+                    if (uf.currentPlan >= 0 && uf.currentPlan < ufb.plans.size) {
+                        sb.append("{\"unit\":\"").append(esc(ufb.plans.get(uf.currentPlan).unit.name)).append("\"}");
+                    } else {
+                        sb.append("null");
+                    }
+                } else {
+                    Object cfg = b.config();
+                    if (cfg == null) {
+                        sb.append("null");
+                    } else if (cfg instanceof Item it) {
+                        sb.append("{\"item\":\"").append(esc(it.name)).append("\"}");
+                    } else if (cfg instanceof Liquid liq) {
+                        sb.append("{\"liquid\":\"").append(esc(liq.name)).append("\"}");
+                    } else if (cfg instanceof UnitType ut) {
+                        sb.append("{\"unit\":\"").append(esc(ut.name)).append("\"}");
+                    } else if (cfg instanceof Point2 p) {
+                        sb.append("{\"target\":{\"x\":").append(b.tileX() + p.x).append(",\"y\":").append(b.tileY() + p.y).append("}}");
+                    } else {
+                        sb.append('"').append(esc(cfg.toString())).append('"');
+                    }
+                }
+
+                sb.append("}}");
+                return sb.toString();
+            });
+            sendJson(ex, 200, json);
+        } catch (Exception e) {
+            sendJson(ex, 500, "{\"ok\":false,\"error\":\"" + esc(e.toString()) + "\"}");
         }
     }
 
@@ -562,6 +720,9 @@ public class ArenaBridgePlugin extends Plugin {
                         sb.append(",\"tier\":").append(d.tier)
                           .append(",\"drillTime\":").append(Math.round(d.drillTime));
                     }
+                    if (b.configurable) {
+                        sb.append(",\"configurable\":true");
+                    }
                     sb.append('}');
                 }
                 sb.append("]}");
@@ -649,14 +810,16 @@ public class ArenaBridgePlugin extends Plugin {
                             else if (bn.contains("drill")) ch = 'D';
                             else if (t.build instanceof Turret.TurretBuild) ch = 'T';
                             else if (bn.contains("wall")) ch = 'W';
+                            else if (bn.contains("conduit") || t.build instanceof Conduit.ConduitBuild) ch = '=';
+                            else if (t.build instanceof Pump.PumpBuild || bn.contains("pump") || bn.contains("water-extractor") || bn.contains("oil-extractor") || bn.contains("liquid-") || t.build instanceof LiquidBlock.LiquidBuild) ch = 'L';
                             else if (bn.contains("conveyor")) ch = switch (t.build.rotation) {
                                 case 0 -> '>';
                                 case 1 -> '^';
                                 case 2 -> '<';
                                 default -> 'v';
                             };
-                            else if (bn.contains("router") || bn.contains("junction") || bn.contains("distributor")) ch = '+';
-                            else if (bn.contains("power") || bn.contains("generator") || bn.contains("battery") || bn.contains("solar")) ch = 'P';
+                            else if (bn.contains("router") || bn.contains("junction") || bn.contains("distributor") || bn.contains("sorter") || bn.contains("gate")) ch = '+';
+                            else if (bn.contains("power") || bn.contains("generator") || bn.contains("battery") || bn.contains("solar") || bn.contains("reactor")) ch = 'P';
                             else ch = 'B';
                         } else if (t.block() != null && t.block().solid) {
                             ch = '#';
@@ -1328,6 +1491,123 @@ public class ArenaBridgePlugin extends Plugin {
                         }
                         t.build.tile.removeNet();
                         return "{\"ok\":true}";
+                    }
+                    case "configure" -> {
+                        int x = req.getInt("x", -1);
+                        int y = req.getInt("y", -1);
+                        Tile t = Vars.world.tile(x, y);
+                        if (t == null || t.build == null || t.build.team != Team.sharded) {
+                            return "{\"ok\":false,\"error\":\"no friendly building at (" + x + "," + y + ")\"}";
+                        }
+                        Building b = t.build;
+                        if (!b.block.configurable) {
+                            return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " is not configurable\"}";
+                        }
+                        boolean clear = req.getBoolean("clear", false);
+                        if (clear) {
+                            if (b instanceof ItemBridge.ItemBridgeBuild || b instanceof MassDriver.MassDriverBuild) {
+                                b.configureAny(-1);
+                            } else if (b instanceof PowerNode.PowerNodeBuild) {
+                                b.configureAny(new Point2[0]);
+                            } else {
+                                b.configureAny(null);
+                            }
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"cleared\":true}";
+                        }
+
+                        String itemName = req.has("item") && !req.get("item").isNull() ? req.getString("item", "").trim().toLowerCase() : "";
+                        String liquidName = req.has("liquid") && !req.get("liquid").isNull() ? req.getString("liquid", "").trim().toLowerCase() : "";
+                        String unitName = req.has("unit") && !req.get("unit").isNull() ? req.getString("unit", "").trim().toLowerCase() : "";
+                        boolean hasTarget = req.has("targetX") && req.has("targetY") && !req.get("targetX").isNull() && !req.get("targetY").isNull();
+
+                        if (!itemName.isEmpty()) {
+                            Item it = Vars.content.item(itemName);
+                            if (it == null) return "{\"ok\":false,\"error\":\"unknown item: " + esc(itemName) + "\"}";
+                            if (!b.block.configurations.containsKey(Item.class)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept an item configuration\"}";
+                            }
+                            b.configureAny(it);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"item\":\"" + esc(it.name) + "\"}";
+                        }
+
+                        if (!liquidName.isEmpty()) {
+                            Liquid liq = Vars.content.liquid(liquidName);
+                            if (liq == null) return "{\"ok\":false,\"error\":\"unknown liquid: " + esc(liquidName) + "\"}";
+                            if (!b.block.configurations.containsKey(Liquid.class)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept a liquid configuration\"}";
+                            }
+                            b.configureAny(liq);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"liquid\":\"" + esc(liq.name) + "\"}";
+                        }
+
+                        if (!unitName.isEmpty()) {
+                            UnitType ut = Vars.content.unit(unitName);
+                            if (ut == null) return "{\"ok\":false,\"error\":\"unknown unit: " + esc(unitName) + "\"}";
+                            if (b instanceof UnitFactory.UnitFactoryBuild && b.block instanceof UnitFactory uf) {
+                                boolean found = false;
+                                StringBuilder avail = new StringBuilder();
+                                for (int pi = 0; pi < uf.plans.size; pi++) {
+                                    UnitType pu = uf.plans.get(pi).unit;
+                                    if (pi > 0) avail.append(", ");
+                                    avail.append(pu.name);
+                                    if (pu == ut) found = true;
+                                }
+                                if (!found) {
+                                    return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " cannot build " + esc(ut.name) + " (available: " + esc(avail.toString()) + ")\"}";
+                                }
+                                b.configureAny(ut);
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"unit\":\"" + esc(ut.name) + "\"}";
+                            }
+                            if (!b.block.configurations.containsKey(UnitType.class)) {
+                                return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept a unit configuration\"}";
+                            }
+                            b.configureAny(ut);
+                            return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"unit\":\"" + esc(ut.name) + "\"}";
+                        }
+
+                        if (hasTarget) {
+                            int tx = req.getInt("targetX", -1);
+                            int ty = req.getInt("targetY", -1);
+                            Tile targetTile = Vars.world.tile(tx, ty);
+                            if (targetTile == null) return "{\"ok\":false,\"error\":\"target out of bounds\"}";
+                            if (b instanceof ItemBridge.ItemBridgeBuild && b.block instanceof ItemBridge ib) {
+                                Tile originTarget = targetTile.build != null ? targetTile.build.tile : targetTile;
+                                if (!ib.linkValid(b.tile, originTarget)) {
+                                    return "{\"ok\":false,\"error\":\"cannot link " + esc(b.block.name) + " at (" + b.tileX() + "," + b.tileY() + ") to (" + tx + "," + ty + "): target must be a matching bridge within range " + ib.range + " tiles\"}";
+                                }
+                                b.configureAny(originTarget.pos());
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"target\":{\"x\":" + originTarget.x + ",\"y\":" + originTarget.y + "}}";
+                            }
+                            if (b instanceof MassDriver.MassDriverBuild && b.block instanceof MassDriver md) {
+                                if (targetTile.build == null || !(targetTile.build instanceof MassDriver.MassDriverBuild) || targetTile.build.team != Team.sharded) {
+                                    return "{\"ok\":false,\"error\":\"target must be a friendly mass-driver\"}";
+                                }
+                                if (Mathf.dst(b.x, b.y, targetTile.build.x, targetTile.build.y) > md.range) {
+                                    return "{\"ok\":false,\"error\":\"target mass-driver out of range (" + Math.round(md.range / 8f) + " tiles)\"}";
+                                }
+                                b.configureAny(targetTile.build.tile.pos());
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"target\":{\"x\":" + targetTile.build.tileX() + ",\"y\":" + targetTile.build.tileY() + "}}";
+                            }
+                            if (b instanceof PowerNode.PowerNodeBuild && b.block instanceof PowerNode pn) {
+                                if (targetTile.build == null || targetTile.build.power == null || targetTile.build.team != Team.sharded) {
+                                    return "{\"ok\":false,\"error\":\"target must be a friendly powered building\"}";
+                                }
+                                Building tb = targetTile.build;
+                                boolean alreadyLinked = b.power != null && b.power.links != null && b.power.links.contains(tb.pos());
+                                if (!alreadyLinked && (!pn.linkValid(b, tb) || (b.power != null && b.power.links != null && b.power.links.size >= pn.maxNodes))) {
+                                    return "{\"ok\":false,\"error\":\"cannot link " + esc(b.block.name) + " to (" + tb.tileX() + "," + tb.tileY() + "): out of range (" + Math.round(pn.laserRange) + " tiles) or maxNodes (" + pn.maxNodes + ") reached\"}";
+                                }
+                                b.configureAny(tb.pos());
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"linked\":" + (!alreadyLinked) + ",\"target\":{\"x\":" + tb.tileX() + ",\"y\":" + tb.tileY() + "}}";
+                            }
+                            if (b.block.configurations.containsKey(Point2.class)) {
+                                b.configureAny(new Point2(tx - b.tileX(), ty - b.tileY()));
+                                return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"target\":{\"x\":" + tx + ",\"y\":" + ty + "}}";
+                            }
+                            return "{\"ok\":false,\"error\":\"" + esc(b.block.name) + " does not accept a target tile link\"}";
+                        }
+
+                        return "{\"ok\":false,\"error\":\"provide one of: item, liquid, unit, target_x+target_y, or clear=true\"}";
                     }
                     case "send_wave" -> {
                         Vars.logic.runWave();

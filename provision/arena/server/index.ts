@@ -1125,7 +1125,7 @@ const handleMcp = createMcpHandler([
   {
     name: "scan",
     description:
-      "Scan ANY region of the map as a coordinate-labeled ASCII grid (radius 6..22, up to 45x45 tiles) plus enemies in view. Use this to inspect choke points, enemy spawns, distant ore veins, or your own base.",
+      "Scan ANY region of the map as a coordinate-labeled ASCII grid (radius 6..22, up to 45x45 tiles; C core, D drill, T turret, W wall, >^<v conveyor, = conduit, L pump/liquid block, + router/junction/sorter/gate, P power/generator/reactor, B other building, E enemy, A builder ship, c/l/k/s/t/h/r ores, ~ liquid floor, # rock wall, . open) plus enemies in view.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1141,6 +1141,25 @@ const handleMcp = createMcpHandler([
       if (args.cy !== undefined) qs.set("cy", String(Math.round(Number(args.cy))));
       if (args.radius !== undefined) qs.set("r", String(Math.round(Number(args.radius))));
       return await mindustryJson(`/scan?${qs.toString()}`);
+    },
+  },
+  {
+    name: "inspect",
+    description:
+      "Inspect a single map tile (x, y) like hovering it in Mindustry: returns floor/liquid/ore terrain info and, if a building occupies that tile, its exact block type, origin, rotation, HP, efficiency, internal item buffer, internal liquid buffer & capacity, power graph satisfaction/balance/links, turret ammo, configurable flag, and current configuration.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "integer", description: "Tile X coordinate" },
+        y: { type: "integer", description: "Tile Y coordinate" },
+      },
+      required: ["x", "y"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const x = Math.round(Number(args.x));
+      const y = Math.round(Number(args.y));
+      return await mindustryJson(`/inspect?x=${x}&y=${y}`);
     },
   },
   {
@@ -1236,11 +1255,11 @@ const handleMcp = createMcpHandler([
   {
     name: "catalog",
     description:
-      "Query Mindustry's live block registry for exact build costs, sizes, HP, turret range/air-ground targeting/ammo types, and drill tier/speed. Filter by category (turret, production, distribution, defense, power, crafting, effect) or name substring.",
+      "Query Mindustry's live block registry for exact build costs, sizes, HP, configurable flag, turret range/air-ground targeting/ammo types, and drill tier/speed. Filter by category (turret, production, distribution, liquid, defense, power, crafting, units, effect) or name substring.",
     inputSchema: {
       type: "object",
       properties: {
-        category: { type: "string", description: "Optional category: turret, production, distribution, defense, power, crafting, effect" },
+        category: { type: "string", description: "Optional category: turret, production, distribution, liquid, defense, power, crafting, units, effect" },
         name: { type: "string", description: "Optional block name substring (e.g. 'scatter', 'graphite', 'arc')" },
       },
       additionalProperties: false,
@@ -1291,6 +1310,53 @@ const handleMcp = createMcpHandler([
       if (!dryRun) {
         recordMcpAction(`route ${block} (${x1},${y1})→(${x2},${y2})`, res, false);
       }
+      return res;
+    },
+  },
+  {
+    name: "configure",
+    description:
+      "Configure a friendly configurable building at (x, y): set an item filter (unloader, sorter, inverted-sorter), set a liquid, select a unit plan (ground-factory, air-factory, naval-factory), link a bridge/mass-driver/power-node to (target_x, target_y), or clear its config.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "integer", description: "Building tile X" },
+        y: { type: "integer", description: "Building tile Y" },
+        item: { type: "string", description: "Item name for unloaders/sorters (e.g. 'copper', 'graphite', 'titanium', 'silicon')" },
+        liquid: { type: "string", description: "Liquid name for liquid-configurable blocks (e.g. 'water', 'cryofluid', 'oil')" },
+        unit: { type: "string", description: "Unit type name for unit factories (e.g. 'dagger', 'nova', 'flare', 'mono')" },
+        target_x: { type: "integer", description: "Target tile X for bridge-conveyor, bridge-conduit, phase bridges, mass-driver, or power-node link toggle" },
+        target_y: { type: "integer", description: "Target tile Y for bridge-conveyor, bridge-conduit, phase bridges, mass-driver, or power-node link toggle" },
+        clear: { type: "boolean", description: "If true, clear/unlink this building's configuration" },
+      },
+      required: ["x", "y"],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const x = Math.round(Number(args.x));
+      const y = Math.round(Number(args.y));
+      const payload: Record<string, unknown> = { type: "configure", x, y };
+      if (args.clear) payload.clear = true;
+      if (args.item !== undefined) payload.item = String(args.item);
+      if (args.liquid !== undefined) payload.liquid = String(args.liquid);
+      if (args.unit !== undefined) payload.unit = String(args.unit);
+      if (args.target_x !== undefined && args.target_y !== undefined) {
+        payload.targetX = Math.round(Number(args.target_x));
+        payload.targetY = Math.round(Number(args.target_y));
+      }
+      const res = await mindustryJson<{ ok: boolean; block?: string; error?: string }>("/action", payload);
+      const val = args.clear
+        ? "clear"
+        : args.item
+          ? String(args.item)
+          : args.liquid
+            ? String(args.liquid)
+            : args.unit
+              ? String(args.unit)
+              : args.target_x !== undefined
+                ? `→(${Math.round(Number(args.target_x))},${Math.round(Number(args.target_y))})`
+                : "";
+      recordMcpAction(`cfg ${res.block || "block"}@(${x},${y}) ${val}`.trim(), res, false);
       return res;
     },
   },
