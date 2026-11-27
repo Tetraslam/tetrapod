@@ -116,6 +116,16 @@ db.exec(`
     latency_ms INTEGER DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_snapshots_match_seq ON match_snapshots(match_id, seq);
+  CREATE TABLE IF NOT EXISTS match_interviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    asker TEXT NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    latency_ms INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_interviews_match ON match_interviews(match_id, id);
 `);
 
 // Safe migrations for existing DBs
@@ -342,6 +352,7 @@ let matchSnapshotSeq = 0;
 let recentActionFeedback: string[] = [];
 let recentFeed: FeedItem[] = [];
 const wsClients = new Set<ServerWebSocket<unknown>>();
+const interviewLocks = new Set<number>();
 
 function getQueue(): Array<{ id: number; model: string; map: string; created_at: number }> {
   return db.query("SELECT id, model, map, created_at FROM match_queue ORDER BY id ASC").all() as any[];
@@ -611,7 +622,7 @@ async function steerActiveSession(text: string): Promise<void> {
   }).catch(() => {});
 }
 
-async function readNewAssistantText(sessionID: string): Promise<{ text: string; outputChars: number }> {
+async function getAssistantMessages(sessionID: string): Promise<any[]> {
   const res = await ocRequest<any>(`/api/session/${sessionID}/message`, {
     signal: AbortSignal.timeout(10_000),
   });
@@ -622,9 +633,13 @@ async function readNewAssistantText(sessionID: string): Promise<{ text: string; 
       : Array.isArray(res?.messages)
         ? res.messages
         : [];
-  const assistants = list
+  return list
     .filter((m) => m?.type === "assistant")
     .sort((a, b) => (a?.time?.created ?? 0) - (b?.time?.created ?? 0));
+}
+
+async function readNewAssistantText(sessionID: string): Promise<{ text: string; outputChars: number }> {
+  const assistants = await getAssistantMessages(sessionID);
 
   let start = 0;
   if (lastSessionDeliveredMsgId) {
@@ -646,6 +661,102 @@ async function readNewAssistantText(sessionID: string): Promise<{ text: string; 
     lastSessionDeliveredMsgId = m.id;
   }
   return { text: texts.join(" ").replace(/\s+/g, " ").trim(), outputChars };
+}
+
+type InterviewRow = {
+  id: number;
+  match_id: number;
+  ts: number;
+  asker: string;
+  question: string;
+  answer: string;
+  latency_ms: number;
+};
+
+function getMatchInterviews(matchId: number) {
+  const rows = db
+    .query(
+      "SELECT id, match_id, ts, asker, question, answer, latency_ms FROM match_interviews WHERE match_id = ? ORDER BY id ASC"
+    )
+    .all(matchId) as InterviewRow[];
+  return rows.map((r) => ({
+    id: r.id,
+    matchId: r.match_id,
+    ts: r.ts,
+    asker: r.asker,
+    question: r.question,
+    answer: r.answer,
+    latencyMs: r.latency_ms,
+  }));
+}
+
+async function runMatchInterview(matchId: number, question: string, asker: string) {
+  const cleanQ = question.trim().slice(0, 600);
+  if (!cleanQ) throw new Error("question is empty");
+  if (interviewLocks.has(matchId)) throw new Error("an interview question is already in progress for this match");
+
+  const match = db
+    .query("SELECT id, model, map, peak_wave, turns, blocks_built, status, end_reason, session_id FROM matches WHERE id = ?")
+    .get(matchId) as any;
+  if (!match) throw new Error("match not found");
+  if (!match.session_id) throw new Error("this match predates persistent OpenCode sessions and cannot be interviewed");
+  if (match.status === "playing" && matchId === activeMatchId) {
+    throw new Error("wait until the match finishes before interviewing");
+  }
+
+  const sid = String(match.session_id);
+  interviewLocks.add(matchId);
+  const t0 = Date.now();
+  try {
+    const before = await getAssistantMessages(sid);
+    const prevLastId = before.length > 0 ? before[before.length - 1].id : null;
+
+    const prompt = [
+      `[post-match interview — match #${match.id} on ${match.map} has ended at wave ${match.peak_wave} (${match.end_reason || "finished"}). do not call any mindustry tools; the match is over and a different map may be loaded on the server. answer the interviewer directly in your own voice, naturally and concisely in lowercase, no emojis.]`,
+      `interviewer (${asker}): ${cleanQ}`,
+    ].join("\n\n");
+
+    await ocRequest(`/api/session/${sid}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ text: prompt, delivery: "queue" }),
+    });
+    await ocRequest(`/api/experimental/session/${sid}/wait`, {
+      method: "POST",
+      signal: AbortSignal.timeout(90_000),
+    });
+
+    const after = await getAssistantMessages(sid);
+    const startIdx = prevLastId ? after.findIndex((m) => m.id === prevLastId) + 1 : 0;
+    const fresh = after.slice(Math.max(0, startIdx));
+    const parts: string[] = [];
+    for (const m of fresh) {
+      for (const p of m.content || []) {
+        if (p?.type === "text" && p.text) parts.push(String(p.text).trim());
+      }
+    }
+    const answer = parts.join("\n\n").trim() || "(no reply)";
+    const latencyMs = Date.now() - t0;
+    const ts = Date.now();
+    const res = db
+      .prepare(
+        "INSERT INTO match_interviews (match_id, ts, asker, question, answer, latency_ms) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(matchId, ts, asker, cleanQ, answer, latencyMs);
+
+    const item = {
+      id: Number(res.lastInsertRowid),
+      matchId,
+      ts,
+      asker,
+      question: cleanQ,
+      answer,
+      latencyMs,
+    };
+    broadcast({ type: "interview", matchId, item });
+    return item;
+  } finally {
+    interviewLocks.delete(matchId);
+  }
 }
 
 async function mindustryJson<T = any>(path: string, body?: unknown): Promise<T> {
@@ -747,10 +858,25 @@ function finishMatchRecord(reason: string, st?: StatePayload): void {
     undefined,
     "ARENA"
   );
+  const endedId = activeMatchId;
+  const endedSessionId = activeSessionId;
+  const endedTurns = matchTurns;
+  const endedWave = matchPeakWave;
   void interruptActiveSession();
   activeSessionId = null;
   lastSessionDeliveredMsgId = null;
   activeMatchId = null;
+
+  // Automatic post-match debrief while the session's prompt cache is still hot
+  if (reason === "core destroyed" && endedId !== null && endedSessionId && endedTurns >= 3) {
+    setTimeout(() => {
+      void runMatchInterview(
+        endedId,
+        `your run just ended on wave ${endedWave} (core destroyed). quick post-match debrief: how did that feel, what part of the base were you proudest of, and what finally broke through? (3-4 short sentences)`,
+        "post-match debrief"
+      ).catch((err) => console.error(`auto debrief failed for match #${endedId}:`, err));
+    }, 2500);
+  }
 }
 
 function getLeaderboard() {
@@ -884,10 +1010,13 @@ function getMatchDetail(matchId: number) {
   });
 
   const terrainRow = db.query("SELECT terrain_json FROM map_terrains WHERE map = ?").get(match.map) as { terrain_json: string } | null;
+  const interviews = getMatchInterviews(matchId);
 
   return {
     match,
     hasTerrain: Boolean(terrainRow),
+    canInterview: Boolean(match.session_id && match.status === "completed"),
+    interviews,
     snapshots,
     timeline,
   };
@@ -1974,10 +2103,35 @@ const server = Bun.serve({
       if (id === activeMatchId) {
         return Response.json({ ok: false, error: "Cannot delete active match — end it first" }, { status: 400 });
       }
+      db.prepare("DELETE FROM match_interviews WHERE match_id = ?").run(id);
       db.prepare("DELETE FROM match_snapshots WHERE match_id = ?").run(id);
       db.prepare("DELETE FROM feed_events WHERE match_id = ?").run(id);
       db.prepare("DELETE FROM matches WHERE id = ?").run(id);
       broadcast({ type: "leaderboard", leaderboard: getLeaderboard() });
+      return Response.json({ ok: true, deleted: id });
+    }
+
+    const adminInterviewMatch = url.pathname.match(/^\/api\/admin\/matches\/(\d+)\/interview$/);
+    if (adminInterviewMatch && req.method === "POST") {
+      const id = Number(adminInterviewMatch[1]);
+      const body = (await req.json().catch(() => ({}))) as { question?: string };
+      const asker = req.headers.get("remote-user") || "tetraslam";
+      try {
+        const item = await runMatchInterview(id, String(body.question || ""), asker);
+        return Response.json({ ok: true, item, interviews: getMatchInterviews(id) });
+      } catch (err: any) {
+        return Response.json({ ok: false, error: String(err?.message || err) }, { status: 400 });
+      }
+    }
+
+    const adminDeleteInterview = url.pathname.match(/^\/api\/admin\/interviews\/(\d+)$/);
+    if (adminDeleteInterview && req.method === "DELETE") {
+      const id = Number(adminDeleteInterview[1]);
+      const row = db.query("SELECT match_id FROM match_interviews WHERE id = ?").get(id) as { match_id: number } | null;
+      db.prepare("DELETE FROM match_interviews WHERE id = ?").run(id);
+      if (row) {
+        broadcast({ type: "interview_deleted", matchId: row.match_id, id });
+      }
       return Response.json({ ok: true, deleted: id });
     }
 
