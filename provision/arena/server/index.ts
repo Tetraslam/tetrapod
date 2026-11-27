@@ -995,10 +995,8 @@ function getMatchDetail(matchId: number) {
   // Compact LoL-style economy & threat curve for charts
   const timeline = snapshots.map((s) => {
     const friendly = s.buildings.filter((b: any) => b.team === "sharded");
-    const turrets = friendly.filter((b: any) =>
-      ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo"].includes(b.block)
-    );
-    const armedTurrets = turrets.filter((b: any) => (b.ammo || 0) > 0);
+    const turrets = friendly.filter((b: any) => TURRET_BLOCKS.has(b.block));
+    const armedTurrets = turrets.filter((b: any) => (b.ammo || 0) > 0 || NON_ITEM_TURRETS.has(b.block));
     const drills = friendly.filter((b: any) => String(b.block || "").includes("drill"));
     return {
       seq: s.seq,
@@ -1032,6 +1030,53 @@ function getMatchDetail(matchId: number) {
   };
 }
 
+const TURRET_BLOCKS = new Set([
+  "duo",
+  "scatter",
+  "scorch",
+  "hail",
+  "wave",
+  "lancer",
+  "arc",
+  "parallax",
+  "swarmer",
+  "salvo",
+  "segment",
+  "tsunami",
+  "fuse",
+  "ripple",
+  "cyclone",
+  "foreshadow",
+  "spectre",
+  "meltdown",
+]);
+
+const NON_ITEM_TURRETS = new Set([
+  "arc",
+  "lancer",
+  "meltdown",
+  "parallax",
+  "segment",
+  "wave",
+  "tsunami",
+]);
+
+const TRACKED_ITEMS = [
+  "copper",
+  "lead",
+  "metaglass",
+  "graphite",
+  "coal",
+  "titanium",
+  "thorium",
+  "silicon",
+  "plastanium",
+  "phase-fabric",
+  "surge-alloy",
+  "pyratite",
+  "blast-compound",
+];
+
 function compassDirection(fromX: number, fromY: number, toX: number, toY: number): string {
   const dx = toX - fromX;
   const dy = toY - fromY;
@@ -1052,16 +1097,14 @@ function buildOverviewPayload(state: StatePayload) {
   const counts: Record<string, number> = {};
   for (const b of friendly) counts[b.block] = (counts[b.block] || 0) + 1;
 
-  const turrets = friendly.filter((b) =>
-    ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo", "ripple", "swarmer", "fuse"].includes(b.block)
-  );
-  const dryTurrets = turrets.filter((t) => t.ammo === 0 && t.block !== "arc" && t.block !== "lancer").map((t) => ({
+  const turrets = friendly.filter((b) => TURRET_BLOCKS.has(b.block));
+  const dryTurrets = turrets.filter((t) => t.ammo === 0 && !NON_ITEM_TURRETS.has(t.block)).map((t) => ({
     block: t.block,
     x: t.x,
     y: t.y,
   }));
   const armedTurrets = turrets
-    .filter((t) => t.ammo > 0 || t.block === "arc" || t.block === "lancer")
+    .filter((t) => t.ammo > 0 || NON_ITEM_TURRETS.has(t.block))
     .map((t) => ({ block: t.block, x: t.x, y: t.y, ammo: t.ammo }));
 
   const enemies = (state.units || [])
@@ -1571,10 +1614,8 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
     .map((s) => `(${s.x},${s.y}) ${core ? compassDirection(core.x, core.y, s.x, s.y) : ""}`)
     .join(", ");
   const friendly = (st.buildings || []).filter((b) => b.team === "sharded");
-  const turrets = friendly.filter((b) =>
-    ["duo", "scatter", "scorch", "hail", "arc", "lancer", "salvo"].includes(b.block)
-  );
-  const armed = turrets.filter((t) => t.ammo > 0 || t.block === "arc" || t.block === "lancer").length;
+  const turrets = friendly.filter((b) => TURRET_BLOCKS.has(b.block));
+  const armed = turrets.filter((t) => t.ammo > 0 || NON_ITEM_TURRETS.has(t.block)).length;
   const dry = turrets.length - armed;
   const airEnemies = (st.units || []).filter((u) => u.team !== "sharded" && u.flying).length;
 
@@ -1587,7 +1628,7 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
   }
 
   const flows = st.flowRates || {};
-  const itemDeltas = ["copper", "lead", "graphite", "coal", "silicon", "titanium"]
+  const itemDeltas = TRACKED_ITEMS
     .filter((k) => (st.items[k] || 0) > 0 || (prevTurnItems[k] || 0) > 0 || (flows[k] || 0) > 0)
     .map((k) => {
       const cur = st.items[k] || 0;
