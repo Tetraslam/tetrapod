@@ -17,14 +17,18 @@ export type Unit = {
   team: string;
   x: number;
   y: number;
+  vx?: number;
+  vy?: number;
   hp: number;
   maxHp: number;
+  shield?: number;
   rot: number;
 };
 
 export type PlayerDrone = {
   id: number;
   type: string;
+  mode?: string;
   x: number;
   y: number;
   hp: number;
@@ -33,8 +37,48 @@ export type PlayerDrone = {
   buildTarget: { x: number; y: number; block: string } | null;
 };
 
-export type Bullet = { x: number; y: number; team: string; dmg: number };
+export type Bullet = {
+  id?: number;
+  x: number;
+  y: number;
+  vx?: number;
+  vy?: number;
+  rot?: number;
+  team: string;
+  dmg: number;
+  size?: number;
+  color?: string;
+  kind?: number;
+  len?: number;
+};
 export type Point = { x: number; y: number };
+
+export type FrameDelta = {
+  ready: boolean;
+  seq: number;
+  t: number;
+  map: string;
+  wave: number;
+  waveTime: number;
+  enemies: number;
+  gameOver: boolean;
+  paused?: boolean;
+  playing: boolean;
+  core: { x: number; y: number; hp: number; maxHp: number; block: string } | null;
+  items: Record<string, number>;
+  flowRates?: Record<string, number>;
+  power: { produced: number; consumed: number };
+  playerDrone: PlayerDrone | null;
+  bAdd: Building[];
+  bDel: Array<[number, number]>;
+  bUpd: Array<[number, number, number, number, number]>;
+  powerLinks?: Array<[number, number, number, number]>;
+  units: Array<[number, string, string, number, number, number, number, number, number, number, number]>;
+  bullets: Array<[number, number, number, number, number, number, string, number, number, string, number, number]>;
+  beams: Array<[number, number, number, number, number, number, string, number, string]>;
+  iPal: string[];
+  ci: number[];
+};
 
 export type State = {
   ready: boolean;
@@ -286,6 +330,7 @@ export type ServerMessage =
     }
   | { type: "terrain"; terrain: Terrain }
   | { type: "state"; state: State; meta: Meta }
+  | { type: "frame"; frame: FrameDelta; meta?: Meta }
   | { type: "feed"; item: FeedItem }
   | { type: "plan"; plan: PlanGoal[] }
   | { type: "interview"; matchId: number; item: InterviewItem }

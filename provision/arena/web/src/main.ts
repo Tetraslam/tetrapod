@@ -32,7 +32,17 @@ import { MatchView } from "./match";
 import { Minimap } from "./minimap";
 import { Renderer } from "./renderer";
 import { TerrainModel } from "./terrain";
-import type { Factorio, FeedItem, Leaderboard, Meta, PlanGoal, ServerMessage, State, Terrain } from "./types";
+import type {
+  Factorio,
+  FeedItem,
+  FrameDelta,
+  Leaderboard,
+  Meta,
+  PlanGoal,
+  ServerMessage,
+  State,
+  Terrain,
+} from "./types";
 import { $, clock, reducedMotion, setText } from "./util";
 import { World } from "./world";
 
@@ -454,6 +464,19 @@ function onState(state: State | null, m: Meta | null): void {
   }
 }
 
+function onFrame(frame: FrameDelta, m: Meta | null): void {
+  if (m) onMeta(m);
+  if (!frame.ready) return;
+  lastStateAt = performance.now();
+  world.applyFrame(frame, lastStateAt);
+  if (!framed && world.state && world.terrain && world.terrain.map === frame.map) {
+    framed = true;
+    view.resize();
+    frameBase(true);
+    $("waiting").setAttribute("data-gone", "");
+  }
+}
+
 function handle(msg: ServerMessage): void {
   switch (msg.type) {
     case "init":
@@ -471,6 +494,9 @@ function handle(msg: ServerMessage): void {
       break;
     case "state":
       onState(msg.state, msg.meta);
+      break;
+    case "frame":
+      onFrame(msg.frame, msg.meta ?? null);
       break;
     case "feed":
       onFeed(msg.item);
@@ -604,6 +630,8 @@ function slowTick(now: number): void {
 
   if (tab === "live" && offAir()) drawOffAir();
   else if (tab === "live") {
+    renderBoard(world.state, meta);
+    renderStock(world.state);
     renderBrainStatus(world.state, meta, now);
     // One line under the map says what the camera is on. A free camera has nothing to say.
     const label = camera === "director" ? director.label : camera === "follow" ? shipLabel : "";

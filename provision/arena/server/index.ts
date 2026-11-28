@@ -226,6 +226,8 @@ type TerrainPayload = {
 
 type StatePayload = {
   ready: boolean;
+  seq?: number;
+  t?: number;
   map: string;
   width: number;
   height: number;
@@ -261,12 +263,57 @@ type StatePayload = {
     team: string;
     x: number;
     y: number;
+    vx?: number;
+    vy?: number;
     hp: number;
     maxHp: number;
+    shield?: number;
     rot: number;
   }>;
-  bullets: Array<{ x: number; y: number; team: string; dmg: number }>;
+  bullets: Array<{
+    id?: number;
+    x: number;
+    y: number;
+    vx?: number;
+    vy?: number;
+    rot?: number;
+    team: string;
+    dmg: number;
+    size?: number;
+    color?: string;
+    kind?: number;
+    len?: number;
+  }>;
   playerDrone: PlayerDrone | null;
+};
+
+type FrameDelta = {
+  ready: boolean;
+  unchanged?: boolean;
+  fullRequired?: boolean;
+  seq: number;
+  t: number;
+  map: string;
+  wave: number;
+  waveTime: number;
+  enemies: number;
+  gameOver: boolean;
+  paused?: boolean;
+  playing: boolean;
+  core: { x: number; y: number; hp: number; maxHp: number; block: string } | null;
+  items: Record<string, number>;
+  flowRates?: Record<string, number>;
+  power: { produced: number; consumed: number };
+  playerDrone: PlayerDrone | null;
+  bAdd: StatePayload["buildings"];
+  bDel: Array<[number, number]>;
+  bUpd: Array<[number, number, number, number, number]>;
+  powerLinks?: Array<[number, number, number, number]>;
+  units: Array<[number, string, string, number, number, number, number, number, number, number, number]>;
+  bullets: Array<[number, number, number, number, number, number, string, number, number, string, number, number]>;
+  beams: Array<[number, number, number, number, number, number, string, number, string]>;
+  iPal: string[];
+  ci: number[];
 };
 
 type PlanGoal = {
@@ -1170,7 +1217,6 @@ const handleMcp = createMcpHandler([
     handler: async () => {
       const st = await mindustryJson<StatePayload>("/state");
       if (!st.ready) return { ready: false };
-      latestState = st;
       return buildOverviewPayload(st);
     },
   },
@@ -1566,7 +1612,6 @@ const handleMcp = createMcpHandler([
     handler: async (args) => {
       const st = await mindustryJson<StatePayload>("/state");
       if (!st.ready) return { ok: false, error: "game not ready" };
-      latestState = st;
       if (!cachedTerrain || cachedTerrain.map !== st.map) {
         cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
       }
@@ -1748,9 +1793,9 @@ async function runAiTurn(force = false): Promise<void> {
     matchOutputChars += outputChars;
 
     const postState = await mindustryJson<StatePayload>("/state").catch(() => latestState!);
-    if (postState && postState.ready) latestState = postState;
+    const snapState = postState && postState.ready ? postState : latestState!;
 
-    const seq = recordSnapshot(latestState, "turn", {
+    const seq = recordSnapshot(snapState, "turn", {
       thought,
       actions: actionsSnapshot,
       promptChars: prompt.length,
@@ -1821,93 +1866,244 @@ async function advanceAfterMatchEnd(): Promise<void> {
   broadcast({ type: "config", config, meta: getMetaPayload(), leaderboard: getLeaderboard() });
 }
 
+const FLYING_UNIT_TYPES = new Set([
+  "flare",
+  "horizon",
+  "zenith",
+  "antumbra",
+  "eclipse",
+  "mono",
+  "poly",
+  "mega",
+  "quad",
+  "oct",
+  "alpha",
+  "beta",
+  "gamma",
+]);
+
+let latestBuildingsMap = new Map<string, StatePayload["buildings"][number]>();
+let lastFrameSeq = 0;
+let lastMetaBroadcastAt = 0;
+let pollInFlight = false;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+function rebuildBuildingsIndex(st: StatePayload): void {
+  latestBuildingsMap.clear();
+  for (const b of st.buildings || []) {
+    latestBuildingsMap.set(`${b.x},${b.y}`, b);
+  }
+}
+
+function applyFrameToLatestState(st: StatePayload, frame: FrameDelta): void {
+  let topologyChanged = false;
+  for (const [dx, dy] of frame.bDel || []) {
+    if (latestBuildingsMap.delete(`${dx},${dy}`)) topologyChanged = true;
+  }
+  for (const b of frame.bAdd || []) {
+    latestBuildingsMap.set(`${b.x},${b.y}`, b);
+    topologyChanged = true;
+  }
+  for (const [ux, uy, aimRot, hp, ammo] of frame.bUpd || []) {
+    const existing = latestBuildingsMap.get(`${ux},${uy}`);
+    if (existing) {
+      existing.aimRot = aimRot;
+      existing.hp = hp;
+      existing.ammo = ammo;
+    }
+  }
+  if (topologyChanged) {
+    st.buildings = Array.from(latestBuildingsMap.values());
+  }
+  if (frame.powerLinks) st.powerLinks = frame.powerLinks;
+  st.conveyorItems = [];
+  st.seq = frame.seq;
+  st.t = frame.t;
+  st.wave = frame.wave;
+  st.waveTime = frame.waveTime;
+  st.enemies = frame.enemies;
+  st.gameOver = frame.gameOver;
+  st.paused = frame.paused;
+  st.playing = frame.playing;
+  st.core = frame.core;
+  st.items = frame.items;
+  st.flowRates = frame.flowRates;
+  st.power = frame.power;
+  st.playerDrone = frame.playerDrone;
+  st.units = (frame.units || []).map((u) => ({
+    id: u[0],
+    type: u[1],
+    flying: FLYING_UNIT_TYPES.has(u[1]),
+    team: u[2],
+    x: u[3],
+    y: u[4],
+    vx: u[5],
+    vy: u[6],
+    rot: u[7],
+    hp: u[8],
+    maxHp: u[9],
+    shield: u[10],
+  }));
+  st.bullets = (frame.bullets || []).map((b) => ({
+    id: b[0],
+    x: b[1],
+    y: b[2],
+    vx: b[3],
+    vy: b[4],
+    rot: b[5],
+    team: b[6],
+    dmg: b[7],
+    size: b[8],
+    color: b[9],
+    kind: b[10],
+    len: b[11],
+  }));
+}
+
+async function handleGameLifecycle(st: StatePayload, prevMap: string | undefined, prevGameOver: boolean): Promise<boolean> {
+  if (wsClients.size > 0) {
+    lastSpectatorSeenAt = Date.now();
+  }
+
+  if (pendingNewGame) {
+    if (st.gameOver) {
+      pendingNewGame.seenGameOver = true;
+    } else if (pendingNewGame.seenGameOver || Date.now() > pendingNewGame.expiresAt) {
+      pendingNewGame = null;
+    }
+  }
+
+  if (!cachedTerrain || cachedTerrain.map !== st.map) {
+    cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
+    db.prepare(
+      "INSERT INTO map_terrains (map, terrain_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(map) DO UPDATE SET terrain_json = excluded.terrain_json, updated_at = excluded.updated_at"
+    ).run(cachedTerrain.map, JSON.stringify(cachedTerrain), Date.now());
+    broadcast({ type: "terrain", terrain: cachedTerrain });
+    if (!arenaIdle && !pendingNewGame && (activeMatchId === null || (prevMap && prevMap !== st.map))) {
+      startNewMatchRecord(st.map, st);
+    }
+  } else if (!arenaIdle && !pendingNewGame && activeMatchId === null && !st.gameOver) {
+    startNewMatchRecord(st.map, st);
+  }
+
+  let metaChanged = false;
+  if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.wave > matchPeakWave) {
+    matchPeakWave = st.wave;
+    metaChanged = true;
+    if (st.wave > 1) {
+      const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
+      pushFeed("milestone", `wave ${st.wave} incoming (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
+      if (st.wave > lastSteeredWave) {
+        lastSteeredWave = st.wave;
+        void steerActiveSession(`[alert] wave ${st.wave} just arrived with ${st.enemies} enemies! core ${st.core?.hp ?? 0}/${st.core?.maxHp ?? 0} hp.`);
+      }
+    }
+  }
+  if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.core && lastSteeredCoreHp - st.core.hp >= 100) {
+    const drop = lastSteeredCoreHp - st.core.hp;
+    lastSteeredCoreHp = st.core.hp;
+    void steerActiveSession(`[alert] core under attack! lost ${drop} hp (now ${st.core.hp}/${st.core.maxHp}), ${st.enemies} enemies active.`);
+  }
+
+  if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.gameOver && !prevGameOver) {
+    lastGameOverAt = Date.now();
+    finishMatchRecord("core destroyed", st);
+    await advanceAfterMatchEnd();
+    metaChanged = true;
+  }
+
+  const emptyPaused =
+    !arenaIdle && config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
+  const desiredPaused = !pendingNewGame && (arenaIdle || aiPaused || emptyPaused);
+
+  // Keep Mindustry simulation strictly synchronized with runner pause state
+  if (!st.gameOver && typeof st.paused === "boolean" && st.paused !== desiredPaused && Date.now() - lastPauseSyncAt > 800) {
+    lastPauseSyncAt = Date.now();
+    await mindustryJson("/action", { type: "set_paused", paused: desiredPaused }).catch(() => {});
+    st.paused = desiredPaused;
+    metaChanged = true;
+  }
+
+  if (
+    !desiredPaused &&
+    !pendingNewGame &&
+    !aiBusy &&
+    !st.gameOver &&
+    Date.now() - lastTurnAt >= config.turnIntervalMs &&
+    Date.now() - lastGameOverAt > 8000
+  ) {
+    void runAiTurn();
+  }
+
+  return metaChanged;
+}
+
 async function pollMindustry(): Promise<void> {
+  if (pollInFlight) return;
+  pollInFlight = true;
   try {
+    // Fast 20 Hz delta path when we already hold a synced baseline
+    if (lastFrameSeq > 0 && latestState?.ready) {
+      const frame = await mindustryJson<FrameDelta>(`/frame?since=${lastFrameSeq}`);
+      if (!frame.ready) return;
+      if (frame.unchanged) {
+        if (latestState) {
+          await handleGameLifecycle(latestState, latestState.map, latestState.gameOver);
+        }
+        return;
+      }
+      if (!frame.fullRequired && frame.map === latestState.map) {
+        const prevMap = latestState.map;
+        const prevGameOver = latestState.gameOver;
+        lastFrameSeq = frame.seq;
+        applyFrameToLatestState(latestState, frame);
+        const metaChanged = await handleGameLifecycle(latestState, prevMap, prevGameOver);
+        const now = Date.now();
+        const sendMeta = metaChanged || now - lastMetaBroadcastAt >= 450;
+        if (sendMeta) lastMetaBroadcastAt = now;
+        if (wsClients.size > 0) {
+          broadcast(
+            sendMeta
+              ? { type: "frame", frame, meta: getMetaPayload() }
+              : { type: "frame", frame }
+          );
+        }
+        return;
+      }
+    }
+
+    // Full baseline sync (startup, map change, or ring buffer overflow)
     const st = await mindustryJson<StatePayload>("/state");
     if (!st.ready) return;
 
     const prevMap = latestState?.map;
     const prevGameOver = latestState?.gameOver ?? false;
     latestState = st;
+    rebuildBuildingsIndex(st);
+    lastFrameSeq = st.seq || 0;
 
-    if (wsClients.size > 0) {
-      lastSpectatorSeenAt = Date.now();
-    }
-
-    if (pendingNewGame) {
-      if (st.gameOver) {
-        pendingNewGame.seenGameOver = true;
-      } else if (pendingNewGame.seenGameOver || Date.now() > pendingNewGame.expiresAt) {
-        pendingNewGame = null;
-      }
-    }
-
-    if (!cachedTerrain || cachedTerrain.map !== st.map) {
-      cachedTerrain = await mindustryJson<TerrainPayload>("/terrain");
-      db.prepare(
-        "INSERT INTO map_terrains (map, terrain_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(map) DO UPDATE SET terrain_json = excluded.terrain_json, updated_at = excluded.updated_at"
-      ).run(cachedTerrain.map, JSON.stringify(cachedTerrain), Date.now());
-      broadcast({ type: "terrain", terrain: cachedTerrain });
-      if (!arenaIdle && !pendingNewGame && (activeMatchId === null || (prevMap && prevMap !== st.map))) {
-        startNewMatchRecord(st.map, st);
-      }
-    } else if (!arenaIdle && !pendingNewGame && activeMatchId === null && !st.gameOver) {
-      startNewMatchRecord(st.map, st);
-    }
-
-    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.wave > matchPeakWave) {
-      matchPeakWave = st.wave;
-      if (st.wave > 1) {
-        const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
-        pushFeed("milestone", `wave ${st.wave} incoming (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
-        if (st.wave > lastSteeredWave) {
-          lastSteeredWave = st.wave;
-          void steerActiveSession(`[alert] wave ${st.wave} just arrived with ${st.enemies} enemies! core ${st.core?.hp ?? 0}/${st.core?.maxHp ?? 0} hp.`);
-        }
-      }
-    }
-    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.core && lastSteeredCoreHp - st.core.hp >= 100) {
-      const drop = lastSteeredCoreHp - st.core.hp;
-      lastSteeredCoreHp = st.core.hp;
-      void steerActiveSession(`[alert] core under attack! lost ${drop} hp (now ${st.core.hp}/${st.core.maxHp}), ${st.enemies} enemies active.`);
-    }
-
-    if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.gameOver && !prevGameOver) {
-      lastGameOverAt = Date.now();
-      finishMatchRecord("core destroyed", st);
-      await advanceAfterMatchEnd();
-    }
-
-    const emptyPaused =
-      !arenaIdle && config.autoPauseEmpty && wsClients.size === 0 && Date.now() - lastSpectatorSeenAt > 10 * 60_000;
-    const desiredPaused = !pendingNewGame && (arenaIdle || aiPaused || emptyPaused);
-
-    // Keep Mindustry simulation strictly synchronized with runner pause state
-    if (!st.gameOver && typeof st.paused === "boolean" && st.paused !== desiredPaused && Date.now() - lastPauseSyncAt > 800) {
-      lastPauseSyncAt = Date.now();
-      await mindustryJson("/action", { type: "set_paused", paused: desiredPaused }).catch(() => {});
-      st.paused = desiredPaused;
-    }
-
+    await handleGameLifecycle(st, prevMap, prevGameOver);
+    lastMetaBroadcastAt = Date.now();
     broadcast({
       type: "state",
       state: st,
       meta: getMetaPayload(),
     });
-
-    if (
-      !desiredPaused &&
-      !pendingNewGame &&
-      !aiBusy &&
-      !st.gameOver &&
-      Date.now() - lastTurnAt >= config.turnIntervalMs &&
-      Date.now() - lastGameOverAt > 8000
-    ) {
-      void runAiTurn();
-    }
   } catch {
     // Mindustry temporarily restarting
+  } finally {
+    pollInFlight = false;
   }
+}
+
+function schedulePollMindustry(delayMs?: number): void {
+  if (pollTimer) clearTimeout(pollTimer);
+  const wait = delayMs ?? (wsClients.size > 0 ? 50 : 500);
+  pollTimer = setTimeout(async () => {
+    pollTimer = null;
+    await pollMindustry();
+    schedulePollMindustry();
+  }, wait);
 }
 
 async function pollFactorio(): Promise<void> {
@@ -2068,9 +2264,8 @@ if (!arenaIdle) tryRestorePlayingMatch();
 void startOpencodeEventListener();
 void refreshActiveRoster();
 setInterval(() => void refreshActiveRoster(), 60_000);
-setInterval(() => void pollMindustry(), 300);
 setInterval(() => void pollFactorio(), 10_000);
-void pollMindustry();
+schedulePollMindustry(10);
 void pollFactorio();
 
 async function serveWeb(pathname: string): Promise<Response | null> {
@@ -2418,6 +2613,7 @@ const server = Bun.serve({
           factorio: factorioState,
         })
       );
+      if (wsClients.size === 1) schedulePollMindustry(20);
     },
     close(ws) {
       wsClients.delete(ws);

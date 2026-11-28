@@ -475,12 +475,21 @@ export class TerrainModel {
 
   /**
    * Paint the visible terrain. `ox, oy` is where map-space (0,0) lands in device pixels and
-   * `s` is device pixels per tile. Picks the cheapest picture that still looks sharp.
+   * `s` is device pixels per tile. Drawn in the exact same float tile transform as buildings
+   * so terrain chunks never wobble or drift by +-1px relative to structures during movement.
    */
-  draw(ctx: CanvasRenderingContext2D, ox: number, oy: number, s: number, vw: number, vh: number): void {
+  draw(
+    ctx: CanvasRenderingContext2D,
+    ox: number,
+    oy: number,
+    s: number,
+    vw: number,
+    vh: number,
+    moving = false,
+  ): void {
     this.frame++;
-    // Baking gets a few milliseconds a frame, so a camera move never costs a long frame.
-    this.bakeUntil = performance.now() + 2.5;
+    // Keep baking budget extra tight while camera is moving so panning/following stays locked at 60/120fps.
+    this.bakeUntil = performance.now() + (moving ? 1.2 : 3.2);
     const x0 = Math.max(0, Math.floor(-ox / s));
     const y0 = Math.max(0, Math.floor(-oy / s));
     const x1 = Math.min(this.w, Math.ceil((vw - ox) / s));
@@ -490,61 +499,47 @@ export class TerrainModel {
     const detailed = atlasReady() && this.names.length > 0;
     if (detailed && !this.spritesBound) this.bindSprites();
 
+    ctx.setTransform(s, 0, 0, s, ox, oy);
+
     if (!detailed || s <= this.lowPpt * 1.6) {
-      const dx = Math.round(ox + x0 * s);
-      const dy = Math.round(oy + y0 * s);
-      const dw = Math.round((x1 - x0) * s);
-      const dh = Math.round((y1 - y0) * s);
       if (this.lowDark) {
         ctx.imageSmoothingEnabled = s < this.lowPpt;
         const p = this.lowPpt;
-        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, dx, dy, dw, dh);
+        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, x0, y0, x1 - x0, y1 - y0);
       } else {
         // Still baking: flat colour underneath, finished rows on top, darkness live.
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(this.base, x0, y0, x1 - x0, y1 - y0, dx, dy, dw, dh);
+        ctx.drawImage(this.base, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
         const p = this.lowPpt;
-        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, dx, dy, dw, dh);
+        ctx.drawImage(this.low, x0 * p, y0 * p, (x1 - x0) * p, (y1 - y0) * p, x0, y0, x1 - x0, y1 - y0);
         ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(this.dark, x0, y0, x1 - x0, y1 - y0, dx, dy, dw, dh);
+        ctx.drawImage(this.dark, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
       }
       return;
     }
 
-    const level = s <= 20 ? MID : HI;
+    const level = s <= 18 ? MID : HI;
     const { tpc, ppt } = level;
-    ctx.imageSmoothingEnabled = s < ppt;
+    ctx.imageSmoothingEnabled = s < ppt * 0.98;
+    // Tiny half-device-pixel bleed prevents hairline seams between fractional chunks without shifting tile alignment.
+    const pad = 0.5 / s;
     const cx0 = Math.floor(x0 / tpc);
     const cy0 = Math.floor(y0 / tpc);
     for (let cy = cy0; cy * tpc < y1; cy++) {
       for (let cx = cx0; cx * tpc < x1; cx++) {
         const chunk = this.chunkAt(level, cx, cy, true);
-        const dx0 = Math.round(ox + cx * tpc * s);
-        const dy0 = Math.round(oy + cy * tpc * s);
-        const dx1 = Math.round(ox + (cx + 1) * tpc * s);
-        const dy1 = Math.round(oy + (cy + 1) * tpc * s);
+        const tx = cx * tpc;
+        const ty = cy * tpc;
         if (chunk) {
-          ctx.drawImage(chunk.canvas, dx0, dy0, dx1 - dx0, dy1 - dy0);
+          ctx.drawImage(chunk.canvas, tx, ty, tpc + pad, tpc + pad);
         } else {
           // Not baked yet: stand in with the low-detail picture for a frame or two.
-          const sx = cx * tpc;
-          const sy = cy * tpc;
-          const sw = Math.min(tpc, this.w - sx);
-          const sh = Math.min(tpc, this.h - sy);
+          const sw = Math.min(tpc, this.w - tx);
+          const sh = Math.min(tpc, this.h - ty);
           if (sw <= 0 || sh <= 0) continue;
           const src = this.lowDark ? this.low : this.base;
           const p = this.lowDark ? this.lowPpt : 1;
-          ctx.drawImage(
-            src,
-            sx * p,
-            sy * p,
-            sw * p,
-            sh * p,
-            dx0,
-            dy0,
-            Math.round(sw * s),
-            Math.round(sh * s),
-          );
+          ctx.drawImage(src, tx * p, ty * p, sw * p, sh * p, tx, ty, sw + pad, sh + pad);
         }
       }
     }
@@ -556,7 +551,7 @@ export class TerrainModel {
   /** Bake one missing chunk for a view the camera is heading to, if this frame has a bake to spare. */
   warm(ox: number, oy: number, s: number, vw: number, vh: number, margin = 0): void {
     if (performance.now() >= this.bakeUntil || !this.spritesBound || s <= this.lowPpt * 1.6) return;
-    const level = s <= 20 ? MID : HI;
+    const level = s <= 18 ? MID : HI;
     const { tpc } = level;
     const cx0 = Math.max(0, Math.floor(-ox / s / tpc) - margin);
     const cy0 = Math.max(0, Math.floor(-oy / s / tpc) - margin);

@@ -14,6 +14,7 @@ const BG = "#060504";
 const INK = "#efe9dc";
 const YELLOW = "#ffd37f";
 const RED = "#f25555";
+const NON_ITEM_TURRETS = new Set(["arc", "lancer", "meltdown", "parallax", "segment", "wave", "tsunami"]);
 const FLAT: Record<string, string> = {
   core: "#ffd37f",
   turret: "#ffe9b8",
@@ -202,17 +203,21 @@ export class Renderer {
     const s = this.cam.z * this.dpr;
     const ox = W / 2 - this.cam.x * s;
     const oy = H / 2 - this.cam.y * s;
+    const moving =
+      Math.abs(this.goal.x - this.cam.x) * s > 0.25 ||
+      Math.abs(this.goal.y - this.cam.y) * s > 0.25 ||
+      Math.abs(this.goal.z - this.cam.z) > 0.02;
     const t0 = performance.now();
-    terrain.draw(ctx, ox, oy, s, W, H);
+    terrain.draw(ctx, ox, oy, s, W, H, moving);
     this.terrainWorst = Math.max(this.terrainWorst, performance.now() - t0);
 
     // Between matches the new state can arrive a beat before its terrain. Draw nothing on the wrong map.
     if (world.state && world.state.map !== terrain.map) return;
 
-    // From here on: tile units, y down, origin at the map's north-west corner.
+    // From here on: tile units, y down, origin at the map's north-west corner (identical to terrain).
     setBase(ctx, s, ox, oy);
     // Chunks for where the camera is going get baked on the way there.
-    if (this.goal.z !== this.cam.z || this.goal.x !== this.cam.x || this.goal.y !== this.cam.y) {
+    if (moving) {
       const gs = this.goal.z * this.dpr;
       terrain.warm(W / 2 - this.goal.x * gs, H / 2 - this.goal.y * gs, gs, W, H);
     }
@@ -227,7 +232,7 @@ export class Renderer {
       x > v0x - pad && x < v1x + pad && y > v0y - pad && y < v1y + pad;
     const sprites = atlasReady() && this.cam.z >= 5;
     const detail = this.cam.z >= 9;
-    ctx.imageSmoothingEnabled = s < 30;
+    ctx.imageSmoothingEnabled = s < 28;
 
     // Scorch marks sit on the ground, under everything.
     for (const f of world.fx) {
@@ -300,7 +305,7 @@ export class Renderer {
         );
       }
       if (v.kind === "turret" && b.team === HOME && this.cam.z >= 9) {
-        const dry = b.ammo <= 0;
+        const dry = b.ammo <= 0 && !NON_ITEM_TURRETS.has(b.block);
         if (dry) {
           // An unarmed turret is the one thing a viewer should not miss on defence.
           const blink = reducedMotion() ? 1 : 0.55 + 0.45 * Math.sin(now / 240);
@@ -341,6 +346,7 @@ export class Renderer {
     }
 
     this.drawUnits(now, px, Y, seen, false);
+    this.drawBullets(px, Y, seen);
     this.drawFx(now, px, Y, seen);
     this.drawUnits(now, px, Y, seen, true);
     this.drawMarks(now, px, Y);
@@ -391,6 +397,19 @@ export class Renderer {
 
   private drawItems(now: number, Y: (wy: number) => number, seen: (x: number, y: number) => boolean): void {
     const { ctx, world } = this;
+    if (world.liveItems) {
+      ctx.globalAlpha = 1;
+      for (let i = 0; i < world.liveItems.length; i++) {
+        const it = world.liveItems[i];
+        const y = Y(it.y);
+        if (!seen(it.x, y)) continue;
+        if (!sprite(ctx, `item-${it.name}`, it.x, y, 0, 0.56)) {
+          ctx.fillStyle = ORE_COLORS[it.name] || INK;
+          ctx.fillRect(it.x - 0.14, y - 0.14, 0.28, 0.28);
+        }
+      }
+      return;
+    }
     const t = Math.min(1, world.phase(now));
     for (const it of world.items) {
       const x = it.x0 + (it.x1 - it.x0) * t;
@@ -404,6 +423,73 @@ export class Renderer {
       }
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** Real interpolated Mindustry projectiles from the 20 Hz stream. */
+  private drawBullets(
+    px: number,
+    Y: (wy: number) => number,
+    seen: (x: number, y: number, pad?: number) => boolean,
+  ): void {
+    const bullets = this.world.liveBullets;
+    if (!bullets.length) return;
+    const { ctx } = this;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (let i = 0; i < bullets.length; i++) {
+      const b = bullets[i];
+      const x = b.x;
+      const y = Y(b.y);
+      if (!seen(x, y, Math.max(3, b.len + 1))) continue;
+      const col = b.color || (b.team === HOME ? "#ffe2a0" : "#ff7a66");
+      if (b.kind === 1 && b.len > 0.5) {
+        // Active continuous beam (e.g. Meltdown)
+        const rad = (b.rot * Math.PI) / 180;
+        const ex = x + Math.cos(rad) * b.len;
+        const ey = Y(b.y + Math.sin(rad) * b.len);
+        const w = Math.max(px * 3, b.size * 1.4);
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = w * 2.1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = w * 0.65;
+        ctx.stroke();
+        continue;
+      }
+      // Standard projectile: velocity-aligned glowing streak + bright core bolt
+      const speed = Math.hypot(b.vx, b.vy);
+      const r = Math.max(px * 1.4, clamp(b.size * 0.62, 0.1, 0.42));
+      if (speed > 1.5) {
+        const tailLen = clamp(speed * 0.045, 0.35, 1.85);
+        const dx = (b.vx / speed) * tailLen;
+        const dy = (-b.vy / speed) * tailLen;
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = r * 1.75;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - dx, y - dy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 1.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#fffaf0";
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.65, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.lineCap = "butt";
   }
 
   private drawPower(
@@ -584,7 +670,10 @@ export class Renderer {
         if (drone) {
           // Engine glow behind the ship, brighter the faster it is travelling.
           const a = (v.rot * Math.PI) / 180;
-          const speed = Math.min(1, Math.hypot(v.u.x - v.x0, v.u.y - v.y0) / 1.2);
+          const speed =
+            v.u.vx !== undefined && v.u.vy !== undefined
+              ? Math.min(1, Math.hypot(v.u.vx, v.u.vy) / 18)
+              : Math.min(1, Math.hypot(v.u.x - v.x0, v.u.y - v.y0) / 1.2);
           const flick = reducedMotion() ? 1 : 0.85 + 0.15 * Math.sin(now / 45);
           const r = (0.42 + speed * 0.5) * flick;
           ctx.globalCompositeOperation = "lighter";
@@ -609,6 +698,13 @@ export class Renderer {
             ctx.globalAlpha = 1;
           }
         }
+      }
+      if (v.u.shield && v.u.shield > 1 && this.cam.z >= 7) {
+        ctx.strokeStyle = home ? "rgba(255,211,127,0.45)" : "rgba(255,130,115,0.48)";
+        ctx.lineWidth = Math.max(px * 1.3, 0.08);
+        ctx.beginPath();
+        ctx.arc(x, y, 0.95, 0, Math.PI * 2);
+        ctx.stroke();
       }
       if (v.u.hp < v.u.maxHp - 0.5 && v.u.maxHp > 0 && this.cam.z >= 7) {
         this.bar(x, y - 0.95, 1.3, v.u.hp / v.u.maxHp, home, px);
@@ -807,6 +903,65 @@ export class Renderer {
         ctx.strokeStyle = f.size > 0 ? "#ffe9b8" : "#b3ac9c";
         ctx.lineWidth = Math.max(px, 0.14 * (1 - t));
         ctx.strokeRect(f.x - half, y - half, half * 2, half * 2);
+      } else if (f.t === "beam") {
+        const sx = f.x;
+        const sy = Y(f.y);
+        if (!seen(sx, sy, f.len + 4)) continue;
+        const rad = (f.rot * Math.PI) / 180;
+        const dx = Math.cos(rad);
+        const dy = Math.sin(rad);
+        const ex = f.x + dx * f.len;
+        const ey = Y(f.y + dy * f.len);
+        const fade = 1 - t;
+        if (f.kind === 2) {
+          // Jagged lightning arc (e.g. Arc turret)
+          const segs = 7;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          const nx = -Math.sin(rad);
+          const ny = -Math.cos(rad);
+          for (let sIdx = 1; sIdx < segs; sIdx++) {
+            const u = sIdx / segs;
+            const jitter = Math.sin(f.seed * 1.7 + sIdx * 9.3) * 0.65;
+            ctx.lineTo(sx + (ex - sx) * u + nx * jitter, sy + (ey - sy) * u + ny * jitter);
+          }
+          ctx.lineTo(ex, ey);
+          ctx.globalAlpha = fade * 0.5;
+          ctx.strokeStyle = f.color || "#a9d8ff";
+          ctx.lineWidth = Math.max(px * 3, 0.26 * fade);
+          ctx.stroke();
+          ctx.globalAlpha = fade;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = Math.max(px * 1.2, 0.1 * fade);
+          ctx.stroke();
+        } else {
+          // Laser / shrapnel / Foreshadow railgun beam
+          const w = Math.max(px * 2, f.width * (0.4 + 0.9 * fade));
+          ctx.globalAlpha = fade * 0.45;
+          ctx.strokeStyle = f.color;
+          ctx.lineWidth = w * 2.2;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+          ctx.globalAlpha = fade;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = w * 0.65;
+          ctx.stroke();
+          if (f.kind === 3) {
+            // Foreshadow rail rings along trajectory
+            ctx.strokeStyle = f.color;
+            ctx.lineWidth = Math.max(px * 1.2, 0.08);
+            ctx.globalAlpha = fade * 0.7;
+            for (let d = 3; d < f.len; d += 4.5) {
+              const rx = sx + dx * d;
+              const ry = Y(f.y + dy * d);
+              ctx.beginPath();
+              ctx.arc(rx, ry, 0.25 + t * 0.5, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+        }
       } else if (f.t === "tracer") {
         const head = Math.min(f.reach, (f.speed * age) / 1000);
         const tail = Math.max(0, head - (f.big ? 1.9 : 1.3));

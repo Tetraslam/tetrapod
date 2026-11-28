@@ -2,6 +2,7 @@ package arena;
 
 import arc.Core;
 import arc.Events;
+import arc.graphics.Color;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.math.geom.Point2;
@@ -19,6 +20,13 @@ import mindustry.ai.types.FlyingAI;
 import mindustry.ai.types.MinerAI;
 import mindustry.content.UnitTypes;
 import mindustry.core.GameState;
+import mindustry.entities.bullet.BasicBulletType;
+import mindustry.entities.bullet.BulletType;
+import mindustry.entities.bullet.ContinuousLaserBulletType;
+import mindustry.entities.bullet.LaserBulletType;
+import mindustry.entities.bullet.LightningBulletType;
+import mindustry.entities.bullet.RailBulletType;
+import mindustry.entities.bullet.ShrapnelBulletType;
 import mindustry.entities.units.UnitController;
 import mindustry.game.EventType;
 import mindustry.game.Team;
@@ -67,6 +75,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -100,9 +109,48 @@ public class ArenaBridgePlugin extends Plugin {
     private float shipGoalY = -1f;
     private String shipMineOre = "";
 
+    // 20 Hz live frame stream state (captured on main thread, served lock-free from ring buffer)
+    private static class BuildingSnap {
+        int x, y, size, rot, aimRot, hp, maxHp, ammo;
+        String block, team;
+    }
+
+    private static class FrameEntry {
+        long seq;
+        long t;
+        String map;
+        String bAddJson;
+        String bDelJson;
+        String bUpdJson;
+        boolean hasLinks;
+        String powerLinksJson;
+        String beamsJson;
+        String dynamicJson;
+    }
+
+    private static final int FRAME_RING_CAP = 64;
+    private final Object frameLock = new Object();
+    private final FrameEntry[] frameRing = new FrameEntry[FRAME_RING_CAP];
+    private long latestFrameSeq = 0L;
+    private int frameRingCount = 0;
+
+    private final HashMap<Integer, Building> trackedBuildings = new HashMap<>();
+    private final HashSet<Conveyor.ConveyorBuild> trackedConveyors = new HashSet<>();
+    private final HashMap<Integer, BuildingSnap> prevBuildingSnaps = new HashMap<>();
+    private final HashSet<Integer> seenBeamIds = new HashSet<>();
+    private final ArrayList<String> pendingBeams = new ArrayList<>();
+    private boolean needsBuildingScan = true;
+    private boolean powerLinksDirty = true;
+    private int liveTickCounter = 0;
+    private int rescanCounter = 0;
+    private String lastFrameMap = "";
+
     @Override
     public void init() {
-        Events.run(EventType.Trigger.update, this::updateAiDrone);
+        Events.run(EventType.Trigger.update, () -> {
+            updateAiDrone();
+            captureLiveTick();
+        });
         Events.on(EventType.WorldLoadEvent.class, e -> {
             aiDrone = null;
             droneTargetX = -1f;
@@ -112,12 +160,37 @@ public class ArenaBridgePlugin extends Plugin {
             shipGoalX = -1f;
             shipGoalY = -1f;
             shipMineOre = "";
+            trackedBuildings.clear();
+            trackedConveyors.clear();
+            prevBuildingSnaps.clear();
+            seenBeamIds.clear();
+            pendingBeams.clear();
+            needsBuildingScan = true;
+            powerLinksDirty = true;
+            rescanCounter = 0;
+            lastFrameMap = "";
+            synchronized (frameLock) {
+                frameRingCount = 0;
+            }
+        });
+        Events.on(EventType.TileChangeEvent.class, e -> {
+            if (e != null && e.tile != null) {
+                Building b = e.tile.build;
+                if (b != null && b.block != null && b.tile != null) {
+                    trackedBuildings.put(b.pos(), b);
+                    if (b instanceof Conveyor.ConveyorBuild cb) trackedConveyors.add(cb);
+                    if (b.power != null) powerLinksDirty = true;
+                } else {
+                    powerLinksDirty = true;
+                }
+            }
         });
         try {
             int port = Integer.parseInt(System.getenv().getOrDefault("ARENA_BRIDGE_PORT", "6568"));
             server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
             server.createContext("/health", this::handleHealth);
             server.createContext("/state", this::handleState);
+            server.createContext("/frame", this::handleFrame);
             server.createContext("/terrain", this::handleTerrain);
             server.createContext("/tactical", this::handleTactical);
             server.createContext("/scan", this::handleScan);
@@ -336,6 +409,519 @@ public class ArenaBridgePlugin extends Plugin {
         if (fn.contains("red") || fn.contains("ferric")) return "#2f2020";
         if (fn.contains("dacite") || fn.contains("stone") || fn.contains("crater")) return "#222936";
         return "#1c2330";
+    }
+
+    private static float r2(float v) {
+        return Math.round(v * 100f) / 100f;
+    }
+
+    private static String hexColor(Color c, String fallback) {
+        if (c == null) return fallback;
+        int rgb = c.rgb888() & 0xFFFFFF;
+        char[] hex = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+        return new String(new char[]{
+            '#',
+            hex[(rgb >> 20) & 0xF], hex[(rgb >> 16) & 0xF],
+            hex[(rgb >> 12) & 0xF], hex[(rgb >> 8) & 0xF],
+            hex[(rgb >> 4) & 0xF], hex[rgb & 0xF]
+        });
+    }
+
+    private static void classifyBullet(Bullet bul, int[] outKind, float[] outLenSize, String[] outColor) {
+        BulletType bt = bul.type;
+        String defCol = (bul.team == Team.sharded) ? "#ffe2a0" : "#ff7a66";
+        int kind = 0; // 0=projectile, 1=laser/shrapnel, 2=lightning, 3=rail
+        float len = 0f;
+        float size = bt != null ? Math.max(0.08f, bt.hitSize / 16f) : 0.14f;
+        String col = defCol;
+
+        if (bt instanceof ContinuousLaserBulletType cl) {
+            kind = 1;
+            len = cl.length / 8f;
+            size = Math.max(0.22f, cl.width / 8f);
+            col = (cl.colors != null && cl.colors.length > 0) ? hexColor(cl.colors[cl.colors.length - 1], defCol) : defCol;
+        } else if (bt instanceof LaserBulletType lb) {
+            kind = 1;
+            len = lb.length / 8f;
+            size = Math.max(0.18f, lb.width / 10f);
+            col = (lb.colors != null && lb.colors.length > 0) ? hexColor(lb.colors[0], defCol) : defCol;
+        } else if (bt instanceof ShrapnelBulletType sb) {
+            kind = 1;
+            len = sb.length / 8f;
+            size = Math.max(0.16f, sb.width / 10f);
+            col = hexColor(sb.fromColor, defCol);
+        } else if (bt instanceof RailBulletType rb) {
+            kind = 3;
+            len = rb.length / 8f;
+            size = 0.24f;
+            col = hexColor(bt.lightColor, "#fff3b8");
+        } else if (bt instanceof LightningBulletType) {
+            kind = 2;
+            len = 8f;
+            size = 0.16f;
+            col = hexColor(bt.lightColor, "#a9d8ff");
+        } else if (bt instanceof BasicBulletType bb) {
+            size = Math.max(0.09f, Math.min(0.75f, Math.max(bb.width, bb.height) / 16f));
+            col = hexColor(bb.frontColor != null ? bb.frontColor : bb.backColor, defCol);
+        } else if (bt != null) {
+            col = hexColor(bt.trailColor != null ? bt.trailColor : bt.lightColor, defCol);
+        }
+
+        outKind[0] = kind;
+        outLenSize[0] = len;
+        outLenSize[1] = size;
+        outColor[0] = col;
+    }
+
+    private void rescanTrackedBuildings() {
+        trackedBuildings.clear();
+        trackedConveyors.clear();
+        if (Vars.world == null) return;
+        int w = Vars.world.width();
+        int h = Vars.world.height();
+        for (int idx = 0; idx < w * h; idx++) {
+            Tile t = Vars.world.tile(idx % w, idx / w);
+            if (t == null || t.build == null || t.build.tile != t || t.build.block == null) continue;
+            Building b = t.build;
+            trackedBuildings.put(b.pos(), b);
+            if (b instanceof Conveyor.ConveyorBuild cb) trackedConveyors.add(cb);
+        }
+        needsBuildingScan = false;
+        rescanCounter = 0;
+        powerLinksDirty = true;
+    }
+
+    private void captureLiveTick() {
+        if (Vars.world == null || Vars.world.width() == 0 || Vars.state == null) return;
+        String mapName = Vars.state.map != null ? Vars.state.map.plainName() : "unknown";
+        if (!mapName.equals(lastFrameMap)) {
+            lastFrameMap = mapName;
+            needsBuildingScan = true;
+            prevBuildingSnaps.clear();
+            seenBeamIds.clear();
+            pendingBeams.clear();
+        }
+
+        // Capture instant/short-lived beams & lightning at full 60 Hz so no shot is skipped between 20 Hz frames
+        int[] kOut = new int[1];
+        float[] lsOut = new float[2];
+        String[] cOut = new String[1];
+        for (Bullet bul : Groups.bullet) {
+            if (bul == null || bul.type == null) continue;
+            BulletType bt = bul.type;
+            boolean isBeam = bt instanceof LaserBulletType || bt instanceof ContinuousLaserBulletType
+                || bt instanceof ShrapnelBulletType || bt instanceof RailBulletType
+                || bt instanceof LightningBulletType;
+            if (!isBeam) continue;
+            if (seenBeamIds.add(bul.id)) {
+                classifyBullet(bul, kOut, lsOut, cOut);
+                if (pendingBeams.size() < 80) {
+                    StringBuilder bsb = new StringBuilder(96);
+                    bsb.append('[').append(bul.id)
+                       .append(',').append(r2(bul.x / 8f))
+                       .append(',').append(r2(bul.y / 8f))
+                       .append(',').append(Math.round(bul.rotation()))
+                       .append(',').append(r2(lsOut[0]))
+                       .append(',').append(r2(lsOut[1]))
+                       .append(",\"").append(cOut[0])
+                       .append("\",").append(kOut[0])
+                       .append(",\"").append(esc(bul.team != null ? bul.team.name : "none")).append("\"]");
+                    pendingBeams.add(bsb.toString());
+                }
+            }
+        }
+        if (seenBeamIds.size() > 2048) seenBeamIds.clear();
+
+        // Emit full dynamic + building-diff frame every 3rd tick (~20 Hz = 50ms)
+        liveTickCounter++;
+        int stride = Vars.state.isPaused() ? 15 : 3;
+        if (liveTickCounter % stride != 0) return;
+
+        if (needsBuildingScan || ++rescanCounter >= 200) {
+            rescanTrackedBuildings();
+        }
+
+        // Prune removed buildings & catch any newly spawned buildings in Groups.build
+        Iterator<java.util.Map.Entry<Integer, Building>> it = trackedBuildings.entrySet().iterator();
+        while (it.hasNext()) {
+            Building b = it.next().getValue();
+            if (b == null || !b.isAdded() || b.tile == null || b.tile.build != b || b.block == null) {
+                it.remove();
+                if (b instanceof Conveyor.ConveyorBuild cb) trackedConveyors.remove(cb);
+                powerLinksDirty = true;
+            }
+        }
+        for (Building b : Groups.build) {
+            if (b == null || b.tile == null || b.tile.build != b || b.block == null) continue;
+            int pos = b.pos();
+            if (!trackedBuildings.containsKey(pos)) {
+                trackedBuildings.put(pos, b);
+                if (b instanceof Conveyor.ConveyorBuild cb) trackedConveyors.add(cb);
+                if (b.power != null) powerLinksDirty = true;
+            }
+        }
+
+        // Diff buildings against prevBuildingSnaps
+        float powerProd = 0f;
+        float powerCons = 0f;
+        StringBuilder bAdd = new StringBuilder();
+        StringBuilder bUpd = new StringBuilder();
+        StringBuilder bDel = new StringBuilder();
+        boolean hasAdd = false, hasUpd = false, hasDel = false;
+
+        for (java.util.Map.Entry<Integer, Building> entry : trackedBuildings.entrySet()) {
+            int pos = entry.getKey();
+            Building b = entry.getValue();
+            int ammo = 0;
+            int aimRot = b.rotation * 90;
+            if (b instanceof Turret.TurretBuild tb) {
+                ammo = tb.totalAmmo;
+                aimRot = Math.round(tb.rotation);
+            } else if (b instanceof BaseTurret.BaseTurretBuild bt) {
+                aimRot = Math.round(bt.rotation);
+            }
+            int hp = Math.round(b.health);
+            int maxHp = Math.round(b.maxHealth);
+            if (b.team == Team.sharded && b.power != null && b.power.graph != null) {
+                powerProd = Math.max(powerProd, b.power.graph.getPowerProduced() * 60f);
+                powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
+            }
+
+            BuildingSnap prev = prevBuildingSnaps.get(pos);
+            if (prev == null || !prev.block.equals(b.block.name) || prev.rot != b.rotation || !prev.team.equals(b.team.name)) {
+                BuildingSnap sn = new BuildingSnap();
+                sn.x = b.tileX();
+                sn.y = b.tileY();
+                sn.size = b.block.size;
+                sn.rot = b.rotation;
+                sn.aimRot = aimRot;
+                sn.hp = hp;
+                sn.maxHp = maxHp;
+                sn.ammo = ammo;
+                sn.block = b.block.name;
+                sn.team = b.team.name;
+                prevBuildingSnaps.put(pos, sn);
+                if (hasAdd) bAdd.append(',');
+                hasAdd = true;
+                bAdd.append("{\"x\":").append(sn.x)
+                    .append(",\"y\":").append(sn.y)
+                    .append(",\"block\":\"").append(esc(sn.block))
+                    .append("\",\"size\":").append(sn.size)
+                    .append(",\"rot\":").append(sn.rot)
+                    .append(",\"aimRot\":").append(sn.aimRot)
+                    .append(",\"hp\":").append(sn.hp)
+                    .append(",\"maxHp\":").append(sn.maxHp)
+                    .append(",\"team\":\"").append(esc(sn.team))
+                    .append("\",\"ammo\":").append(sn.ammo).append('}');
+                powerLinksDirty = true;
+            } else if (prev.aimRot != aimRot || prev.hp != hp || prev.ammo != ammo) {
+                prev.aimRot = aimRot;
+                prev.hp = hp;
+                prev.ammo = ammo;
+                if (hasUpd) bUpd.append(',');
+                hasUpd = true;
+                bUpd.append('[').append(prev.x).append(',').append(prev.y)
+                    .append(',').append(aimRot).append(',').append(hp).append(',').append(ammo).append(']');
+            }
+        }
+
+        Iterator<java.util.Map.Entry<Integer, BuildingSnap>> pit = prevBuildingSnaps.entrySet().iterator();
+        while (pit.hasNext()) {
+            java.util.Map.Entry<Integer, BuildingSnap> pe = pit.next();
+            if (!trackedBuildings.containsKey(pe.getKey())) {
+                BuildingSnap removed = pe.getValue();
+                pit.remove();
+                if (hasDel) bDel.append(',');
+                hasDel = true;
+                bDel.append('[').append(removed.x).append(',').append(removed.y).append(']');
+                powerLinksDirty = true;
+            }
+        }
+
+        String powerLinksJson = null;
+        boolean emitLinks = powerLinksDirty;
+        if (emitLinks) {
+            powerLinksDirty = false;
+            StringBuilder pl = new StringBuilder("[");
+            boolean firstLink = true;
+            HashSet<Long> seenLinks = new HashSet<>();
+            for (Building b : trackedBuildings.values()) {
+                if (b.team != Team.sharded || b.power == null || b.power.links == null || b.power.links.size == 0) continue;
+                int ax = b.tileX(), ay = b.tileY();
+                int aPos = Point2.pack(ax, ay);
+                for (int li = 0; li < b.power.links.size; li++) {
+                    int pos = b.power.links.get(li);
+                    long lo = Math.min(aPos, pos) & 0xFFFFFFFFL;
+                    long hi = Math.max(aPos, pos) & 0xFFFFFFFFL;
+                    long edgeKey = (lo << 32) | hi;
+                    if (seenLinks.add(edgeKey)) {
+                        if (!firstLink) pl.append(',');
+                        firstLink = false;
+                        pl.append('[').append(ax).append(',').append(ay)
+                          .append(',').append(Point2.x(pos)).append(',').append(Point2.y(pos)).append(']');
+                    }
+                }
+            }
+            pl.append(']');
+            powerLinksJson = pl.toString();
+        }
+
+        // Dynamic body: scalar HUD fields + units + bullets + uncapped conveyor items
+        StringBuilder dyn = new StringBuilder(8192);
+        dyn.append("\"map\":\"").append(esc(mapName))
+           .append("\",\"wave\":").append(Vars.state.wave)
+           .append(",\"waveTime\":").append(Math.round(Vars.state.wavetime / 60f * 10f) / 10f)
+           .append(",\"enemies\":").append(Vars.state.enemies)
+           .append(",\"gameOver\":").append(Vars.state.gameOver)
+           .append(",\"paused\":").append(Vars.state.isPaused())
+           .append(",\"playing\":").append(Vars.state.isPlaying());
+
+        CoreBlock.CoreBuild core = Team.sharded.core();
+        if (core != null) {
+            dyn.append(",\"core\":{\"x\":").append(core.tileX())
+               .append(",\"y\":").append(core.tileY())
+               .append(",\"hp\":").append(Math.round(core.health))
+               .append(",\"maxHp\":").append(Math.round(core.maxHealth))
+               .append(",\"block\":\"").append(esc(core.block.name)).append("\"}");
+            dyn.append(",\"items\":{");
+            boolean fi = true;
+            for (Item item : Vars.content.items()) {
+                int amt = core.items.get(item);
+                if (amt > 0) {
+                    if (!fi) dyn.append(',');
+                    fi = false;
+                    dyn.append('"').append(esc(item.name)).append("\":").append(amt);
+                }
+            }
+            dyn.append("},\"flowRates\":{");
+            boolean ff = true;
+            for (Item item : Vars.content.items()) {
+                float rate = core.items.getFlowRate(item);
+                if (rate > 0.05f) {
+                    if (!ff) dyn.append(',');
+                    ff = false;
+                    dyn.append('"').append(esc(item.name)).append("\":").append(Math.round(rate * 10f) / 10f);
+                }
+            }
+            dyn.append('}');
+        } else {
+            dyn.append(",\"core\":null,\"items\":{},\"flowRates\":{}");
+        }
+        dyn.append(",\"power\":{\"produced\":").append(Math.round(powerProd))
+           .append(",\"consumed\":").append(Math.round(powerCons)).append('}');
+
+        // Units tuple: [id, type, team, x, y, vx, vy, rot, hp, maxHp, shield]
+        dyn.append(",\"units\":[");
+        boolean firstU = true;
+        for (Unit u : Groups.unit) {
+            if (u == null || u.dead()) continue;
+            if (!firstU) dyn.append(',');
+            firstU = false;
+            dyn.append('[').append(u.id)
+               .append(",\"").append(esc(u.type != null ? u.type.name : "unit"))
+               .append("\",\"").append(esc(u.team.name))
+               .append("\",").append(r2(u.x / 8f))
+               .append(',').append(r2(u.y / 8f))
+               .append(',').append(r2(u.vel.x * 7.5f))
+               .append(',').append(r2(u.vel.y * 7.5f))
+               .append(',').append(Math.round(u.rotation))
+               .append(',').append(Math.round(u.health))
+               .append(',').append(Math.round(u.maxHealth))
+               .append(',').append(Math.round(u.shield)).append(']');
+        }
+        dyn.append(']');
+
+        // Real bullets tuple: [id, x, y, vx, vy, rot, team, dmg, size, color, kind, len]
+        dyn.append(",\"bullets\":[");
+        boolean firstBul = true;
+        int bCount = 0;
+        for (Bullet bul : Groups.bullet) {
+            if (bul == null || bCount >= 600) break;
+            classifyBullet(bul, kOut, lsOut, cOut);
+            if (!firstBul) dyn.append(',');
+            firstBul = false;
+            bCount++;
+            dyn.append('[').append(bul.id)
+               .append(',').append(r2(bul.x / 8f))
+               .append(',').append(r2(bul.y / 8f))
+               .append(',').append(r2(bul.vel.x * 7.5f))
+               .append(',').append(r2(bul.vel.y * 7.5f))
+               .append(',').append(Math.round(bul.rotation()))
+               .append(",\"").append(esc(bul.team != null ? bul.team.name : "none"))
+               .append("\",").append(Math.round(bul.damage))
+               .append(',').append(r2(lsOut[1]))
+               .append(",\"").append(cOut[0])
+               .append("\",").append(kOut[0])
+               .append(',').append(r2(lsOut[0])).append(']');
+        }
+        dyn.append(']');
+
+        // Uncapped conveyor items (up to 2500) with lateral xs + longitudinal ys in a flat stride-4 array
+        HashMap<String, Integer> iPalMap = new HashMap<>();
+        ArrayList<String> iPal = new ArrayList<>();
+        StringBuilder ci = new StringBuilder("[");
+        boolean firstCi = true;
+        int ciCount = 0;
+        for (Conveyor.ConveyorBuild cb : trackedConveyors) {
+            if (cb == null || !cb.isAdded() || cb.len <= 0 || cb.ids == null) continue;
+            int rot = cb.rotation & 3;
+            int dx = rot == 0 ? 1 : rot == 2 ? -1 : 0;
+            int dy = rot == 1 ? 1 : rot == 3 ? -1 : 0;
+            int px = -dy;
+            int py = dx;
+            for (int idx = 0; idx < cb.len && ciCount < 2500; idx++) {
+                Item item = cb.ids[idx];
+                if (item == null) continue;
+                Integer pIdx = iPalMap.get(item.name);
+                if (pIdx == null) {
+                    pIdx = iPal.size();
+                    iPal.add(item.name);
+                    iPalMap.put(item.name, pIdx);
+                }
+                float prog = cb.ys[idx] - 0.5f;
+                float lat = (cb.xs != null ? cb.xs[idx] : 0f) * 0.25f;
+                float ix = cb.tileX() + 0.5f + dx * prog + px * lat;
+                float iy = cb.tileY() + 0.5f + dy * prog + py * lat;
+                if (!firstCi) ci.append(',');
+                firstCi = false;
+                ciCount++;
+                ci.append(r2(ix)).append(',').append(r2(iy)).append(',').append(pIdx).append(',').append(rot);
+            }
+        }
+        ci.append(']');
+        dyn.append(",\"iPal\":[");
+        for (int i = 0; i < iPal.size(); i++) {
+            if (i > 0) dyn.append(',');
+            dyn.append('"').append(esc(iPal.get(i))).append('"');
+        }
+        dyn.append("],\"ci\":").append(ci);
+
+        // Player drone
+        if (aiDrone != null && !aiDrone.dead() && aiDrone.isAdded()) {
+            dyn.append(",\"playerDrone\":{\"id\":").append(aiDrone.id)
+               .append(",\"type\":\"").append(esc(aiDrone.type != null ? aiDrone.type.name : "alpha"))
+               .append("\",\"mode\":\"").append(esc(shipMode))
+               .append("\",\"x\":").append(r2(aiDrone.x / 8f))
+               .append(",\"y\":").append(r2(aiDrone.y / 8f))
+               .append(",\"hp\":").append(Math.round(aiDrone.health))
+               .append(",\"maxHp\":").append(Math.round(aiDrone.maxHealth))
+               .append(",\"rot\":").append(Math.round(aiDrone.rotation));
+            if (System.currentTimeMillis() <= buildBeamUntil && buildBeamX >= 0) {
+                dyn.append(",\"buildTarget\":{\"x\":").append(buildBeamX)
+                   .append(",\"y\":").append(buildBeamY)
+                   .append(",\"block\":\"").append(esc(buildBeamBlock)).append("\"}");
+            } else {
+                dyn.append(",\"buildTarget\":null");
+            }
+            dyn.append('}');
+        } else {
+            dyn.append(",\"playerDrone\":null");
+        }
+
+        // Drain 60 Hz captured beams
+        StringBuilder beamsSb = new StringBuilder();
+        for (int bi = 0; bi < pendingBeams.size(); bi++) {
+            if (bi > 0) beamsSb.append(',');
+            beamsSb.append(pendingBeams.get(bi));
+        }
+        pendingBeams.clear();
+
+        FrameEntry fe = new FrameEntry();
+        fe.t = System.currentTimeMillis();
+        fe.map = mapName;
+        fe.bAddJson = bAdd.toString();
+        fe.bDelJson = bDel.toString();
+        fe.bUpdJson = bUpd.toString();
+        fe.hasLinks = emitLinks;
+        fe.powerLinksJson = powerLinksJson;
+        fe.beamsJson = beamsSb.toString();
+        fe.dynamicJson = dyn.toString();
+
+        synchronized (frameLock) {
+            latestFrameSeq++;
+            fe.seq = latestFrameSeq;
+            frameRing[(int) (latestFrameSeq % FRAME_RING_CAP)] = fe;
+            if (frameRingCount < FRAME_RING_CAP) frameRingCount++;
+        }
+    }
+
+    private void handleFrame(HttpExchange ex) throws IOException {
+        try {
+            HashMap<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
+            long since = 0L;
+            String sStr = q.get("since");
+            if (sStr != null && !sStr.isEmpty()) {
+                try { since = Long.parseLong(sStr); } catch (Exception ignored) {}
+            }
+
+            String json;
+            synchronized (frameLock) {
+                if (frameRingCount == 0 || latestFrameSeq == 0L) {
+                    json = "{\"ready\":false}";
+                } else if (since == latestFrameSeq) {
+                    json = "{\"ready\":true,\"unchanged\":true,\"seq\":" + latestFrameSeq + "}";
+                } else {
+                    long oldestSeq = latestFrameSeq - frameRingCount + 1;
+                    FrameEntry latest = frameRing[(int) (latestFrameSeq % FRAME_RING_CAP)];
+                    if (since <= 0L || since < oldestSeq - 1 || latest == null) {
+                        json = "{\"ready\":true,\"fullRequired\":true,\"seq\":" + latestFrameSeq + "}";
+                    } else {
+                        StringBuilder bAdd = new StringBuilder();
+                        StringBuilder bDel = new StringBuilder();
+                        StringBuilder bUpd = new StringBuilder();
+                        StringBuilder beams = new StringBuilder();
+                        String linksJson = null;
+                        boolean mapChanged = false;
+                        for (long s = since + 1; s <= latestFrameSeq; s++) {
+                            FrameEntry fe = frameRing[(int) (s % FRAME_RING_CAP)];
+                            if (fe == null || !fe.map.equals(latest.map)) {
+                                mapChanged = true;
+                                break;
+                            }
+                            if (!fe.bAddJson.isEmpty()) {
+                                if (bAdd.length() > 0) bAdd.append(',');
+                                bAdd.append(fe.bAddJson);
+                            }
+                            if (!fe.bDelJson.isEmpty()) {
+                                if (bDel.length() > 0) bDel.append(',');
+                                bDel.append(fe.bDelJson);
+                            }
+                            if (!fe.bUpdJson.isEmpty()) {
+                                if (bUpd.length() > 0) bUpd.append(',');
+                                bUpd.append(fe.bUpdJson);
+                            }
+                            if (!fe.beamsJson.isEmpty()) {
+                                if (beams.length() > 0) beams.append(',');
+                                beams.append(fe.beamsJson);
+                            }
+                            if (fe.hasLinks && fe.powerLinksJson != null) {
+                                linksJson = fe.powerLinksJson;
+                            }
+                        }
+                        if (mapChanged) {
+                            json = "{\"ready\":true,\"fullRequired\":true,\"seq\":" + latestFrameSeq + "}";
+                        } else {
+                            StringBuilder sb = new StringBuilder(latest.dynamicJson.length() + bAdd.length() + bUpd.length() + 256);
+                            sb.append("{\"ready\":true,\"seq\":").append(latest.seq)
+                              .append(",\"t\":").append(latest.t)
+                              .append(',').append(latest.dynamicJson)
+                              .append(",\"bAdd\":[").append(bAdd).append(']')
+                              .append(",\"bDel\":[").append(bDel).append(']')
+                              .append(",\"bUpd\":[").append(bUpd).append(']')
+                              .append(",\"beams\":[").append(beams).append(']');
+                            if (linksJson != null) {
+                                sb.append(",\"powerLinks\":").append(linksJson);
+                            }
+                            sb.append('}');
+                            json = sb.toString();
+                        }
+                    }
+                }
+            }
+            sendJson(ex, 200, json);
+        } catch (Exception e) {
+            sendJson(ex, 500, "{\"ready\":false,\"error\":\"" + esc(e.toString()) + "\"}");
+        }
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
@@ -1100,8 +1686,12 @@ public class ArenaBridgePlugin extends Plugin {
                     return "{\"ready\":false}";
                 }
                 String mapName = Vars.state.map != null ? Vars.state.map.plainName() : "unknown";
+                long curSeq;
+                synchronized (frameLock) { curSeq = latestFrameSeq; }
                 StringBuilder sb = new StringBuilder(16384);
-                sb.append("{\"ready\":true,\"map\":\"").append(esc(mapName))
+                sb.append("{\"ready\":true,\"seq\":").append(curSeq)
+                  .append(",\"t\":").append(System.currentTimeMillis())
+                  .append(",\"map\":\"").append(esc(mapName))
                   .append("\",\"width\":").append(Vars.world.width())
                   .append(",\"height\":").append(Vars.world.height())
                   .append(",\"wave\":").append(Vars.state.wave)
@@ -1210,20 +1800,24 @@ public class ArenaBridgePlugin extends Plugin {
                             }
                         }
                     }
-                    if (convCount < 350 && b instanceof Conveyor.ConveyorBuild cb && cb.len > 0 && cb.ids != null) {
-                        int dx = cb.rotation == 0 ? 1 : cb.rotation == 2 ? -1 : 0;
-                        int dy = cb.rotation == 1 ? 1 : cb.rotation == 3 ? -1 : 0;
-                        for (int ci = 0; ci < cb.len && convCount < 350; ci++) {
+                    if (convCount < 2500 && b instanceof Conveyor.ConveyorBuild cb && cb.len > 0 && cb.ids != null) {
+                        int rot = cb.rotation & 3;
+                        int dx = rot == 0 ? 1 : rot == 2 ? -1 : 0;
+                        int dy = rot == 1 ? 1 : rot == 3 ? -1 : 0;
+                        int px = -dy;
+                        int py = dx;
+                        for (int ci = 0; ci < cb.len && convCount < 2500; ci++) {
                             Item it = cb.ids[ci];
                             if (it == null) continue;
                             float prog = cb.ys[ci] - 0.5f;
-                            float ix = cb.tileX() + 0.5f + dx * prog;
-                            float iy = cb.tileY() + 0.5f + dy * prog;
+                            float lat = (cb.xs != null ? cb.xs[ci] : 0f) * 0.25f;
+                            float ix = cb.tileX() + 0.5f + dx * prog + px * lat;
+                            float iy = cb.tileY() + 0.5f + dy * prog + py * lat;
                             if (!firstConv) convItems.append(',');
                             firstConv = false;
                             convCount++;
-                            convItems.append('[').append(Math.round(ix * 10f) / 10f).append(',')
-                                     .append(Math.round(iy * 10f) / 10f).append(",\"")
+                            convItems.append('[').append(r2(ix)).append(',')
+                                     .append(r2(iy)).append(",\"")
                                      .append(esc(it.name)).append("\"]");
                         }
                     }
@@ -1257,27 +1851,42 @@ public class ArenaBridgePlugin extends Plugin {
                       .append(",\"type\":\"").append(esc(u.type != null ? u.type.name : "unit"))
                       .append("\",\"flying\":").append(u.type != null && u.type.flying)
                       .append(",\"team\":\"").append(esc(u.team.name))
-                      .append("\",\"x\":").append(Math.round(u.x / 8f * 10f) / 10f)
-                      .append(",\"y\":").append(Math.round(u.y / 8f * 10f) / 10f)
+                      .append("\",\"x\":").append(r2(u.x / 8f))
+                      .append(",\"y\":").append(r2(u.y / 8f))
+                      .append(",\"vx\":").append(r2(u.vel.x * 7.5f))
+                      .append(",\"vy\":").append(r2(u.vel.y * 7.5f))
                       .append(",\"hp\":").append(Math.round(u.health))
                       .append(",\"maxHp\":").append(Math.round(u.maxHealth))
+                      .append(",\"shield\":").append(Math.round(u.shield))
                       .append(",\"rot\":").append(Math.round(u.rotation)).append('}');
                 }
                 sb.append(']');
 
-                // Bullets (cap at 200)
+                // Bullets (up to 600, full real velocity + visual metadata)
                 sb.append(",\"bullets\":[");
                 boolean firstBul = true;
                 int bCount = 0;
+                int[] kOut = new int[1];
+                float[] lsOut = new float[2];
+                String[] cOut = new String[1];
                 for (Bullet bul : Groups.bullet) {
-                    if (bul == null || bCount >= 200) break;
+                    if (bul == null || bCount >= 600) break;
+                    classifyBullet(bul, kOut, lsOut, cOut);
                     if (!firstBul) sb.append(',');
                     firstBul = false;
                     bCount++;
-                    sb.append("{\"x\":").append(Math.round(bul.x / 8f * 10f) / 10f)
-                      .append(",\"y\":").append(Math.round(bul.y / 8f * 10f) / 10f)
+                    sb.append("{\"id\":").append(bul.id)
+                      .append(",\"x\":").append(r2(bul.x / 8f))
+                      .append(",\"y\":").append(r2(bul.y / 8f))
+                      .append(",\"vx\":").append(r2(bul.vel.x * 7.5f))
+                      .append(",\"vy\":").append(r2(bul.vel.y * 7.5f))
+                      .append(",\"rot\":").append(Math.round(bul.rotation()))
                       .append(",\"team\":\"").append(esc(bul.team != null ? bul.team.name : "none"))
-                      .append("\",\"dmg\":").append(Math.round(bul.damage)).append('}');
+                      .append("\",\"dmg\":").append(Math.round(bul.damage))
+                      .append(",\"size\":").append(r2(lsOut[1]))
+                      .append(",\"color\":\"").append(cOut[0])
+                      .append("\",\"kind\":").append(kOut[0])
+                      .append(",\"len\":").append(r2(lsOut[0])).append('}');
                 }
                 sb.append(']');
 
@@ -1286,8 +1895,8 @@ public class ArenaBridgePlugin extends Plugin {
                     sb.append(",\"playerDrone\":{\"id\":").append(aiDrone.id)
                       .append(",\"type\":\"").append(esc(aiDrone.type != null ? aiDrone.type.name : "alpha"))
                       .append("\",\"mode\":\"").append(esc(shipMode))
-                      .append("\",\"x\":").append(Math.round(aiDrone.x / 8f * 10f) / 10f)
-                      .append(",\"y\":").append(Math.round(aiDrone.y / 8f * 10f) / 10f)
+                      .append("\",\"x\":").append(r2(aiDrone.x / 8f))
+                      .append(",\"y\":").append(r2(aiDrone.y / 8f))
                       .append(",\"hp\":").append(Math.round(aiDrone.health))
                       .append(",\"maxHp\":").append(Math.round(aiDrone.maxHealth))
                       .append(",\"rot\":").append(Math.round(aiDrone.rotation));
@@ -1341,6 +1950,9 @@ public class ArenaBridgePlugin extends Plugin {
         if (tile.build != null) {
             // Trigger Mindustry's normal post-placement hook (auto-links power nodes and nearby consumers).
             tile.build.placed();
+            trackedBuildings.put(tile.build.pos(), tile.build);
+            if (tile.build instanceof Conveyor.ConveyorBuild cb) trackedConveyors.add(cb);
+            if (tile.build.power != null) powerLinksDirty = true;
         }
         // Direct the AI builder drone to this build site with an active build beam
         droneTargetX = x * 8f;
@@ -1717,6 +2329,7 @@ public class ArenaBridgePlugin extends Plugin {
                                     return "{\"ok\":false,\"error\":\"cannot link " + esc(b.block.name) + " to (" + tb.tileX() + "," + tb.tileY() + "): out of range (" + Math.round(pn.laserRange) + " tiles) or maxNodes (" + pn.maxNodes + ") reached\"}";
                                 }
                                 b.configureAny(tb.pos());
+                                powerLinksDirty = true;
                                 return "{\"ok\":true,\"block\":\"" + esc(b.block.name) + "\",\"linked\":" + (!alreadyLinked) + ",\"target\":{\"x\":" + tb.tileX() + ",\"y\":" + tb.tileY() + "}}";
                             }
                             if (b instanceof LogicBlock.LogicBuild lb) {
@@ -1895,6 +2508,7 @@ public class ArenaBridgePlugin extends Plugin {
                                 linked++;
                             }
                         }
+                        powerLinksDirty = true;
                         return "{\"ok\":true,\"nodes\":" + linked + "}";
                     }
                     case "set_paused" -> {
