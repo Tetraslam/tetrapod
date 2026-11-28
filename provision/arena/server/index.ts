@@ -2098,7 +2098,9 @@ async function pollMindustry(): Promise<void> {
 
 function schedulePollMindustry(delayMs?: number): void {
   if (pollTimer) clearTimeout(pollTimer);
-  const wait = delayMs ?? (wsClients.size > 0 ? 50 : 500);
+  // Poll at 25ms when spectators are watching so we never beat/skip Mindustry's 50ms (20Hz) cadence;
+  // unchanged polls short-circuit lock-free on loopback in <0.1ms and broadcast nothing.
+  const wait = delayMs ?? (wsClients.size > 0 ? 25 : 500);
   pollTimer = setTimeout(async () => {
     pollTimer = null;
     await pollMindustry();

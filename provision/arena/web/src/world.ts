@@ -145,6 +145,8 @@ type SnapItem = {
 type LiveSnap = {
   seq: number;
   t: number;
+  frame: FrameDelta;
+  committed: boolean;
   units: Map<number, SnapUnit>;
   bullets: Map<number, LiveBullet>;
   items: SnapItem[];
@@ -219,8 +221,9 @@ export class World {
   private liveMode = false;
   private clockOffset = 0;
   private hasClock = false;
-  private frameGapMs = 50;
-  private interpDelayMs = 120;
+  private lastRenderT = 0;
+  private lastTickNow = 0;
+  private readonly interpDelayMs = 160;
   private seenBulletIds = new Set<number>();
   /** Bumps whenever the set of buildings changes. */
   layout = 0;
@@ -277,6 +280,8 @@ export class World {
       this.snaps = [];
       this.liveMode = false;
       this.hasClock = false;
+      this.lastRenderT = 0;
+      this.lastTickNow = 0;
       this.seenBulletIds.clear();
       this.fx = [];
       this.lastWave = next.wave;
@@ -305,9 +310,10 @@ export class World {
   }
 
   /**
-   * Apply a 20 Hz compact delta frame from the live stream into the interpolation ring buffer.
-   * Zero full-map scans: only changed buildings touch `this.buildings`, and units, projectiles,
-   * turret aims, and conveyor items are smoothly interpolated across a ~120ms jitter buffer.
+   * Queue a 20 Hz compact delta frame into the interpolation ring buffer.
+   * All discrete world mutations (building add/remove, unit death/hit FX, beams, flashes)
+   * are phase-locked to `renderT` inside `commitSnap()` so visuals and effects never desync
+   * by the 160ms interpolation buffer.
    */
   applyFrame(frame: FrameDelta, now: number): void {
     if (!frame.ready || !this.state || this.state.map !== frame.map) return;
@@ -315,22 +321,135 @@ export class World {
     this.liveMode = true;
     this.at = now;
 
-    // Smoothly track server clock offset without letting network jitter wobble render time.
+    // Ultra-stable clock servo with a +-18ms deadband so network jitter never perturbs playback speed.
     const rawOffset = frame.t - now;
-    if (!this.hasClock || Math.abs(rawOffset - this.clockOffset) > 450) {
+    if (!this.hasClock || Math.abs(rawOffset - this.clockOffset) > 500) {
       this.clockOffset = rawOffset;
       this.hasClock = true;
-    } else {
-      this.clockOffset = lerp(this.clockOffset, rawOffset, 0.06);
+      this.lastRenderT = frame.t - this.interpDelayMs;
+      this.lastTickNow = now;
+    } else if (Math.abs(rawOffset - this.clockOffset) > 18) {
+      this.clockOffset = lerp(this.clockOffset, rawOffset, 0.015);
     }
 
     const prevSnap = this.snaps.length > 0 ? this.snaps[this.snaps.length - 1] : null;
-    if (prevSnap && frame.t > prevSnap.t && frame.t - prevSnap.t < 1500) {
-      this.frameGapMs = clamp(lerp(this.frameGapMs, frame.t - prevSnap.t, 0.15), 35, 350);
-      this.interpDelayMs = clamp(this.frameGapMs * 2.4, 110, 240);
+    if (prevSnap && frame.seq <= prevSnap.seq) return;
+
+    const turretAims = new Map<string, number>();
+    for (const [ux, uy, aimRot] of frame.bUpd || []) {
+      turretAims.set(`${ux},${uy}`, aimRot);
     }
 
-    // 1. Apply building topology & scalar diffs O(changed)
+    const snapUnits = new Map<number, SnapUnit>();
+    for (const raw of frame.units || []) {
+      const [id, type, team, rx, ry, vx, vy, rot, hp, maxHp, shield] = raw;
+      snapUnits.set(id, { id, type, team, x: rx + 0.5, y: ry + 0.5, vx, vy, rot, hp, maxHp, shield });
+    }
+
+    const snapBullets = new Map<number, LiveBullet>();
+    for (const raw of frame.bullets || []) {
+      const [id, rx, ry, vx, vy, rot, team, dmg, size, color, kind, len] = raw;
+      snapBullets.set(id, { id, x: rx + 0.5, y: ry + 0.5, vx, vy, rot, team, dmg, size, color, kind, len });
+    }
+
+    // Parse uncapped conveyor items & O(1) spatial-grid pair with prevSnap along belt direction
+    const prevItems = prevSnap?.items || [];
+    const prevGrid = new Map<number, number[]>();
+    for (let i = 0; i < prevItems.length; i++) {
+      const pi = prevItems[i];
+      const cell = (Math.floor(pi.y) << 12) | (Math.floor(pi.x) & 0xfff);
+      let bucket = prevGrid.get(cell);
+      if (!bucket) {
+        bucket = [];
+        prevGrid.set(cell, bucket);
+      }
+      bucket.push(i);
+    }
+    const usedPrev = new Uint8Array(prevItems.length);
+    const ci = frame.ci || [];
+    const iPal = frame.iPal || [];
+    const snapItems: SnapItem[] = [];
+    const dtSec = prevSnap ? clamp((frame.t - prevSnap.t) / 1000, 0.02, 0.25) : 0.05;
+    const DX = [1, 0, -1, 0];
+    const DY = [0, 1, 0, -1];
+
+    for (let k = 0; k + 3 < ci.length; k += 4) {
+      const x = ci[k];
+      const y = ci[k + 1];
+      const name = iPal[ci[k + 2]] || "copper";
+      const rot = ci[k + 3] & 3;
+      const bvx = DX[rot];
+      const bvy = DY[rot];
+      const fx = Math.floor(x);
+      const fy = Math.floor(y);
+
+      let bestIdx = -1;
+      let bestCost = 0.55;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const bucket = prevGrid.get(((fy + oy) << 12) | ((fx + ox) & 0xfff));
+          if (!bucket) continue;
+          for (let bi = 0; bi < bucket.length; bi++) {
+            const idx = bucket[bi];
+            if (usedPrev[idx]) continue;
+            const pi = prevItems[idx];
+            if (pi.name !== name) continue;
+            const ddx = x - pi.x;
+            const ddy = y - pi.y;
+            const dist = Math.hypot(ddx, ddy);
+            if (dist > 0.58) continue;
+            const along = ddx * bvx + ddy * bvy;
+            const cross = Math.abs(ddx * bvy - ddy * bvx);
+            const penalty = along < -0.06 ? 0.35 : cross * 0.4;
+            const cost = dist + penalty;
+            if (cost < bestCost) {
+              bestCost = cost;
+              bestIdx = idx;
+            }
+          }
+        }
+      }
+
+      if (bestIdx >= 0) {
+        usedPrev[bestIdx] = 1;
+        const pi = prevItems[bestIdx];
+        snapItems.push({ name, x, y, rot, px: pi.x, py: pi.y, paired: true });
+      } else {
+        const back = Math.min(0.18, 2.2 * dtSec);
+        snapItems.push({ name, x, y, rot, px: x - bvx * back, py: y - bvy * back, paired: false });
+      }
+    }
+
+    const snap: LiveSnap = {
+      seq: frame.seq,
+      t: frame.t,
+      frame,
+      committed: false,
+      units: snapUnits,
+      bullets: snapBullets,
+      items: snapItems,
+      turretAims,
+    };
+    this.snaps.push(snap);
+    // Keep ~24 frames (~1.2s) so Catmull-Rom always has neighbors and bursts never drop uncommitted frames.
+    while (this.snaps.length > 24) {
+      const oldest = this.snaps[0];
+      if (!oldest.committed) this.commitSnap(oldest, null, now);
+      this.snaps.shift();
+    }
+
+    // If this is the very first live frame, commit immediately so initial drone/HUD state is live.
+    if (this.snaps.length === 1) {
+      this.commitSnap(snap, null, now);
+    }
+  }
+
+  /** Commit a snapshot's discrete changes (buildings, hit/death FX, beams, HUD scalars) right when renderT reaches it. */
+  private commitSnap(snap: LiveSnap, prevSnap: LiveSnap | null, now: number): void {
+    if (snap.committed || !this.state) return;
+    snap.committed = true;
+    const frame = snap.frame;
+
     const built: BView[] = [];
     const lost: BView[] = [];
     let topologyChanged = false;
@@ -375,7 +494,6 @@ export class World {
       this.push({ t: "place", x: v.cx, y: v.cy, born: now, life: 420, size: b.size });
     }
 
-    const turretAims = new Map<string, number>();
     for (const [ux, uy, aimRot, hp, ammo] of frame.bUpd || []) {
       const key = `${ux},${uy}`;
       const v = this.buildings.get(key);
@@ -387,7 +505,6 @@ export class World {
       v.b.aimRot = aimRot;
       v.b.hp = hp;
       v.b.ammo = ammo;
-      if (v.kind === "turret") turretAims.set(key, aimRot);
     }
 
     if (topologyChanged) {
@@ -404,81 +521,67 @@ export class World {
     if (built.length) this.events.built?.(built);
     if (lost.length) this.events.lost?.(lost);
 
-    // 2. Parse units and trigger hit/death FX immediately
-    const snapUnits = new Map<number, SnapUnit>();
-    const seenUnits = new Set<number>();
-    for (const raw of frame.units || []) {
-      const [id, type, team, rx, ry, vx, vy, rot, hp, maxHp, shield] = raw;
-      const ux = rx + 0.5;
-      const uy = ry + 0.5;
-      seenUnits.add(id);
-      snapUnits.set(id, { id, type, team, x: ux, y: uy, vx, vy, rot, hp, maxHp, shield });
+    // Sync units lifecycle at renderT
+    for (const [id, su] of snap.units) {
       const existing = this.units.get(id);
       if (!existing) {
         this.units.set(id, {
-          u: { id, type, team, x: ux, y: uy, vx, vy, rot, hp, maxHp, shield },
-          x0: ux,
-          y0: uy,
-          r0: rot,
-          x: ux,
-          y: uy,
-          rot,
-          flying: FLYERS.has(type),
+          u: { ...su },
+          x0: su.x,
+          y0: su.y,
+          r0: su.rot,
+          x: su.x,
+          y: su.y,
+          rot: su.rot,
+          flying: FLYERS.has(su.type),
           hitAt: -1e9,
           trail: [],
           trailAt: 0,
         });
       } else {
-        if (hp < existing.u.hp - 0.5) {
+        if (su.hp < existing.u.hp - 0.5) {
           existing.hitAt = now;
-          this.sparks(existing.x, existing.y, 4, team === HOME ? "#ffd9a0" : "#ffb199", now);
+          this.sparks(existing.x, existing.y, 4, su.team === HOME ? "#ffd9a0" : "#ffb199", now);
         }
-        existing.u.x = ux;
-        existing.u.y = uy;
-        existing.u.vx = vx;
-        existing.u.vy = vy;
-        existing.u.rot = rot;
-        existing.u.hp = hp;
-        existing.u.maxHp = maxHp;
-        existing.u.shield = shield;
+        existing.u.x = su.x;
+        existing.u.y = su.y;
+        existing.u.vx = su.vx;
+        existing.u.vy = su.vy;
+        existing.u.rot = su.rot;
+        existing.u.hp = su.hp;
+        existing.u.maxHp = su.maxHp;
+        existing.u.shield = su.shield;
       }
     }
     for (const [id, v] of this.units) {
-      if (seenUnits.has(id)) continue;
+      if (snap.units.has(id)) continue;
       this.units.delete(id);
       this.explode(v.x, v.y, v.flying ? 0.9 : 0.75, now, v.u.team !== HOME);
     }
 
-    // 3. Parse real bullets by entity ID + detect fresh shots for muzzle flashes & impacts
-    const snapBullets = new Map<number, LiveBullet>();
-    for (const raw of frame.bullets || []) {
-      const [id, rx, ry, vx, vy, rot, team, dmg, size, color, kind, len] = raw;
-      const bx = rx + 0.5;
-      const by = ry + 0.5;
-      snapBullets.set(id, { id, x: bx, y: by, vx, vy, rot, team, dmg, size, color, kind, len });
+    // Muzzle flashes & bullet impacts at renderT
+    for (const [id, b] of snap.bullets) {
       if (!this.seenBulletIds.has(id)) {
         this.seenBulletIds.add(id);
-        // Trigger subtle recoil + muzzle flash on the turret right at this spawn tile
-        const bAt = this.buildingAt(Math.floor(bx), Math.floor(by));
-        if (bAt && bAt.kind === "turret" && bAt.b.team === team && now - bAt.firedAt > 90) {
+        const bAt = this.buildingAt(Math.floor(b.x), Math.floor(b.y));
+        if (bAt && bAt.kind === "turret" && bAt.b.team === b.team && now - bAt.firedAt > 90) {
           bAt.firedAt = now;
           this.push({
             t: "flash",
-            x: bx,
-            y: by,
+            x: b.x,
+            y: b.y,
             born: now,
             life: 95,
             size: 0.45 + bAt.b.size * 0.18,
-            color: color || "#fff1c9",
+            color: b.color || "#fff1c9",
           });
         }
       }
     }
     if (prevSnap) {
-      // Bullets that vanished between prevSnap and this frame likely impacted: tiny spark burst
       for (const [id, pb] of prevSnap.bullets) {
-        if (!snapBullets.has(id) && pb.kind === 0 && this.fx.length < MAX_FX - 12) {
-          const dtSec = Math.min(0.08, Math.max(0.01, (frame.t - prevSnap.t) / 1000));
+        if (!snap.bullets.has(id) && pb.kind === 0 && this.fx.length < MAX_FX - 12) {
+          const dtSec = Math.min(0.08, Math.max(0.01, (snap.t - prevSnap.t) / 1000));
           const ix = pb.x + pb.vx * dtSec * 0.5;
           const iy = pb.y + pb.vy * dtSec * 0.5;
           this.push({
@@ -496,7 +599,7 @@ export class World {
     }
     if (this.seenBulletIds.size > 2000) this.seenBulletIds.clear();
 
-    // 4. Spawn 60 Hz captured beams / lightning / rails immediately
+    // 60 Hz captured beams/lightning/rails fired at exact renderT
     for (const raw of frame.beams || []) {
       const [id, rx, ry, rot, len, width, color, kind, team] = raw;
       const bx = rx + 0.5;
@@ -521,90 +624,6 @@ export class World {
       }
     }
 
-    // 5. Parse uncapped conveyor items & O(1) spatial-grid pair with prevSnap along belt direction
-    const prevItems = prevSnap?.items || [];
-    const prevGrid = new Map<number, number[]>();
-    for (let i = 0; i < prevItems.length; i++) {
-      const pi = prevItems[i];
-      const cell = (Math.floor(pi.y) << 12) | (Math.floor(pi.x) & 0xfff);
-      let bucket = prevGrid.get(cell);
-      if (!bucket) {
-        bucket = [];
-        prevGrid.set(cell, bucket);
-      }
-      bucket.push(i);
-    }
-    const usedPrev = new Uint8Array(prevItems.length);
-    const ci = frame.ci || [];
-    const iPal = frame.iPal || [];
-    const snapItems: SnapItem[] = [];
-    const dtSec = prevSnap ? clamp((frame.t - prevSnap.t) / 1000, 0.02, 0.25) : 0.05;
-    const DX = [1, 0, -1, 0];
-    const DY = [0, 1, 0, -1];
-
-    for (let k = 0; k + 3 < ci.length; k += 4) {
-      const x = ci[k];
-      const y = ci[k + 1];
-      const name = iPal[ci[k + 2]] || "copper";
-      const rot = ci[k + 3] & 3;
-      const bvx = DX[rot];
-      const bvy = DY[rot];
-      const fx = Math.floor(x);
-      const fy = Math.floor(y);
-
-      let bestIdx = -1;
-      let bestCost = 0.52;
-      // Search 3x3 tile neighborhood around (fx, fy) — O(1) even with 2,500 belt items!
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          const bucket = prevGrid.get(((fy + oy) << 12) | ((fx + ox) & 0xfff));
-          if (!bucket) continue;
-          for (let bi = 0; bi < bucket.length; bi++) {
-            const idx = bucket[bi];
-            if (usedPrev[idx]) continue;
-            const pi = prevItems[idx];
-            if (pi.name !== name) continue;
-            const ddx = x - pi.x;
-            const ddy = y - pi.y;
-            const dist = Math.hypot(ddx, ddy);
-            if (dist > 0.55) continue;
-            // Forward along belt (or slightly backward <= 0.03 for floating noise, or around a 90deg corner)
-            const along = ddx * bvx + ddy * bvy;
-            const cross = Math.abs(ddx * bvy - ddy * bvx);
-            // Allow stationary backed-up items (dist ~ 0), forward flow (along >= -0.04), or corner turns (cross <= 0.35)
-            const penalty = along < -0.06 ? 0.35 : cross * 0.4;
-            const cost = dist + penalty;
-            if (cost < bestCost) {
-              bestCost = cost;
-              bestIdx = idx;
-            }
-          }
-        }
-      }
-
-      if (bestIdx >= 0) {
-        usedPrev[bestIdx] = 1;
-        const pi = prevItems[bestIdx];
-        snapItems.push({ name, x, y, rot, px: pi.x, py: pi.y, paired: true });
-      } else {
-        // Brand-new item emerging from a drill/router: smoothly enter from slightly behind along belt dir
-        const back = Math.min(0.18, 2.2 * dtSec);
-        snapItems.push({ name, x, y, rot, px: x - bvx * back, py: y - bvy * back, paired: false });
-      }
-    }
-
-    // Push into ring buffer (retain ~16 frames = ~800ms)
-    this.snaps.push({
-      seq: frame.seq,
-      t: frame.t,
-      units: snapUnits,
-      bullets: snapBullets,
-      items: snapItems,
-      turretAims,
-    });
-    if (this.snaps.length > 16) this.snaps.shift();
-
-    // Sync scalar fields on `this.state` for HUD/minimap/director
     this.state.wave = frame.wave;
     this.state.waveTime = frame.waveTime;
     this.state.enemies = frame.enemies;
@@ -1084,77 +1103,111 @@ export class World {
   }
 
   /**
-   * Source-engine-style snapshot interpolation at `renderT = serverNow - interpDelayMs`.
-   * Always interpolates cleanly between two real bracketing server frames (A -> B), and
-   * gracefully velocity-extrapolates up to 150ms if a network hiccup drains the buffer.
+   * Monotonic, phase-locked snapshot interpolation at `renderT = serverNow - 160ms`.
+   * - `renderT` advances at 0.96x..1.04x real time (never jumps or reverses on jitter).
+   * - Discrete world mutations (builds, kills, beams, flashes) commit exactly as `renderT` crosses `snap.t`.
+   * - Units use Catmull-Rom splines across 4 real server positions for zero velocity-kink pulsing.
    */
   private tickLive(now: number): void {
     const snaps = this.snaps;
-    const renderT = now + this.clockOffset - this.interpDelayMs;
+    const frameDtMs = clamp(now - (this.lastTickNow || now), 0, 100);
+    this.lastTickNow = now;
+
+    const targetRenderT = now + this.clockOffset - this.interpDelayMs;
+    let renderT = this.lastRenderT ? this.lastRenderT + frameDtMs : targetRenderT;
+    const drift = targetRenderT - renderT;
+    if (Math.abs(drift) > 350) {
+      renderT = targetRenderT;
+    } else {
+      // Gently steer playback clock toward target without any noticeable speed wobble (+-3.5% max)
+      renderT += clamp(drift * 0.04, -frameDtMs * 0.035, frameDtMs * 0.035);
+    }
+    this.lastRenderT = renderT;
+
+    // Commit every snapshot whose server timestamp `renderT` has now reached
+    for (let i = 0; i < snaps.length; i++) {
+      if (snaps[i].t <= renderT && !snaps[i].committed) {
+        this.commitSnap(snaps[i], i > 0 ? snaps[i - 1] : null, now);
+      }
+    }
+
     const first = snaps[0];
     const last = snaps[snaps.length - 1];
 
-    let a = first;
-    let b = last;
+    let idxA = 0;
+    let idxB = 1;
     let alpha = 1;
     let extraSec = 0;
 
     if (renderT <= first.t) {
-      a = first;
-      b = snaps[1];
+      idxA = 0;
+      idxB = 1;
       alpha = 0;
     } else if (renderT >= last.t) {
-      a = snaps[snaps.length - 2];
-      b = last;
+      idxA = snaps.length - 2;
+      idxB = snaps.length - 1;
       alpha = 1;
       extraSec = clamp((renderT - last.t) / 1000, 0, 0.15);
     } else {
       for (let i = snaps.length - 2; i >= 0; i--) {
         if (snaps[i].t <= renderT) {
-          a = snaps[i];
-          b = snaps[i + 1];
-          alpha = clamp((renderT - a.t) / Math.max(1, b.t - a.t), 0, 1);
+          idxA = i;
+          idxB = i + 1;
+          alpha = clamp((renderT - snaps[i].t) / Math.max(1, snaps[i + 1].t - snaps[i].t), 0, 1);
           break;
         }
       }
     }
 
+    const a = snaps[idxA];
+    const b = snaps[idxB];
+    const prevS = idxA > 0 ? snaps[idxA - 1] : null;
+    const nextS = idxB + 1 < snaps.length ? snaps[idxB + 1] : null;
     const dtSec = clamp((b.t - a.t) / 1000, 0.01, 0.4);
+    const frameDtSec = Math.max(0.004, frameDtMs / 1000);
 
-    // 1. Units: cubic Hermite interpolation using real server velocities (C1 smooth on orbits & corners)
-    const t2 = alpha * alpha;
-    const t3 = t2 * alpha;
-    const h00 = 2 * t3 - 3 * t2 + 1;
-    const h10 = t3 - 2 * t2 + alpha;
-    const h01 = -2 * t3 + 3 * t2;
-    const h11 = t3 - t2;
+    // 1. Units: Catmull-Rom spline through (p0, p1, p2, p3) — C1 smooth with zero 20Hz velocity pulsing
+    const t = alpha;
+    const t2 = t * t;
+    const t3 = t2 * t;
 
     for (const v of this.units.values()) {
       const ua = a.units.get(v.u.id);
       const ub = b.units.get(v.u.id);
       if (ua && ub) {
-        const dist = Math.hypot(ub.x - ua.x, ub.y - ua.y);
         if (extraSec > 0) {
           v.x = ub.x + ub.vx * extraSec;
           v.y = ub.y + ub.vy * extraSec;
           v.rot = ub.rot;
-        } else if (dist > 0.002 && dist < 8) {
-          // Hermite spline damped slightly so sudden stops never overshoot
-          const mx0 = ua.vx * dtSec;
-          const my0 = ua.vy * dtSec;
-          const mx1 = ub.vx * dtSec;
-          const my1 = ub.vy * dtSec;
-          const hx = h00 * ua.x + h10 * mx0 + h01 * ub.x + h11 * mx1;
-          const hy = h00 * ua.y + h10 * my0 + h01 * ub.y + h11 * my1;
-          // Blend 70% Hermite / 30% linear to guarantee zero ringing on sharp collisions
-          const lx = lerp(ua.x, ub.x, alpha);
-          const ly = lerp(ua.y, ub.y, alpha);
-          v.x = lx * 0.3 + hx * 0.7;
-          v.y = ly * 0.3 + hy * 0.7;
-          v.rot = lerpAngle(ua.rot, ub.rot, alpha);
         } else {
-          v.x = lerp(ua.x, ub.x, alpha);
-          v.y = lerp(ua.y, ub.y, alpha);
+          const dist = Math.hypot(ub.x - ua.x, ub.y - ua.y);
+          const u0 = prevS?.units.get(v.u.id);
+          const u3 = nextS?.units.get(v.u.id);
+          if (
+            u0 &&
+            u3 &&
+            dist > 0.002 &&
+            dist < 6 &&
+            Math.hypot(ua.x - u0.x, ua.y - u0.y) < 6 &&
+            Math.hypot(u3.x - ub.x, u3.y - ub.y) < 6
+          ) {
+            // Standard centripetal-like Catmull-Rom (tau = 0.5)
+            v.x =
+              0.5 *
+              (2 * ua.x +
+                (-u0.x + ub.x) * t +
+                (2 * u0.x - 5 * ua.x + 4 * ub.x - u3.x) * t2 +
+                (-u0.x + 3 * ua.x - 3 * ub.x + u3.x) * t3);
+            v.y =
+              0.5 *
+              (2 * ua.y +
+                (-u0.y + ub.y) * t +
+                (2 * u0.y - 5 * ua.y + 4 * ub.y - u3.y) * t2 +
+                (-u0.y + 3 * ua.y - 3 * ub.y + u3.y) * t3);
+          } else {
+            v.x = lerp(ua.x, ub.x, alpha);
+            v.y = lerp(ua.y, ub.y, alpha);
+          }
           v.rot = lerpAngle(ua.rot, ub.rot, alpha);
         }
       } else if (ub) {
@@ -1170,7 +1223,8 @@ export class World {
       this.pushTrail(v, now);
     }
 
-    // 2. Turrets: smoothly rotate toward latest aim
+    // 2. Turrets: frame-rate-independent smooth rotation
+    const aimK = 1 - Math.exp(-frameDtSec / 0.045);
     for (const v of this.buildings.values()) {
       if (v.kind !== "turret") continue;
       const aimA = a.turretAims.get(v.key);
@@ -1178,7 +1232,7 @@ export class World {
       if (aimA !== undefined && aimB !== undefined) {
         v.aim = lerpAngle(aimA, aimB, alpha);
       } else {
-        v.aim = lerpAngle(v.aim, v.b.aimRot, 0.35);
+        v.aim = lerpAngle(v.aim, v.b.aimRot, aimK);
       }
     }
 
@@ -1194,7 +1248,6 @@ export class World {
           rot: lerpAngle(ba.rot, bb.rot, alpha),
         });
       } else {
-        // Freshly fired between A and B: smoothly fly forward from spawn
         const back = dtSec * (1 - alpha);
         bulletsOut.push({
           ...bb,
@@ -1205,7 +1258,6 @@ export class World {
     }
     for (const [id, ba] of a.bullets) {
       if (b.bullets.has(id) || alpha > 0.65) continue;
-      // Bullet impacted between A and B: keep flying cleanly until impact moment
       bulletsOut.push({
         ...ba,
         x: ba.x + ba.vx * dtSec * alpha,
@@ -1214,14 +1266,15 @@ export class World {
     }
     this.liveBullets = bulletsOut;
 
-    // 4. Uncapped conveyor items interpolated along paired belt paths at full opacity
+    // 4. Uncapped conveyor items interpolated smoothly (and extrapolated gently if extraSec > 0)
     const itemsOut: LiveItem[] = new Array(b.items.length);
+    const exFrac = extraSec > 0 ? extraSec / dtSec : 0;
     for (let i = 0; i < b.items.length; i++) {
       const it = b.items[i];
       itemsOut[i] = {
         name: it.name,
-        x: lerp(it.px, it.x, alpha),
-        y: lerp(it.py, it.y, alpha),
+        x: extraSec > 0 ? it.x + (it.x - it.px) * exFrac : lerp(it.px, it.x, alpha),
+        y: extraSec > 0 ? it.y + (it.y - it.py) * exFrac : lerp(it.py, it.y, alpha),
       };
     }
     this.liveItems = itemsOut;
