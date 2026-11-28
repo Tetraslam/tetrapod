@@ -256,6 +256,24 @@ type StatePayload = {
   powerLinks: Array<[number, number, number, number]>;
   conveyorItems: Array<[number, number, string]>;
   power: { produced: number; consumed: number };
+  powerGrids?: Array<{
+    produced: number;
+    consumed: number;
+    satisfaction: number;
+    batteryStored: number;
+    batteryCapacity: number;
+    buildings: number;
+    sample: [number, number];
+  }>;
+  rebuildGhosts?: number;
+  recentLosses?: Array<{
+    id: number;
+    block: string;
+    x: number;
+    y: number;
+    wave: number;
+    t: number;
+  }>;
   units: Array<{
     id: number;
     type: string;
@@ -374,6 +392,8 @@ let prevTurnItems: Record<string, number> = {};
 let prevTurnCoreHp = 0;
 let lastSteeredWave = 1;
 let lastSteeredCoreHp = 0;
+let lastReportedLossId = 0;
+let pendingWaveAlert: { wave: number; dueAt: number } | null = null;
 let arenaIdle =
   (db.query("SELECT value FROM settings WHERE key = 'arena_idle'").get() as { value: string } | null)?.value === "true" ||
   config.mode === "paused";
@@ -861,6 +881,8 @@ function startNewMatchRecord(mapName: string, st?: StatePayload): void {
   prevTurnCoreHp = st?.core?.hp ?? 0;
   lastSteeredWave = st?.wave ?? 1;
   lastSteeredCoreHp = st?.core?.hp ?? 0;
+  lastReportedLossId = (st?.recentLosses || []).reduce((m, l) => Math.max(m, l.id), 0);
+  pendingWaveAlert = null;
   matchBlocksBuilt = 0;
   matchActionsOk = 0;
   matchActionsFail = 0;
@@ -1133,6 +1155,35 @@ function compassDirection(fromX: number, fromY: number, toX: number, toY: number
   return `${ns}${ew || (ns ? "" : "HERE")} (${dist} tiles)`;
 }
 
+function summarizeEnemies(state: StatePayload) {
+  const byType: Record<string, number> = {};
+  const airTypes = new Set<string>();
+  let total = 0;
+  let air = 0;
+  for (const u of state.units || []) {
+    if (u.team === "sharded") continue;
+    total++;
+    byType[u.type] = (byType[u.type] || 0) + 1;
+    const isAir = Boolean(u.flying) || FLYING_UNIT_TYPES.has(u.type);
+    if (isAir) {
+      air++;
+      airTypes.add(u.type);
+    }
+  }
+  const effectiveTotal = Math.max(total, state.enemies || 0);
+  const top = Object.entries(byType)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([type, count]) => `${count} ${type}${airTypes.has(type) ? " [air]" : ""}`);
+  return {
+    total: effectiveTotal,
+    air,
+    ground: Math.max(0, effectiveTotal - air),
+    byType,
+    summary: top.join(", "),
+  };
+}
+
 function buildOverviewPayload(state: StatePayload) {
   const core = state.core;
   const spawns = (state.spawns || []).map((s) => ({
@@ -1154,6 +1205,7 @@ function buildOverviewPayload(state: StatePayload) {
     .filter((t) => t.ammo > 0 || NON_ITEM_TURRETS.has(t.block))
     .map((t) => ({ block: t.block, x: t.x, y: t.y, ammo: t.ammo }));
 
+  const enemyStats = summarizeEnemies(state);
   const enemies = (state.units || [])
     .filter((u) => u.team !== "sharded")
     .slice(0, 20)
@@ -1167,13 +1219,24 @@ function buildOverviewPayload(state: StatePayload) {
     }
   }
 
+  const powerGrids = (state.powerGrids || [])
+    .slice()
+    .sort((a, b) => b.consumed - a.consumed || b.produced - a.produced)
+    .slice(0, 12);
+
   return {
     map: state.map,
     width: state.width,
     height: state.height,
     wave: state.wave,
     waveTimeSec: state.waveTime,
-    enemiesCount: state.enemies,
+    enemiesCount: enemyStats.total,
+    enemyCounts: {
+      total: enemyStats.total,
+      air: enemyStats.air,
+      ground: enemyStats.ground,
+      byType: enemyStats.byType,
+    },
     enemiesSample: enemies,
     friendlyUnits,
     core: core
@@ -1191,6 +1254,14 @@ function buildOverviewPayload(state: StatePayload) {
     items: state.items,
     flowRates: state.flowRates || {},
     power: state.power,
+    powerGrids,
+    rebuildGhosts: state.rebuildGhosts ?? 0,
+    recentLosses: (state.recentLosses || []).slice(-30).map((l) => ({
+      block: l.block,
+      x: l.x,
+      y: l.y,
+      wave: l.wave,
+    })),
     buildingCounts: counts,
     armedTurrets: armedTurrets.slice(0, 20),
     dryTurrets: dryTurrets.slice(0, 20),
@@ -1639,11 +1710,11 @@ const handleMcp = createMcpHandler([
   {
     name: "ship",
     description:
-      "Control your core builder ship (alpha/beta/gamma). Default mode is 'idle' (passive, orbits core safely, does not shoot). Modes: 'idle' (passive), 'move' (fly passively to x,y), 'defend' (enable weapons and guard around x,y or core at standoff range), 'mine' (hand-mine ore such as 'copper' or 'lead' into the core).",
+      "Control your core builder ship (alpha/beta/gamma). Default mode is 'idle' (passive, orbits core safely, does not shoot). Modes: 'idle' (passive), 'move' (fly passively to x,y), 'defend' (enable weapons and guard around x,y or core at standoff range), 'mine' (hand-mine ore such as 'copper' or 'lead' into the core), 'rebuild' (passively fly to Mindustry's native destroyed-building ghosts and rebuild them with their original rotations/configs, paying real core resources and fleeing nearby enemies).",
     inputSchema: {
       type: "object",
       properties: {
-        mode: { type: "string", enum: ["idle", "move", "defend", "mine"] },
+        mode: { type: "string", enum: ["idle", "move", "defend", "mine", "rebuild"] },
         x: { type: "integer", description: "Target tile X (required for 'move', optional anchor for 'defend')" },
         y: { type: "integer", description: "Target tile Y (required for 'move', optional anchor for 'defend')" },
         ore: { type: "string", description: "Ore name for 'mine' mode (e.g. 'copper' or 'lead', default 'copper')" },
@@ -1722,7 +1793,7 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
   const turrets = friendly.filter((b) => TURRET_BLOCKS.has(b.block));
   const armed = turrets.filter((t) => t.ammo > 0 || NON_ITEM_TURRETS.has(t.block)).length;
   const dry = turrets.length - armed;
-  const airEnemies = (st.units || []).filter((u) => u.team !== "sharded" && u.flying).length;
+  const enemyStats = summarizeEnemies(st);
 
   if (isFirstTurn) {
     return [
@@ -1745,9 +1816,57 @@ function formatDeltaPrompt(st: StatePayload, isFirstTurn: boolean): string {
 
   const hpDiff = (core?.hp ?? 0) - prevTurnCoreHp;
   const hpNote = hpDiff !== 0 ? ` (${hpDiff > 0 ? "+" : ""}${hpDiff})` : "";
-  const airNote = airEnemies > 0 ? ` (${airEnemies} AIR)` : "";
+  const enemyNote =
+    enemyStats.total > 0 && enemyStats.summary
+      ? `${enemyStats.total} (${enemyStats.summary})`
+      : String(enemyStats.total);
 
-  return `[tick] wave ${st.wave} (next in ${Math.ceil(st.waveTime)}s) | enemies: ${st.enemies}${airNote} | core: ${core?.hp ?? 0}/${core?.maxHp ?? 0}${hpNote} | ${itemDeltas || "items: none"} | power: +${st.power.produced}/-${st.power.consumed} | turrets: ${armed} armed, ${dry} dry. take your next tactical move (or pass briefly if saving resources).`;
+  // Split / unpowered power-grid note (pure human-parity visibility)
+  const grids = st.powerGrids || [];
+  let splitPowerNote = "";
+  if (grids.length > 1) {
+    const unpowered = grids.filter((g) => g.consumed > 0 && g.satisfaction < 0.9);
+    if (unpowered.length > 0) {
+      const samples = unpowered
+        .slice(0, 3)
+        .map((g) => `(${g.sample[0]},${g.sample[1]})`)
+        .join(", ");
+      splitPowerNote = ` | split power: ${grids.length} grids (${unpowered.length} low/dead @ ${samples})`;
+    }
+  }
+
+  // Between-tick combat damage report (only friendly buildings destroyed since last turn)
+  const freshLosses = (st.recentLosses || []).filter((l) => l.id > lastReportedLossId);
+  if (freshLosses.length > 0) {
+    lastReportedLossId = freshLosses[freshLosses.length - 1].id;
+  }
+  let lossLine = "";
+  if (freshLosses.length > 0) {
+    const grouped = new Map<string, Array<[number, number]>>();
+    for (const l of freshLosses) {
+      let arr = grouped.get(l.block);
+      if (!arr) {
+        arr = [];
+        grouped.set(l.block, arr);
+      }
+      arr.push([l.x, l.y]);
+    }
+    const parts = Array.from(grouped.entries())
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 6)
+      .map(([blk, coords]) => {
+        const shown = coords
+          .slice(0, 3)
+          .map(([x, y]) => `(${x},${y})`)
+          .join(",");
+        const more = coords.length > 3 ? `+${coords.length - 3}` : "";
+        return `${coords.length}x ${blk}@${shown}${more}`;
+      });
+    const ghostNote = (st.rebuildGhosts ?? 0) > 0 ? ` | ${st.rebuildGhosts} rebuild ghosts` : "";
+    lossLine = `\nlost since last turn (${freshLosses.length}): ${parts.join("; ")}${ghostNote}`;
+  }
+
+  return `[tick] wave ${st.wave} (next in ${Math.ceil(st.waveTime)}s) | enemies: ${enemyNote} | core: ${core?.hp ?? 0}/${core?.maxHp ?? 0}${hpNote} | ${itemDeltas || "items: none"} | power: +${st.power.produced}/-${st.power.consumed}${splitPowerNote} | turrets: ${armed} armed, ${dry} dry.${lossLine} take your next tactical move (or pass briefly if saving resources).`;
 }
 
 async function runAiTurn(force = false): Promise<void> {
@@ -1764,14 +1883,16 @@ async function runAiTurn(force = false): Promise<void> {
     if (!lastSessionDeliveredMsgId && matchTurns > 0) {
       await readNewAssistantText(sid).catch(() => {});
     }
-    let prompt = formatDeltaPrompt(latestState, isFirstTurn);
+    const turnState = await mindustryJson<StatePayload>("/state").catch(() => latestState!);
+    const stForTurn = turnState && turnState.ready ? turnState : latestState;
+    let prompt = formatDeltaPrompt(stForTurn, isFirstTurn);
     if (!isFirstTurn && needsPostCompactionGrounding) {
       needsPostCompactionGrounding = false;
-      const grounding = await buildPostCompactionGrounding(latestState);
+      const grounding = await buildPostCompactionGrounding(stForTurn);
       prompt = `${grounding}\n\n${prompt}`;
     }
-    prevTurnItems = { ...(latestState.items || {}) };
-    prevTurnCoreHp = latestState.core.hp;
+    prevTurnItems = { ...(stForTurn.items || {}) };
+    prevTurnCoreHp = stForTurn.core?.hp ?? prevTurnCoreHp;
 
     await ocRequest(`/api/session/${sid}/prompt`, {
       method: "POST",
@@ -1991,12 +2112,35 @@ async function handleGameLifecycle(st: StatePayload, prevMap: string | undefined
     matchPeakWave = st.wave;
     metaChanged = true;
     if (st.wave > 1) {
-      const seq = recordSnapshot(st, "wave", { thought: `wave ${st.wave} arrived (${st.enemies} enemies)` });
-      pushFeed("milestone", `wave ${st.wave} incoming (${st.enemies} enemies, core ${st.core?.hp ?? 0} hp)`, undefined, "ARENA", { seq });
-      if (st.wave > lastSteeredWave) {
-        lastSteeredWave = st.wave;
-        void steerActiveSession(`[alert] wave ${st.wave} just arrived with ${st.enemies} enemies! core ${st.core?.hp ?? 0}/${st.core?.maxHp ?? 0} hp.`);
-      }
+      // Mindustry increments state.wave ~1-1.5s before finishing unit spawns; wait 2s so enemy count & composition are real.
+      pendingWaveAlert = { wave: st.wave, dueAt: Date.now() + 2000 };
+    }
+  }
+  if (
+    pendingWaveAlert &&
+    !arenaIdle &&
+    !pendingNewGame &&
+    activeMatchId !== null &&
+    !st.gameOver &&
+    Date.now() >= pendingWaveAlert.dueAt
+  ) {
+    const alertWave = pendingWaveAlert.wave;
+    pendingWaveAlert = null;
+    const es = summarizeEnemies(st);
+    const detail = es.summary ? ` (${es.summary})` : "";
+    const seq = recordSnapshot(st, "wave", { thought: `wave ${alertWave} arrived (${es.total} enemies${detail})` });
+    pushFeed(
+      "milestone",
+      `wave ${alertWave} incoming — ${es.total} enemies${detail}, core ${st.core?.hp ?? 0} hp`,
+      undefined,
+      "ARENA",
+      { seq }
+    );
+    if (alertWave > lastSteeredWave) {
+      lastSteeredWave = alertWave;
+      void steerActiveSession(
+        `[alert] wave ${alertWave} arrived: ${es.total} enemies${detail} | core ${st.core?.hp ?? 0}/${st.core?.maxHp ?? 0} hp.`
+      );
     }
   }
   if (!arenaIdle && !pendingNewGame && activeMatchId !== null && st.core && lastSteeredCoreHp - st.core.hp >= 100) {

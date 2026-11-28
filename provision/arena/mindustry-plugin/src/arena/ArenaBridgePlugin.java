@@ -15,6 +15,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import mindustry.Vars;
 import mindustry.ai.UnitCommand;
+import mindustry.ai.types.BuilderAI;
 import mindustry.ai.types.CommandAI;
 import mindustry.ai.types.FlyingAI;
 import mindustry.ai.types.MinerAI;
@@ -57,6 +58,7 @@ import mindustry.world.blocks.liquid.LiquidBlock;
 import mindustry.world.blocks.logic.LogicBlock;
 import mindustry.world.blocks.logic.MessageBlock;
 import mindustry.world.blocks.logic.SwitchBlock;
+import mindustry.world.blocks.power.PowerGraph;
 import mindustry.world.blocks.power.PowerNode;
 import mindustry.world.blocks.production.Drill;
 import mindustry.world.blocks.production.Pump;
@@ -93,6 +95,24 @@ public class ArenaBridgePlugin extends Plugin {
                 unit.mineTile = null;
             }
         }
+    }
+
+    private static class PassiveRebuildAI extends BuilderAI {
+        PassiveRebuildAI() {
+            super();
+            this.alwaysFlee = true;
+        }
+        @Override public boolean shouldFire() { return false; }
+        @Override public boolean shouldShoot() { return false; }
+    }
+
+    private static class DestroyedEntry {
+        long id;
+        String block;
+        int x;
+        int y;
+        int wave;
+        long t;
     }
 
     private HttpServer server;
@@ -144,6 +164,8 @@ public class ArenaBridgePlugin extends Plugin {
     private int liveTickCounter = 0;
     private int rescanCounter = 0;
     private String lastFrameMap = "";
+    private final ArrayDeque<DestroyedEntry> destroyedLog = new ArrayDeque<>();
+    private long nextDestroyedId = 1L;
 
     @Override
     public void init() {
@@ -165,6 +187,7 @@ public class ArenaBridgePlugin extends Plugin {
             prevBuildingSnaps.clear();
             seenBeamIds.clear();
             pendingBeams.clear();
+            destroyedLog.clear();
             needsBuildingScan = true;
             powerLinksDirty = true;
             rescanCounter = 0;
@@ -172,6 +195,20 @@ public class ArenaBridgePlugin extends Plugin {
             synchronized (frameLock) {
                 frameRingCount = 0;
             }
+        });
+        Events.on(EventType.BlockDestroyEvent.class, e -> {
+            if (e == null || e.tile == null || e.tile.build == null) return;
+            Building b = e.tile.build;
+            if (b.team != Team.sharded || b.block == null) return;
+            DestroyedEntry de = new DestroyedEntry();
+            de.id = nextDestroyedId++;
+            de.block = b.block.name;
+            de.x = b.tileX();
+            de.y = b.tileY();
+            de.wave = Vars.state != null ? Vars.state.wave : 1;
+            de.t = System.currentTimeMillis();
+            destroyedLog.addLast(de);
+            while (destroyedLog.size() > 120) destroyedLog.removeFirst();
         });
         Events.on(EventType.TileChangeEvent.class, e -> {
             if (e != null && e.tile != null) {
@@ -217,6 +254,7 @@ public class ArenaBridgePlugin extends Plugin {
                 if (target != null) miner.targetItem = target;
                 aiDrone.controller(miner);
             }
+            case "rebuild" -> aiDrone.controller(new PassiveRebuildAI());
             case "defend" -> aiDrone.controller(new FlyingAI());
             default -> aiDrone.controller(new PassiveController());
         }
@@ -254,9 +292,13 @@ public class ArenaBridgePlugin extends Plugin {
         long now = System.currentTimeMillis();
         boolean buildingNow = now <= buildBeamUntil && droneTargetX >= 0f;
 
-        // In mine mode, let Mindustry's native MinerAI fly & deposit unless actively welding a new block
+        // In mine or rebuild mode, let Mindustry's native AI fly & work unless actively welding a new block
         if ("mine".equals(shipMode) && !buildingNow) {
             if (!(aiDrone.controller() instanceof MinerAI)) applyShipController();
+            return;
+        }
+        if ("rebuild".equals(shipMode) && !buildingNow) {
+            if (!(aiDrone.controller() instanceof PassiveRebuildAI)) applyShipController();
             return;
         }
 
@@ -564,9 +606,10 @@ public class ArenaBridgePlugin extends Plugin {
             }
         }
 
-        // Diff buildings against prevBuildingSnaps
+        // Diff buildings against prevBuildingSnaps & sum power across ALL unique Sharded power graphs
         float powerProd = 0f;
         float powerCons = 0f;
+        HashSet<Integer> seenGraphs = new HashSet<>();
         StringBuilder bAdd = new StringBuilder();
         StringBuilder bUpd = new StringBuilder();
         StringBuilder bDel = new StringBuilder();
@@ -586,8 +629,10 @@ public class ArenaBridgePlugin extends Plugin {
             int hp = Math.round(b.health);
             int maxHp = Math.round(b.maxHealth);
             if (b.team == Team.sharded && b.power != null && b.power.graph != null) {
-                powerProd = Math.max(powerProd, b.power.graph.getPowerProduced() * 60f);
-                powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
+                if (seenGraphs.add(b.power.graph.getID())) {
+                    powerProd += b.power.graph.getPowerProduced() * 60f;
+                    powerCons += b.power.graph.getPowerNeeded() * 60f;
+                }
             }
 
             BuildingSnap prev = prevBuildingSnaps.get(pos);
@@ -1758,9 +1803,11 @@ public class ArenaBridgePlugin extends Plugin {
                 }
                 sb.append(']');
 
-                // Buildings + power links + live conveyor items
+                // Buildings + power links + per-grid power stats + live conveyor items
                 float powerProd = 0f;
                 float powerCons = 0f;
+                HashMap<Integer, PowerGraph> shardedGraphs = new HashMap<>();
+                HashMap<Integer, int[]> graphSampleTile = new HashMap<>();
                 StringBuilder powerLinks = new StringBuilder("[");
                 boolean firstLink = true;
                 HashSet<Long> seenLinks = new HashSet<>();
@@ -1791,8 +1838,13 @@ public class ArenaBridgePlugin extends Plugin {
                     }
                     if (b.team == Team.sharded && b.power != null) {
                         if (b.power.graph != null) {
-                            powerProd = Math.max(powerProd, b.power.graph.getPowerProduced() * 60f);
-                            powerCons = Math.max(powerCons, b.power.graph.getPowerNeeded() * 60f);
+                            int gid = b.power.graph.getID();
+                            if (!shardedGraphs.containsKey(gid)) {
+                                shardedGraphs.put(gid, b.power.graph);
+                                graphSampleTile.put(gid, new int[]{b.tileX(), b.tileY()});
+                                powerProd += b.power.graph.getPowerProduced() * 60f;
+                                powerCons += b.power.graph.getPowerNeeded() * 60f;
+                            }
                         }
                         if (b.power.links != null && b.power.links.size > 0) {
                             int ax = b.tileX(), ay = b.tileY();
@@ -1852,6 +1904,45 @@ public class ArenaBridgePlugin extends Plugin {
                 sb.append(",\"conveyorItems\":").append(convItems);
                 sb.append(",\"power\":{\"produced\":").append(Math.round(powerProd))
                   .append(",\"consumed\":").append(Math.round(powerCons)).append('}');
+
+                // Per-grid power telemetry (surfaces split / unpowered sub-grids)
+                sb.append(",\"powerGrids\":[");
+                boolean firstGrid = true;
+                for (var ge : shardedGraphs.entrySet()) {
+                    PowerGraph g = ge.getValue();
+                    int prod = Math.round(g.getPowerProduced() * 60f);
+                    int cons = Math.round(g.getPowerNeeded() * 60f);
+                    int bCount = g.all != null ? g.all.size : 0;
+                    if (prod == 0 && cons == 0 && bCount < 2) continue;
+                    int[] smp = graphSampleTile.get(ge.getKey());
+                    if (!firstGrid) sb.append(',');
+                    firstGrid = false;
+                    sb.append("{\"produced\":").append(prod)
+                      .append(",\"consumed\":").append(cons)
+                      .append(",\"satisfaction\":").append(r2(g.getSatisfaction()))
+                      .append(",\"batteryStored\":").append(Math.round(g.getBatteryStored()))
+                      .append(",\"batteryCapacity\":").append(Math.round(g.getTotalBatteryCapacity()))
+                      .append(",\"buildings\":").append(bCount)
+                      .append(",\"sample\":[").append(smp[0]).append(',').append(smp[1]).append("]}");
+                }
+                sb.append(']');
+
+                // Combat-destroyed friendly buildings log + native rebuild ghost count
+                int ghostCount = (Team.sharded.data() != null && Team.sharded.data().plans != null) ? Team.sharded.data().plans.size : 0;
+                sb.append(",\"rebuildGhosts\":").append(ghostCount);
+                sb.append(",\"recentLosses\":[");
+                boolean firstLoss = true;
+                for (DestroyedEntry de : destroyedLog) {
+                    if (!firstLoss) sb.append(',');
+                    firstLoss = false;
+                    sb.append("{\"id\":").append(de.id)
+                      .append(",\"block\":\"").append(esc(de.block))
+                      .append("\",\"x\":").append(de.x)
+                      .append(",\"y\":").append(de.y)
+                      .append(",\"wave\":").append(de.wave)
+                      .append(",\"t\":").append(de.t).append('}');
+                }
+                sb.append(']');
 
                 // Units
                 sb.append(",\"units\":[");
@@ -2472,8 +2563,8 @@ public class ArenaBridgePlugin extends Plugin {
                     }
                     case "ship" -> {
                         String mode = req.getString("mode", "idle").trim().toLowerCase();
-                        if (!mode.equals("idle") && !mode.equals("move") && !mode.equals("defend") && !mode.equals("mine")) {
-                            return "{\"ok\":false,\"error\":\"invalid ship mode (use idle, move, defend, or mine)\"}";
+                        if (!mode.equals("idle") && !mode.equals("move") && !mode.equals("defend") && !mode.equals("mine") && !mode.equals("rebuild")) {
+                            return "{\"ok\":false,\"error\":\"invalid ship mode (use idle, move, defend, mine, or rebuild)\"}";
                         }
                         if (mode.equals("move")) {
                             int x = req.getInt("x", -1);

@@ -9,7 +9,7 @@ You persist across the entire match in one continuous session, so you keep full 
 
 ## Tools (`tools.mindustry.*` via `execute`)
 
-- `tools.mindustry.overview()` — map size, wave, timer, active enemies (with `flying` flag), friendly built unit counts, core HP & coords, resources + `flowRates` (items/sec), power balance, building counts, armed vs. dry turrets (with coords), spawns + compass bearings, player drone position.
+- `tools.mindustry.overview()` — map size, wave, timer, full `enemyCounts` breakdown (`total`, `air`, `ground`, `byType`) + sample coords, friendly built unit counts, core HP & coords, resources + `flowRates` (items/sec), total power + per-grid `powerGrids` (with `satisfaction` & `sample` coords), `rebuildGhosts` count, `recentLosses`, building counts, armed vs. dry turrets (with coords), spawns + compass bearings, player drone position.
 - `tools.mindustry.scan({ cx, cy, radius? })` — ASCII map (radius 6..22, up to 45x45) centered on any `(cx, cy)` (`C` core, `D` drill, `T` turret, `W` wall, `>^<v` conveyor, `=` conduit, `L` pump/liquid block, `+` router/junction/sorter/gate, `P` power/generator/reactor, `B` other building, `E` enemy, `A` your builder ship, `c/l/k/s/t/h/r` ores, `.` open floor, `#` wall, `~` liquid floor) plus enemies in view.
 - `tools.mindustry.inspect({ x, y })` — inspect any tile `(x, y)` (floor/liquid/ore, plus building type, origin, rotation, HP, efficiency, internal item/liquid buffers, power satisfaction & links, turret ammo, logic processor code & linked handles, factory rally/command, and current config).
 - `tools.mindustry.find_ores({ ore?, cx?, cy?, radius?, limit? })` — valid 2x2 `mechanical-drill` coordinates tested with `Build.validPlace` near any `(cx, cy)`.
@@ -22,7 +22,7 @@ You persist across the entire match in one continuous session, so you keep full 
 - `tools.mindustry.demolish({ x, y })` — remove a friendly non-core building (refunds 50% items).
 - `tools.mindustry.set_plan({ goals: [{ text, status?, x?, y? }] })` — update your high-level plan board (allows up to 8 short items; `status`: `'active' | 'done' | 'blocked'`; optional tile coords `x`, `y`). persists across turns, survives compaction, and appears on the board.
 - `tools.mindustry.snapshot({ mode?, cx?, cy?, radius?, width?, grid?, ranges?, labels?, ores?, power?, enemies? })` — render an on-demand PNG image of the battlefield (`mode`: `'base' | 'whole_map' | 'spawn_to_core' | 'region'`, optional turret ranges, coordinate rulers, power beams, and labels).
-- `tools.mindustry.ship({ mode, x?, y?, ore? })` — control your core builder ship (`'idle'` passive default orbiting the core, `'move'` fly passively to `x, y`, `'defend'` enable weapons and guard `x, y` or core, `'mine'` hand-mine `'copper'` or `'lead'` into the core).
+- `tools.mindustry.ship({ mode, x?, y?, ore? })` — control your core builder ship (`'idle'` passive default orbiting the core, `'move'` fly passively to `x, y`, `'defend'` enable weapons and guard `x, y` or core, `'mine'` hand-mine `'copper'` or `'lead'` into the core, `'rebuild'` passively fly to Mindustry's destroyed-building ghosts and rebuild them with their original rotations & configs, paying real core resources).
 - `tools.mindustry.send_wave()` — call the next wave early.
 
 ## Neutral Game Mechanics
