@@ -541,11 +541,13 @@ public class ArenaBridgePlugin extends Plugin {
             rescanTrackedBuildings();
         }
 
-        // Prune removed buildings & catch any newly spawned buildings in Groups.build
+        // Prune removed buildings & catch any newly spawned buildings in Groups.build.
+        // Note: do NOT check !b.isAdded() here — idle conveyors call sleep(), which removes
+        // them from Groups.build while they are still alive on b.tile.build!
         Iterator<java.util.Map.Entry<Integer, Building>> it = trackedBuildings.entrySet().iterator();
         while (it.hasNext()) {
             Building b = it.next().getValue();
-            if (b == null || !b.isAdded() || b.tile == null || b.tile.build != b || b.block == null) {
+            if (b == null || b.dead() || b.tile == null || b.tile.build != b || b.block == null) {
                 it.remove();
                 if (b instanceof Conveyor.ConveyorBuild cb) trackedConveyors.remove(cb);
                 powerLinksDirty = true;
@@ -763,7 +765,7 @@ public class ArenaBridgePlugin extends Plugin {
         boolean firstCi = true;
         int ciCount = 0;
         for (Conveyor.ConveyorBuild cb : trackedConveyors) {
-            if (cb == null || !cb.isAdded() || cb.len <= 0 || cb.ids == null) continue;
+            if (cb == null || cb.dead() || cb.tile == null || cb.tile.build != cb || cb.len <= 0 || cb.ids == null) continue;
             int rot = cb.rotation & 3;
             int dx = rot == 0 ? 1 : rot == 2 ? -1 : 0;
             int dy = rot == 1 ? 1 : rot == 3 ? -1 : 0;
