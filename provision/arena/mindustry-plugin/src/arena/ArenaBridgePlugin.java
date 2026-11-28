@@ -186,6 +186,7 @@ public class ArenaBridgePlugin extends Plugin {
             }
         });
         try {
+            System.setProperty("sun.net.httpserver.nodelay", "true");
             int port = Integer.parseInt(System.getenv().getOrDefault("ARENA_BRIDGE_PORT", "6568"));
             server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
             server.createContext("/health", this::handleHealth);
@@ -199,7 +200,7 @@ public class ArenaBridgePlugin extends Plugin {
             server.createContext("/catalog", this::handleCatalog);
             server.createContext("/maps", this::handleMaps);
             server.createContext("/action", this::handleAction);
-            server.setExecutor(Executors.newFixedThreadPool(4));
+            server.setExecutor(Executors.newFixedThreadPool(6));
             server.start();
             Log.info("[arena-bridge] HTTP server listening on port @", port);
         } catch (Exception e) {
@@ -844,6 +845,7 @@ public class ArenaBridgePlugin extends Plugin {
             fe.seq = latestFrameSeq;
             frameRing[(int) (latestFrameSeq % FRAME_RING_CAP)] = fe;
             if (frameRingCount < FRAME_RING_CAP) frameRingCount++;
+            frameLock.notifyAll();
         }
     }
 
@@ -855,9 +857,18 @@ public class ArenaBridgePlugin extends Plugin {
             if (sStr != null && !sStr.isEmpty()) {
                 try { since = Long.parseLong(sStr); } catch (Exception ignored) {}
             }
+            int waitMs = Math.max(0, Math.min(250, parseIntParam(q, "wait", 0)));
 
             String json;
             synchronized (frameLock) {
+                if (waitMs > 0 && since > 0L && since == latestFrameSeq && frameRingCount > 0) {
+                    long deadline = System.currentTimeMillis() + waitMs;
+                    while (since == latestFrameSeq) {
+                        long rem = deadline - System.currentTimeMillis();
+                        if (rem <= 0) break;
+                        try { frameLock.wait(rem); } catch (InterruptedException ie) { break; }
+                    }
+                }
                 if (frameRingCount == 0 || latestFrameSeq == 0L) {
                     json = "{\"ready\":false}";
                 } else if (since == latestFrameSeq) {

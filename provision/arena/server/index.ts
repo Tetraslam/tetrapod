@@ -2042,9 +2042,10 @@ async function pollMindustry(): Promise<void> {
   if (pollInFlight) return;
   pollInFlight = true;
   try {
-    // Fast 20 Hz delta path when we already hold a synced baseline
+    // Fast 20 Hz delta path when we already hold a synced baseline (long-poll when spectators watch)
     if (lastFrameSeq > 0 && latestState?.ready) {
-      const frame = await mindustryJson<FrameDelta>(`/frame?since=${lastFrameSeq}`);
+      const waitParam = wsClients.size > 0 ? "&wait=140" : "";
+      const frame = await mindustryJson<FrameDelta>(`/frame?since=${lastFrameSeq}${waitParam}`);
       if (!frame.ready) return;
       if (frame.unchanged) {
         if (latestState) {
@@ -2098,9 +2099,9 @@ async function pollMindustry(): Promise<void> {
 
 function schedulePollMindustry(delayMs?: number): void {
   if (pollTimer) clearTimeout(pollTimer);
-  // Poll at 25ms when spectators are watching so we never beat/skip Mindustry's 50ms (20Hz) cadence;
-  // unchanged polls short-circuit lock-free on loopback in <0.1ms and broadcast nothing.
-  const wait = delayMs ?? (wsClients.size > 0 ? 25 : 500);
+  // With spectators online, `/frame?since=...&wait=140` long-polls directly on Mindustry's 20 Hz
+  // game-thread notifyAll(), so we loop immediately (0ms sleep) with zero skipped frames and zero Nagle stalls.
+  const wait = delayMs ?? (wsClients.size > 0 ? 1 : 500);
   pollTimer = setTimeout(async () => {
     pollTimer = null;
     await pollMindustry();
